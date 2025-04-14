@@ -325,11 +325,13 @@ const AIInsights: React.FC = () => {
                 <Card key={insight.id} className="overflow-hidden">
                   <CardContent className="p-0">
                     <div className="flex flex-col md:flex-row">
-                      <div className={`w-full md:w-1 ${
-                        insight.category === 'pattern' ? 'bg-blue-500' : 
-                        insight.category === 'anomaly' ? 'bg-avianet-red' : 
-                        'bg-green-500'
-                      }`} />
+                      <div 
+                        className={`w-full md:w-1 ${
+                          insight.category === 'pattern' ? 'bg-blue-500' : 
+                          insight.category === 'anomaly' ? 'bg-avianet-red' : 
+                          'bg-green-500'
+                        }`} 
+                      />
                       <div className="p-4 flex-1">
                         <div className="flex items-center space-x-2 mb-2">
                           {getCategoryIcon(insight.category)}
@@ -463,7 +465,7 @@ const AIInsights: React.FC = () => {
                       <Progress value={53} className="h-2" />
                       
                       <div className="flex justify-between items-center mt-4">
-                        <span className="text-sm">Low Confidence (<70%)</span>
+                        <span className="text-sm">Low Confidence (&lt;70%)</span>
                         <span className="text-sm font-medium">5% of detections</span>
                       </div>
                       <Progress value={5} className="h-2" />
