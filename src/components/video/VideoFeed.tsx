@@ -1,0 +1,228 @@
+
+import React, { useState, useEffect, useRef } from 'react';
+import { AlertTriangle, Camera, Webcam } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { toast } from 'sonner';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+
+interface Detection {
+  id: string;
+  class: string;
+  confidence: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const VideoFeed: React.FC = () => {
+  const [videoUrl, setVideoUrl] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [detections, setDetections] = useState<Detection[]>([]);
+  const [resolution, setResolution] = useState({ width: 640, height: 360 });
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Mock function for object detection
+  const detectObjects = () => {
+    // In a real app, this would connect to a YOLO model API
+    // Here we'll just simulate random detections
+    const mockClasses = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus'];
+    const newDetections: Detection[] = [];
+    
+    const count = Math.floor(Math.random() * 5) + 1;
+    
+    for (let i = 0; i < count; i++) {
+      const classIndex = Math.floor(Math.random() * mockClasses.length);
+      const confidence = 0.5 + Math.random() * 0.5; // 0.5 to 1.0
+      
+      const width = 50 + Math.random() * 150;
+      const height = 50 + Math.random() * 100;
+      const x = Math.random() * (resolution.width - width);
+      const y = Math.random() * (resolution.height - height);
+      
+      newDetections.push({
+        id: `det-${Date.now()}-${i}`,
+        class: mockClasses[classIndex],
+        confidence,
+        x,
+        y,
+        width,
+        height
+      });
+    }
+    
+    setDetections(newDetections);
+    
+    // Trigger an alert for high confidence detections
+    newDetections.forEach(detection => {
+      if (detection.confidence > 0.85) {
+        toast.warning(`High confidence detection: ${detection.class}`, {
+          description: `Confidence: ${(detection.confidence * 100).toFixed(1)}%`
+        });
+      }
+    });
+  };
+
+  const startStream = () => {
+    if (!videoUrl) {
+      toast.error('Please enter a valid video URL');
+      return;
+    }
+    
+    setIsStreaming(true);
+    toast.success('Video stream started', {
+      description: 'Object detection is now active'
+    });
+    
+    // Start detection simulation
+    const interval = setInterval(detectObjects, 3000);
+    
+    return () => clearInterval(interval);
+  };
+
+  const stopStream = () => {
+    setIsStreaming(false);
+    setDetections([]);
+    toast.info('Video stream stopped');
+  };
+
+  // Demo URLs for testing
+  const demoUrls = [
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'
+  ];
+
+  // Update resolution when video metadata loads
+  const handleVideoMetadata = () => {
+    if (videoRef.current) {
+      setResolution({
+        width: videoRef.current.videoWidth,
+        height: videoRef.current.videoHeight
+      });
+    }
+  };
+
+  // Adjust container size responsively
+  useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current) {
+        const containerWidth = containerRef.current.offsetWidth;
+        const aspectRatio = resolution.height / resolution.width;
+        setResolution({
+          width: containerWidth,
+          height: containerWidth * aspectRatio
+        });
+      }
+    };
+
+    window.addEventListener('resize', updateSize);
+    updateSize();
+
+    return () => window.removeEventListener('resize', updateSize);
+  }, [isStreaming, resolution.width, resolution.height]);
+
+  return (
+    <Card className="w-full">
+      <CardHeader className="border-b">
+        <CardTitle className="flex items-center">
+          <Camera className="mr-2 text-avianet-red" size={20} />
+          Real-time Video Feed
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-6">
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1">
+              <Label htmlFor="video-url">Video Stream URL</Label>
+              <div className="flex mt-1">
+                <Input
+                  id="video-url"
+                  placeholder="Enter video URL..."
+                  value={videoUrl}
+                  onChange={(e) => setVideoUrl(e.target.value)}
+                  className="rounded-r-none"
+                />
+                <Button
+                  variant={isStreaming ? "destructive" : "default"}
+                  onClick={isStreaming ? stopStream : startStream}
+                  className="rounded-l-none"
+                >
+                  {isStreaming ? "Stop" : "Start"}
+                </Button>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex flex-wrap gap-2">
+            {demoUrls.map((url, index) => (
+              <Button
+                key={index}
+                variant="outline"
+                size="sm"
+                onClick={() => setVideoUrl(url)}
+                className="text-xs"
+              >
+                Demo Video {index + 1}
+              </Button>
+            ))}
+          </div>
+
+          <div className="video-feed mt-4" ref={containerRef}>
+            {isStreaming ? (
+              <>
+                <video
+                  ref={videoRef}
+                  src={videoUrl}
+                  width={resolution.width}
+                  height={resolution.height}
+                  onLoadedMetadata={handleVideoMetadata}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  className="w-full"
+                />
+                
+                {detections.map((detection) => (
+                  <div
+                    key={detection.id}
+                    className="detection-overlay"
+                    style={{
+                      left: `${detection.x}px`,
+                      top: `${detection.y}px`,
+                      width: `${detection.width}px`,
+                      height: `${detection.height}px`
+                    }}
+                  >
+                    <span className="detection-label">
+                      {detection.class} ({(detection.confidence * 100).toFixed(0)}%)
+                    </span>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
+                <Webcam className="text-gray-400 mb-2" size={48} />
+                <p className="text-gray-500 dark:text-gray-400">No video stream active</p>
+                <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Enter a URL and click Start to begin</p>
+              </div>
+            )}
+          </div>
+          
+          {isStreaming && detections.length === 0 && (
+            <div className="flex items-center justify-center p-4 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 rounded-md">
+              <AlertTriangle className="mr-2" size={16} />
+              <span className="text-sm">Running object detection...</span>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+export default VideoFeed;
