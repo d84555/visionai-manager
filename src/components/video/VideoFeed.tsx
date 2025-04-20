@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, Camera, Webcam, VideoIcon, Play, Pause } from 'lucide-react';
+import { AlertTriangle, Camera, VideoIcon, Play, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
@@ -26,10 +25,7 @@ const VideoFeed: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Mock function for object detection
   const detectObjects = () => {
-    // In a real app, this would connect to a YOLO model API
-    // Here we'll just simulate random detections
     const mockClasses = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus'];
     const newDetections: Detection[] = [];
     
@@ -37,7 +33,7 @@ const VideoFeed: React.FC = () => {
     
     for (let i = 0; i < count; i++) {
       const classIndex = Math.floor(Math.random() * mockClasses.length);
-      const confidence = 0.5 + Math.random() * 0.5; // 0.5 to 1.0
+      const confidence = 0.5 + Math.random() * 0.5;
       
       const width = 50 + Math.random() * 150;
       const height = 50 + Math.random() * 100;
@@ -57,7 +53,6 @@ const VideoFeed: React.FC = () => {
     
     setDetections(newDetections);
     
-    // Trigger an alert for high confidence detections
     newDetections.forEach(detection => {
       if (detection.confidence > 0.85) {
         toast.warning(`High confidence detection: ${detection.class}`, {
@@ -79,7 +74,6 @@ const VideoFeed: React.FC = () => {
       description: 'Object detection is now active'
     });
     
-    // Start detection simulation
     const interval = setInterval(detectObjects, 3000);
     
     return () => clearInterval(interval);
@@ -106,14 +100,15 @@ const VideoFeed: React.FC = () => {
     }
   };
 
-  // Demo URLs for testing
-  const demoUrls = [
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'
-  ];
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const localUrl = URL.createObjectURL(file);
+      setVideoUrl(localUrl);
+      toast.success('Local video file loaded');
+    }
+  };
 
-  // Update resolution when video metadata loads
   const handleVideoMetadata = () => {
     if (videoRef.current) {
       setResolution({
@@ -123,7 +118,6 @@ const VideoFeed: React.FC = () => {
     }
   };
 
-  // Handle video error
   const handleVideoError = () => {
     toast.error('Failed to load video', {
       description: 'The video URL may be invalid or inaccessible'
@@ -131,7 +125,6 @@ const VideoFeed: React.FC = () => {
     stopStream();
   };
 
-  // Adjust container size responsively
   useEffect(() => {
     const updateSize = () => {
       if (containerRef.current) {
@@ -182,18 +175,44 @@ const VideoFeed: React.FC = () => {
             </div>
           </div>
           
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex-1">
+              <Label htmlFor="video-file">Or upload a local video file:</Label>
+              <Input
+                id="video-file"
+                type="file"
+                accept="video/*"
+                onChange={handleFileUpload}
+                className="mt-1"
+              />
+            </div>
+          </div>
+
           <div className="flex flex-wrap gap-2">
-            {demoUrls.map((url, index) => (
-              <Button
-                key={index}
-                variant="outline"
-                size="sm"
-                onClick={() => setVideoUrl(url)}
-                className="text-xs"
-              >
-                Demo Video {index + 1}
-              </Button>
-            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4')}
+              className="text-xs"
+            >
+              Demo Video 1
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4')}
+              className="text-xs"
+            >
+              Demo Video 2
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4')}
+              className="text-xs"
+            >
+              Demo Video 3
+            </Button>
           </div>
 
           <div className="video-feed mt-4 relative" ref={containerRef}>
