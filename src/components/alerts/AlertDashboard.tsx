@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Bell, Filter, Search, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -48,7 +47,6 @@ const AlertDashboard: React.FC = () => {
   const [showAll, setShowAll] = useState(true);
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
 
-  // Generate mock alert data
   useEffect(() => {
     const generateMockAlerts = () => {
       const objectTypes = [
@@ -61,7 +59,6 @@ const AlertDashboard: React.FC = () => {
       
       const mockAlerts: Alert[] = [];
       
-      // Generate 20 random alerts from the last 24 hours
       for (let i = 0; i < 20; i++) {
         const timestamp = new Date();
         timestamp.setHours(timestamp.getHours() - Math.random() * 24);
@@ -70,7 +67,7 @@ const AlertDashboard: React.FC = () => {
           id: `alert-${Date.now()}-${i}`,
           timestamp,
           objectType: objectTypes[Math.floor(Math.random() * objectTypes.length)],
-          confidence: 0.7 + (Math.random() * 0.3), // 0.7 to 1.0
+          confidence: 0.7 + (Math.random() * 0.3),
           coordinates: {
             x: Math.floor(Math.random() * 1280),
             y: Math.floor(Math.random() * 720)
@@ -84,7 +81,6 @@ const AlertDashboard: React.FC = () => {
         });
       }
       
-      // Sort by timestamp, newest first
       mockAlerts.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       
       setAlerts(mockAlerts);
@@ -94,7 +90,6 @@ const AlertDashboard: React.FC = () => {
     generateMockAlerts();
   }, []);
 
-  // Filter alerts based on search term and show all toggle
   useEffect(() => {
     let filtered = alerts;
     
@@ -149,8 +144,6 @@ const AlertDashboard: React.FC = () => {
   };
   
   const handleDownloadCSV = () => {
-    // In a real app, this would generate and download a CSV file
-    // Here we'll just show a toast notification
     alert('Alert data downloaded as CSV');
   };
 
@@ -166,13 +159,15 @@ const AlertDashboard: React.FC = () => {
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row justify-between gap-4">
             <div className="flex w-full max-w-sm items-center space-x-2">
-              <Input
-                placeholder="Search alerts..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full"
-                icon={<Search size={16} />}
-              />
+              <div className="relative max-w-xs">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search alerts..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-8"
+                />
+              </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon">

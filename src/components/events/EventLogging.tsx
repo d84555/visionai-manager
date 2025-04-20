@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { FileText, Search, Filter, Calendar, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -44,7 +43,6 @@ const EventLogging: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [currentTab, setCurrentTab] = useState('all');
 
-  // Generate mock event data
   useEffect(() => {
     const eventTypes = ['detection', 'alert', 'system', 'user'];
     const objectTypes = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus', 'animal', 'unknown'];
@@ -53,10 +51,9 @@ const EventLogging: React.FC = () => {
     
     const mockEvents: Event[] = [];
     
-    // Generate 100 random events from the last week
     for (let i = 0; i < 100; i++) {
       const timestamp = new Date();
-      timestamp.setHours(timestamp.getHours() - Math.random() * 168); // last 7 days
+      timestamp.setHours(timestamp.getHours() - Math.random() * 168);
       
       const type = eventTypes[Math.floor(Math.random() * eventTypes.length)] as Event['type'];
       let description = '';
@@ -65,7 +62,7 @@ const EventLogging: React.FC = () => {
       switch (type) {
         case 'detection':
           const objType = objectTypes[Math.floor(Math.random() * objectTypes.length)];
-          const confidence = 0.6 + (Math.random() * 0.4); // 0.6 to 1.0
+          const confidence = 0.6 + (Math.random() * 0.4);
           const camera = cameraNames[Math.floor(Math.random() * cameraNames.length)];
           description = `Detected ${objType} with ${(confidence * 100).toFixed(1)}% confidence`;
           details = { objectType: objType, confidence, camera };
@@ -100,14 +97,12 @@ const EventLogging: React.FC = () => {
       });
     }
     
-    // Sort by timestamp, newest first
     mockEvents.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
     
     setEvents(mockEvents);
     setFilteredEvents(mockEvents);
   }, []);
 
-  // Filter events based on search term and type filter
   useEffect(() => {
     let filtered = events;
     
@@ -167,8 +162,6 @@ const EventLogging: React.FC = () => {
   };
   
   const handleDownloadLogs = () => {
-    // In a real app, this would generate and download the logs
-    // Here we'll just show a notification
     alert('Event logs downloaded as CSV');
   };
 
@@ -194,13 +187,15 @@ const EventLogging: React.FC = () => {
             </TabsList>
             
             <div className="flex items-center space-x-2">
-              <Input
-                placeholder="Search events..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full max-w-xs"
-                icon={<Search size={16} />}
-              />
+              <div className="relative max-w-xs">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search events..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-8"
+                />
+              </div>
               <Select 
                 value={typeFilter} 
                 onValueChange={setTypeFilter}
@@ -271,7 +266,6 @@ const EventLogging: React.FC = () => {
           </TabsContent>
           
           <TabsContent value="today" className="mt-0">
-            {/* Same table structure for today's events */}
             <div className="rounded-md border overflow-hidden">
               <Table>
                 <TableHeader>
@@ -320,7 +314,6 @@ const EventLogging: React.FC = () => {
           </TabsContent>
           
           <TabsContent value="week" className="mt-0">
-            {/* Same table structure for this week's events */}
             <div className="rounded-md border overflow-hidden">
               <Table>
                 <TableHeader>

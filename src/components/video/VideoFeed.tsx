@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, Camera, Webcam } from 'lucide-react';
+import { AlertTriangle, Camera, Webcam, VideoIcon, Play, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
@@ -22,6 +22,7 @@ const VideoFeed: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [detections, setDetections] = useState<Detection[]>([]);
   const [resolution, setResolution] = useState({ width: 640, height: 360 });
+  const [isPlaying, setIsPlaying] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -73,6 +74,7 @@ const VideoFeed: React.FC = () => {
     }
     
     setIsStreaming(true);
+    setIsPlaying(true);
     toast.success('Video stream started', {
       description: 'Object detection is now active'
     });
@@ -86,7 +88,22 @@ const VideoFeed: React.FC = () => {
   const stopStream = () => {
     setIsStreaming(false);
     setDetections([]);
+    setIsPlaying(false);
+    if (videoRef.current) {
+      videoRef.current.pause();
+    }
     toast.info('Video stream stopped');
+  };
+
+  const togglePlayPause = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
   };
 
   // Demo URLs for testing
@@ -104,6 +121,14 @@ const VideoFeed: React.FC = () => {
         height: videoRef.current.videoHeight
       });
     }
+  };
+
+  // Handle video error
+  const handleVideoError = () => {
+    toast.error('Failed to load video', {
+      description: 'The video URL may be invalid or inaccessible'
+    });
+    stopStream();
   };
 
   // Adjust container size responsively
@@ -171,15 +196,16 @@ const VideoFeed: React.FC = () => {
             ))}
           </div>
 
-          <div className="video-feed mt-4" ref={containerRef}>
+          <div className="video-feed mt-4 relative" ref={containerRef}>
             {isStreaming ? (
-              <>
+              <div className="relative">
                 <video
                   ref={videoRef}
                   src={videoUrl}
                   width={resolution.width}
                   height={resolution.height}
                   onLoadedMetadata={handleVideoMetadata}
+                  onError={handleVideoError}
                   autoPlay
                   muted
                   loop
@@ -187,10 +213,19 @@ const VideoFeed: React.FC = () => {
                   className="w-full"
                 />
                 
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="absolute bottom-4 right-4 bg-black/50 text-white hover:bg-black/70"
+                  onClick={togglePlayPause}
+                >
+                  {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+                </Button>
+                
                 {detections.map((detection) => (
                   <div
                     key={detection.id}
-                    className="detection-overlay"
+                    className="absolute border-2 border-avianet-red"
                     style={{
                       left: `${detection.x}px`,
                       top: `${detection.y}px`,
@@ -198,15 +233,17 @@ const VideoFeed: React.FC = () => {
                       height: `${detection.height}px`
                     }}
                   >
-                    <span className="detection-label">
+                    <span 
+                      className="absolute top-0 left-0 bg-avianet-red text-white text-xs px-1 py-0.5 max-w-full overflow-hidden text-ellipsis"
+                    >
                       {detection.class} ({(detection.confidence * 100).toFixed(0)}%)
                     </span>
                   </div>
                 ))}
-              </>
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
-                <Webcam className="text-gray-400 mb-2" size={48} />
+                <VideoIcon className="text-gray-400 mb-2" size={48} />
                 <p className="text-gray-500 dark:text-gray-400">No video stream active</p>
                 <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Enter a URL and click Start to begin</p>
               </div>
