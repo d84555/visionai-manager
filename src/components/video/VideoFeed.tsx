@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, Camera, VideoIcon, Play, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,7 @@ const VideoFeed: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [hasUploadedFile, setHasUploadedFile] = useState(false);
 
   const detectObjects = () => {
     const mockClasses = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus'];
@@ -64,12 +66,22 @@ const VideoFeed: React.FC = () => {
 
   const startStream = () => {
     if (!videoUrl) {
-      toast.error('Please enter a valid video URL');
+      toast.error('Please enter a valid video URL or upload a file');
       return;
     }
     
     setIsStreaming(true);
     setIsPlaying(true);
+    
+    if (videoRef.current) {
+      videoRef.current.play()
+        .catch(err => {
+          toast.error('Could not play video', {
+            description: err.message
+          });
+        });
+    }
+    
     toast.success('Video stream started', {
       description: 'Object detection is now active'
     });
@@ -94,7 +106,11 @@ const VideoFeed: React.FC = () => {
       if (isPlaying) {
         videoRef.current.pause();
       } else {
-        videoRef.current.play();
+        videoRef.current.play().catch(err => {
+          toast.error('Could not play video', {
+            description: err.message
+          });
+        });
       }
       setIsPlaying(!isPlaying);
     }
@@ -103,9 +119,22 @@ const VideoFeed: React.FC = () => {
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      // Revoke previous URL to avoid memory leaks
+      if (hasUploadedFile && videoUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(videoUrl);
+      }
+      
       const localUrl = URL.createObjectURL(file);
       setVideoUrl(localUrl);
-      toast.success('Local video file loaded');
+      setHasUploadedFile(true);
+      toast.success('Local video file loaded', {
+        description: 'Click Start to begin playback and detection'
+      });
+      
+      // Stop any current stream when new file is loaded
+      if (isStreaming) {
+        stopStream();
+      }
     }
   };
 
@@ -143,6 +172,15 @@ const VideoFeed: React.FC = () => {
     return () => window.removeEventListener('resize', updateSize);
   }, [isStreaming, resolution.width, resolution.height]);
 
+  // Clean up object URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      if (hasUploadedFile && videoUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(videoUrl);
+      }
+    };
+  }, [hasUploadedFile, videoUrl]);
+
   return (
     <Card className="w-full">
       <CardHeader className="border-b">
@@ -163,6 +201,7 @@ const VideoFeed: React.FC = () => {
                   value={videoUrl}
                   onChange={(e) => setVideoUrl(e.target.value)}
                   className="rounded-r-none"
+                  disabled={hasUploadedFile}
                 />
                 <Button
                   variant={isStreaming ? "destructive" : "default"}
@@ -172,6 +211,11 @@ const VideoFeed: React.FC = () => {
                   {isStreaming ? "Stop" : "Start"}
                 </Button>
               </div>
+              {hasUploadedFile && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Local file loaded. Click Start to begin.
+                </p>
+              )}
             </div>
           </div>
           
@@ -192,7 +236,10 @@ const VideoFeed: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4')}
+              onClick={() => {
+                setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4');
+                setHasUploadedFile(false);
+              }}
               className="text-xs"
             >
               Demo Video 1
@@ -200,7 +247,10 @@ const VideoFeed: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4')}
+              onClick={() => {
+                setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4');
+                setHasUploadedFile(false);
+              }}
               className="text-xs"
             >
               Demo Video 2
@@ -208,7 +258,10 @@ const VideoFeed: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4')}
+              onClick={() => {
+                setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4');
+                setHasUploadedFile(false);
+              }}
               className="text-xs"
             >
               Demo Video 3
