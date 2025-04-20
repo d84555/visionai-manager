@@ -1,11 +1,11 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, Camera, VideoIcon, Play, Pause } from 'lucide-react';
+import { AlertTriangle, Camera, VideoIcon, Play, Pause, Loader } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { convertToPlayableFormat } from '@/utils/ffmpegUtils';
 
 interface Detection {
   id: string;
@@ -23,9 +23,11 @@ const VideoFeed: React.FC = () => {
   const [detections, setDetections] = useState<Detection[]>([]);
   const [resolution, setResolution] = useState({ width: 640, height: 360 });
   const [isPlaying, setIsPlaying] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [hasUploadedFile, setHasUploadedFile] = useState(false);
+  const [originalFile, setOriginalFile] = useState<File | null>(null);
 
   const detectObjects = () => {
     const mockClasses = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus'];
@@ -64,8 +66,8 @@ const VideoFeed: React.FC = () => {
     });
   };
 
-  const startStream = () => {
-    if (!videoUrl) {
+  const startStream = async () => {
+    if (!videoUrl && !originalFile) {
       toast.error('Please enter a valid video URL or upload a file');
       return;
     }
@@ -116,22 +118,40 @@ const VideoFeed: React.FC = () => {
     }
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      // Revoke previous URL to avoid memory leaks
       if (hasUploadedFile && videoUrl.startsWith('blob:')) {
         URL.revokeObjectURL(videoUrl);
       }
       
-      const localUrl = URL.createObjectURL(file);
-      setVideoUrl(localUrl);
+      setOriginalFile(file);
       setHasUploadedFile(true);
-      toast.success('Local video file loaded', {
-        description: 'Click Start to begin playback and detection'
-      });
       
-      // Stop any current stream when new file is loaded
+      try {
+        setIsProcessing(true);
+        toast.info('Processing video file...', {
+          description: 'This may take a moment depending on file size'
+        });
+        
+        const convertedVideoUrl = await convertToPlayableFormat(file);
+        setVideoUrl(convertedVideoUrl);
+        
+        toast.success('Video file processed successfully', {
+          description: 'Click Start to begin playback and detection'
+        });
+      } catch (error) {
+        console.error("Error processing video:", error);
+        const localUrl = URL.createObjectURL(file);
+        setVideoUrl(localUrl);
+        
+        toast.warning('Using native video playback', {
+          description: 'Some video formats may not play correctly'
+        });
+      } finally {
+        setIsProcessing(false);
+      }
+      
       if (isStreaming) {
         stopStream();
       }
@@ -172,7 +192,6 @@ const VideoFeed: React.FC = () => {
     return () => window.removeEventListener('resize', updateSize);
   }, [isStreaming, resolution.width, resolution.height]);
 
-  // Clean up object URLs when component unmounts
   useEffect(() => {
     return () => {
       if (hasUploadedFile && videoUrl.startsWith('blob:')) {
@@ -199,21 +218,26 @@ const VideoFeed: React.FC = () => {
                   id="video-url"
                   placeholder="Enter video URL..."
                   value={videoUrl}
-                  onChange={(e) => setVideoUrl(e.target.value)}
+                  onChange={(e) => {
+                    setVideoUrl(e.target.value);
+                    setHasUploadedFile(false);
+                    setOriginalFile(null);
+                  }}
                   className="rounded-r-none"
-                  disabled={hasUploadedFile}
+                  disabled={hasUploadedFile || isProcessing}
                 />
                 <Button
                   variant={isStreaming ? "destructive" : "default"}
                   onClick={isStreaming ? stopStream : startStream}
                   className="rounded-l-none"
+                  disabled={isProcessing || (!videoUrl && !originalFile)}
                 >
                   {isStreaming ? "Stop" : "Start"}
                 </Button>
               </div>
               {hasUploadedFile && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  Local file loaded. Click Start to begin.
+                  {isProcessing ? 'Processing video file...' : 'Local file loaded. Click Start to begin.'}
                 </p>
               )}
             </div>
@@ -228,6 +252,7 @@ const VideoFeed: React.FC = () => {
                 accept="video/*"
                 onChange={handleFileUpload}
                 className="mt-1"
+                disabled={isProcessing}
               />
             </div>
           </div>
@@ -239,8 +264,13 @@ const VideoFeed: React.FC = () => {
               onClick={() => {
                 setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4');
                 setHasUploadedFile(false);
+                setOriginalFile(null);
+                if (isStreaming) {
+                  stopStream();
+                }
               }}
               className="text-xs"
+              disabled={isProcessing}
             >
               Demo Video 1
             </Button>
@@ -250,8 +280,13 @@ const VideoFeed: React.FC = () => {
               onClick={() => {
                 setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4');
                 setHasUploadedFile(false);
+                setOriginalFile(null);
+                if (isStreaming) {
+                  stopStream();
+                }
               }}
               className="text-xs"
+              disabled={isProcessing}
             >
               Demo Video 2
             </Button>
@@ -261,15 +296,26 @@ const VideoFeed: React.FC = () => {
               onClick={() => {
                 setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4');
                 setHasUploadedFile(false);
+                setOriginalFile(null);
+                if (isStreaming) {
+                  stopStream();
+                }
               }}
               className="text-xs"
+              disabled={isProcessing}
             >
               Demo Video 3
             </Button>
           </div>
 
           <div className="video-feed mt-4 relative" ref={containerRef}>
-            {isStreaming ? (
+            {isProcessing ? (
+              <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
+                <Loader className="text-avianet-red animate-spin mb-2" size={48} />
+                <p className="text-gray-700 dark:text-gray-300">Processing video...</p>
+                <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">This may take a moment depending on the file size</p>
+              </div>
+            ) : isStreaming ? (
               <div className="relative">
                 <video
                   ref={videoRef}
@@ -317,7 +363,7 @@ const VideoFeed: React.FC = () => {
               <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
                 <VideoIcon className="text-gray-400 mb-2" size={48} />
                 <p className="text-gray-500 dark:text-gray-400">No video stream active</p>
-                <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Enter a URL and click Start to begin</p>
+                <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Enter a URL or upload a file and click Start to begin</p>
               </div>
             )}
           </div>
