@@ -1,11 +1,15 @@
-
 import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
 
 // Create a singleton instance of FFmpeg
-const ffmpeg = createFFmpeg({
-  log: true,
-  corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-});
+const getFFmpegInstance = () => {
+  const customPath = localStorage.getItem('ffmpeg-core-path');
+  return createFFmpeg({
+    log: true,
+    corePath: customPath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+  });
+};
+
+const ffmpeg = getFFmpegInstance();
 
 // Initialize FFmpeg
 let isFFmpegLoaded = false;

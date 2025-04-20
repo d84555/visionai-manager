@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Settings, Save } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,8 +31,17 @@ const SettingsPage = () => {
     automaticDismiss: false,
   });
   
+  const [ffmpegSettings, setFfmpegSettings] = useState({
+    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+    customPath: false
+  });
+  
   const handleSaveSettings = () => {
-    // In a real app, this would save settings to a backend
+    if (ffmpegSettings.customPath) {
+      localStorage.setItem('ffmpeg-core-path', ffmpegSettings.corePath);
+    } else {
+      localStorage.removeItem('ffmpeg-core-path');
+    }
     toast.success('Settings saved successfully');
   };
 
@@ -218,6 +226,42 @@ const SettingsPage = () => {
               </div>
             </TabsContent>
           </Tabs>
+        </CardContent>
+      </Card>
+      
+      <Card className="w-full">
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center">
+            <Settings className="mr-2 text-avianet-red" size={20} />
+            FFmpeg Configuration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="custom-ffmpeg"
+                checked={ffmpegSettings.customPath}
+                onCheckedChange={(checked) => setFfmpegSettings({...ffmpegSettings, customPath: checked})}
+              />
+              <Label htmlFor="custom-ffmpeg">Use custom FFmpeg core path</Label>
+            </div>
+            
+            {ffmpegSettings.customPath && (
+              <div className="space-y-2">
+                <Label htmlFor="ffmpeg-path">FFmpeg Core Path</Label>
+                <Input
+                  id="ffmpeg-path"
+                  value={ffmpegSettings.corePath}
+                  onChange={(e) => setFfmpegSettings({...ffmpegSettings, corePath: e.target.value})}
+                  placeholder="Enter FFmpeg core path"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Default path: https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js
+                </p>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
       
