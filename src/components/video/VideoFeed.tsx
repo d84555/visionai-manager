@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, Camera, VideoIcon, Play, Pause, Loader } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,17 +18,61 @@ interface Detection {
   height: number;
 }
 
-const VideoFeed: React.FC = () => {
-  const [videoUrl, setVideoUrl] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
+interface CameraFeed {
+  id: string;
+  name: string;
+  streamUrl: {
+    main: string;
+    sub: string;
+  };
+}
+
+interface VideoFeedProps {
+  initialVideoUrl?: string;
+  autoStart?: boolean;
+  showControls?: boolean;
+  camera?: CameraFeed;
+}
+
+const VideoFeed: React.FC<VideoFeedProps> = ({ 
+  initialVideoUrl = '', 
+  autoStart = false,
+  showControls = true,
+  camera
+}) => {
+  const [videoUrl, setVideoUrl] = useState(initialVideoUrl);
+  const [isStreaming, setIsStreaming] = useState(autoStart);
   const [detections, setDetections] = useState<Detection[]>([]);
   const [resolution, setResolution] = useState({ width: 640, height: 360 });
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(autoStart);
   const [isProcessing, setIsProcessing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [hasUploadedFile, setHasUploadedFile] = useState(false);
   const [originalFile, setOriginalFile] = useState<File | null>(null);
+  
+  // Start streaming automatically if autoStart is true
+  useEffect(() => {
+    if (autoStart && initialVideoUrl) {
+      startStream();
+    }
+  }, [autoStart, initialVideoUrl]);
+  
+  // Update video URL if initialVideoUrl prop changes
+  useEffect(() => {
+    if (initialVideoUrl && initialVideoUrl !== videoUrl) {
+      setVideoUrl(initialVideoUrl);
+      setHasUploadedFile(false);
+      setOriginalFile(null);
+      
+      if (isStreaming) {
+        stopStream();
+        setTimeout(() => {
+          startStream();
+        }, 100);
+      }
+    }
+  }, [initialVideoUrl]);
 
   const detectObjects = () => {
     const mockClasses = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus'];
@@ -57,13 +102,16 @@ const VideoFeed: React.FC = () => {
     
     setDetections(newDetections);
     
-    newDetections.forEach(detection => {
-      if (detection.confidence > 0.85) {
-        toast.warning(`High confidence detection: ${detection.class}`, {
-          description: `Confidence: ${(detection.confidence * 100).toFixed(1)}%`
-        });
-      }
-    });
+    // Only show toast notifications for high confidence detections and not for auto-started streams
+    if (!autoStart) {
+      newDetections.forEach(detection => {
+        if (detection.confidence > 0.85) {
+          toast.warning(`High confidence detection: ${detection.class}`, {
+            description: `Confidence: ${(detection.confidence * 100).toFixed(1)}%`
+          });
+        }
+      });
+    }
   };
 
   const startStream = async () => {
@@ -84,9 +132,11 @@ const VideoFeed: React.FC = () => {
         });
     }
     
-    toast.success('Video stream started', {
-      description: 'Object detection is now active'
-    });
+    if (!autoStart) {
+      toast.success('Video stream started', {
+        description: 'Object detection is now active'
+      });
+    }
     
     const interval = setInterval(detectObjects, 3000);
     
@@ -100,7 +150,10 @@ const VideoFeed: React.FC = () => {
     if (videoRef.current) {
       videoRef.current.pause();
     }
-    toast.info('Video stream stopped');
+    
+    if (!autoStart) {
+      toast.info('Video stream stopped');
+    }
   };
 
   const togglePlayPause = () => {
@@ -200,6 +253,68 @@ const VideoFeed: React.FC = () => {
     };
   }, [hasUploadedFile, videoUrl]);
 
+  // For mini-view (used in grid), return a simplified version
+  if (!showControls) {
+    return (
+      <div className="video-feed relative" ref={containerRef}>
+        {isProcessing ? (
+          <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '160px' }}>
+            <Loader className="text-avianet-red animate-spin" size={24} />
+          </div>
+        ) : isStreaming ? (
+          <div className="relative">
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              width="100%"
+              height="auto"
+              onLoadedMetadata={handleVideoMetadata}
+              onError={handleVideoError}
+              autoPlay
+              muted
+              loop
+              playsInline
+              className="w-full max-h-[200px] object-cover"
+            />
+            
+            <Button 
+              variant="outline" 
+              size="icon"
+              className="absolute bottom-2 right-2 h-6 w-6 bg-black/50 text-white hover:bg-black/70"
+              onClick={togglePlayPause}
+            >
+              {isPlaying ? <Pause size={12} /> : <Play size={12} />}
+            </Button>
+            
+            {detections.map((detection) => (
+              <div
+                key={detection.id}
+                className="absolute border-2 border-avianet-red"
+                style={{
+                  left: `${detection.x * 0.5}px`,
+                  top: `${detection.y * 0.5}px`,
+                  width: `${detection.width * 0.5}px`,
+                  height: `${detection.height * 0.5}px`
+                }}
+              >
+                <span 
+                  className="absolute top-0 left-0 bg-avianet-red text-white text-[8px] px-1 max-w-full overflow-hidden text-ellipsis"
+                >
+                  {detection.class}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '160px' }}>
+            <VideoIcon className="text-gray-400" size={24} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Full view with controls
   return (
     <Card className="w-full">
       <CardHeader className="border-b">

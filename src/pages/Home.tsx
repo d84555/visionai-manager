@@ -1,11 +1,17 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Video, Bell, FileText, Brain, Settings } from 'lucide-react';
+import { Video, Bell, FileText, Brain, Settings, Upload } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import VideoFeed from '@/components/video/VideoFeed';
+import MultiCameraGrid from '@/components/video/MultiCameraGrid';
+import CameraControls from '@/components/video/CameraControls';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import AIModelUpload from '@/components/ai/AIModelUpload';
 
 const Home = () => {
+  const [gridLayout, setGridLayout] = useState<'1x1' | '2x2' | '3x3' | '4x4'>('1x1');
+  const [streamType, setStreamType] = useState<'main' | 'sub'>('main');
+  
   const features = [
     {
       icon: <Video size={20} />,
@@ -45,7 +51,31 @@ const Home = () => {
         <h1 className="text-3xl font-bold">Welcome to Avianet Vision</h1>
       </div>
       
-      <VideoFeed />
+      <div className="bg-card rounded-md border shadow-sm">
+        <Tabs defaultValue="multicamera" className="w-full">
+          <div className="flex items-center justify-between border-b px-4 py-2">
+            <TabsList>
+              <TabsTrigger value="multicamera">Multi-Camera View</TabsTrigger>
+              <TabsTrigger value="aimodels">AI Models</TabsTrigger>
+            </TabsList>
+            
+            <CameraControls 
+              gridLayout={gridLayout} 
+              onLayoutChange={setGridLayout}
+              streamType={streamType}
+              onStreamTypeChange={setStreamType}
+            />
+          </div>
+          
+          <TabsContent value="multicamera" className="p-0">
+            <MultiCameraGrid layout={gridLayout} streamType={streamType} />
+          </TabsContent>
+          
+          <TabsContent value="aimodels" className="p-4">
+            <AIModelUpload />
+          </TabsContent>
+        </Tabs>
+      </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {features.map((feature, index) => (
