@@ -1,6 +1,5 @@
-
 import React from 'react';
-import { Grid2X2, Grid3X3, MonitorPlay, Grid, Grid4X4 } from 'lucide-react';
+import { Grid2X2, Grid3X3, MonitorPlay, Grid } from 'lucide-react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { 
   DropdownMenu,
@@ -40,7 +39,7 @@ const CameraControls: React.FC<CameraControlsProps> = ({
           <Grid3X3 className="h-4 w-4" />
         </ToggleGroupItem>
         <ToggleGroupItem value="4x4" aria-label="4x4 grid">
-          <Grid4X4 className="h-4 w-4" />
+          <Grid2X2 className="h-4 w-4 transform rotate-180" />
         </ToggleGroupItem>
       </ToggleGroup>
       
