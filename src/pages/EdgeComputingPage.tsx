@@ -1,6 +1,7 @@
 
 import React from 'react';
 import EdgeDeviceManager from '@/components/edge/EdgeDeviceManager';
+import { Cpu } from 'lucide-react';
 
 const EdgeComputingPage = () => {
   return (
