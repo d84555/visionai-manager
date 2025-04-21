@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { Settings, Save } from 'lucide-react';
+import { Settings, Save, Mail, Database, Logs, Server } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from '@/components/ui/form';
 import { toast } from 'sonner';
+import SyslogConfig from '@/components/config/SyslogConfig';
+import SmtpConfig from '@/components/config/SmtpConfig';
+import StorageConfig from '@/components/config/StorageConfig';
 
 const SettingsPage = () => {
   const [modelSettings, setModelSettings] = useState({
@@ -226,6 +232,42 @@ const SettingsPage = () => {
               </div>
             </TabsContent>
           </Tabs>
+        </CardContent>
+      </Card>
+      
+      <Card className="w-full">
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center">
+            <Logs className="mr-2 text-avianet-red" size={20} />
+            Alert Integration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          <SyslogConfig />
+        </CardContent>
+      </Card>
+
+      <Card className="w-full">
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center">
+            <Mail className="mr-2 text-avianet-red" size={20} />
+            SMTP Configuration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          <SmtpConfig />
+        </CardContent>
+      </Card>
+
+      <Card className="w-full">
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center">
+            <Database className="mr-2 text-avianet-red" size={20} />
+            Violation Event Storage
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          <StorageConfig />
         </CardContent>
       </Card>
       
