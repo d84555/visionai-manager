@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Video, Bell, FileText, Brain, Settings, Upload } from 'lucide-react';
+import { Video, Bell, FileText, Brain, Settings, Server, Cpu } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import MultiCameraGrid from '@/components/video/MultiCameraGrid';
 import CameraControls from '@/components/video/CameraControls';
@@ -36,6 +36,12 @@ const Home = () => {
       title: 'AI-Powered Insights',
       description: 'Analyze and summarize event logs, providing insights into patterns or anomalies.',
       link: '/insights'
+    },
+    {
+      icon: <Cpu size={20} />,
+      title: 'Edge Computing',
+      description: 'Deploy and manage AI models on edge devices for reduced latency and bandwidth usage.',
+      link: '/edge'
     },
     {
       icon: <Settings size={20} />,

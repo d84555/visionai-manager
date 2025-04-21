@@ -11,6 +11,7 @@ import AlertsPage from "./pages/AlertsPage";
 import EventsPage from "./pages/EventsPage";
 import InsightsPage from "./pages/InsightsPage";
 import SettingsPage from "./pages/SettingsPage";
+import EdgeComputingPage from "./pages/EdgeComputingPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/events" element={<EventsPage />} />
             <Route path="/insights" element={<InsightsPage />} />
+            <Route path="/edge" element={<EdgeComputingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<NotFound />} />
