@@ -1,9 +1,11 @@
 
-import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile } from '@ffmpeg/ffmpeg/dist/esm/utils';
+import { toBlobURL } from '@ffmpeg/util';
 import SettingsService from '@/services/SettingsService';
 
 // Create a singleton instance of FFmpeg
-const getFFmpegInstance = () => {
+const getFFmpegInstance = async () => {
   // Load FFmpeg settings from our service 
   const ffmpegSettings = SettingsService.getSettings('ffmpeg');
   
@@ -12,34 +14,33 @@ const getFFmpegInstance = () => {
     ffmpegSettings.corePath : 
     'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js';
   
-  return createFFmpeg({
-    log: true,
-    corePath: corePath,
-    // Add browser-specific config
-    config: {
-      wasm: {
-        url: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.wasm'
-      }
-    }
+  const ffmpeg = new FFmpeg();
+  
+  // Load the core, wasm, and worker
+  const baseURL = 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/';
+  await ffmpeg.load({
+    coreURL: await toBlobURL(`${baseURL}ffmpeg-core.js`, 'text/javascript'),
+    wasmURL: await toBlobURL(`${baseURL}ffmpeg-core.wasm`, 'application/wasm'),
   });
+  
+  return ffmpeg;
 };
 
-const ffmpeg = getFFmpegInstance();
-
 // Initialize FFmpeg
+let ffmpegInstance = null;
 let isFFmpegLoaded = false;
 
 export const loadFFmpeg = async () => {
   if (!isFFmpegLoaded) {
     try {
-      await ffmpeg.load();
+      ffmpegInstance = await getFFmpegInstance();
       isFFmpegLoaded = true;
     } catch (error) {
       console.error('Failed to load FFmpeg:', error);
       throw new Error('Failed to load video processing library');
     }
   }
-  return ffmpeg;
+  return ffmpegInstance;
 };
 
 /**
@@ -50,30 +51,33 @@ export const loadFFmpeg = async () => {
 export const convertToPlayableFormat = async (videoFile: File): Promise<string> => {
   try {
     // Load FFmpeg if not already loaded
-    const ffmpegInstance = await loadFFmpeg();
+    const ffmpeg = await loadFFmpeg();
     
-    // Write the input file to FFmpeg's virtual file system
-    ffmpegInstance.FS('writeFile', videoFile.name, await fetchFile(videoFile));
+    // Create a file name for input
+    const inputFileName = videoFile.name;
     
     // Output filename
     const outputFileName = `output_${Date.now()}.mp4`;
     
+    // Write the input file to FFmpeg's virtual file system
+    await ffmpeg.writeFile(inputFileName, await fetchFile(videoFile));
+    
     // Run FFmpeg command to convert to MP4
-    await ffmpegInstance.run(
-      '-i', videoFile.name, 
+    await ffmpeg.exec([
+      '-i', inputFileName, 
       '-c:v', 'libx264',
       '-preset', 'fast',
       '-c:a', 'aac',
       '-f', 'mp4',
       outputFileName
-    );
+    ]);
     
     // Read the output file
-    const data = ffmpegInstance.FS('readFile', outputFileName);
+    const data = await ffmpeg.readFile(outputFileName);
     
     // Clean up temporary files
-    ffmpegInstance.FS('unlink', videoFile.name);
-    ffmpegInstance.FS('unlink', outputFileName);
+    await ffmpeg.deleteFile(inputFileName);
+    await ffmpeg.deleteFile(outputFileName);
     
     // Create a blob URL for the converted video
     const blob = new Blob([data.buffer], { type: 'video/mp4' });
