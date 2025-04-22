@@ -72,14 +72,29 @@ export const convertToPlayableFormat = async (videoFile: File): Promise<string> 
     ]);
     
     // Read the output file
-    const data = await ffmpeg.readFile(outputFileName);
+    const outputData = await ffmpeg.readFile(outputFileName);
     
     // Clean up temporary files
     await ffmpeg.deleteFile(inputFileName);
     await ffmpeg.deleteFile(outputFileName);
     
     // Create a blob URL for the converted video
-    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    // Handle both Uint8Array and string file data formats
+    let blobData: Uint8Array;
+    
+    if (outputData instanceof Uint8Array) {
+      blobData = outputData;
+    } else if (typeof outputData === 'string') {
+      // Convert string data to Uint8Array if needed
+      const encoder = new TextEncoder();
+      blobData = encoder.encode(outputData);
+    } else {
+      // For other potential data types, try to get the binary data
+      console.log('Output data type:', typeof outputData);
+      throw new Error('Unsupported FFmpeg output data format');
+    }
+    
+    const blob = new Blob([blobData], { type: 'video/mp4' });
     return URL.createObjectURL(blob);
   } catch (error) {
     console.error('Error converting video:', error);
