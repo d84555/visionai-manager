@@ -16,7 +16,9 @@ import {
   Trash2,
   Network,
   RefreshCw,
-  Plus 
+  Plus,
+  WifiOff,
+  MonitorSmartphone
 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
@@ -338,131 +340,129 @@ const EdgeDeviceManager: React.FC<EdgeDeviceManagerProps> = ({ onDeviceSelect })
                 )}
                 
                 {selectedDevice === device.id && (
-                  <div className="mt-4 pt-4 border-t">
-                    <Tabs defaultValue="metrics">
-                      <TabsList className="mb-4">
-                        <TabsTrigger value="metrics">Metrics</TabsTrigger>
-                        <TabsTrigger value="models">Models</TabsTrigger>
-                        <TabsTrigger value="cameras">Cameras</TabsTrigger>
-                      </TabsList>
-                      
-                      <TabsContent value="metrics">
-                        <EdgeDeviceMetrics device={device} />
-                      </TabsContent>
-                      
-                      <TabsContent value="models">
-                        <EdgeModelDeployment 
-                          device={device} 
-                          onModelDeployed={(modelId) => {
-                            if (!device.models.includes(modelId)) {
-                              setEdgeDevices(prevDevices => 
-                                prevDevices.map(d => 
-                                  d.id === device.id 
-                                    ? { ...d, models: [...d.models, modelId] } 
-                                    : d
-                                )
-                              );
-                              toast.success(`Model deployed to ${device.name}`, {
-                                description: "Edge device is now using the new model for inference"
-                              });
-                              
-                              if (onDeviceSelect) {
-                                const updatedDevice = {
-                                  ...device,
-                                  models: [...device.models, modelId]
-                                };
-                                onDeviceSelect(updatedDevice);
-                              }
-                            }
-                          }}
-                          onModelRemoved={(modelId) => {
+                  <Tabs defaultValue="metrics">
+                    <TabsList className="mb-4">
+                      <TabsTrigger value="metrics">Metrics</TabsTrigger>
+                      <TabsTrigger value="models">Models</TabsTrigger>
+                      <TabsTrigger value="cameras">Cameras</TabsTrigger>
+                    </TabsList>
+                    
+                    <TabsContent value="metrics">
+                      <EdgeDeviceMetrics device={device} />
+                    </TabsContent>
+                    
+                    <TabsContent value="models">
+                      <EdgeModelDeployment 
+                        device={device} 
+                        onModelDeployed={(modelId) => {
+                          if (!device.models.includes(modelId)) {
                             setEdgeDevices(prevDevices => 
                               prevDevices.map(d => 
                                 d.id === device.id 
-                                  ? { ...d, models: d.models.filter(m => m !== modelId) } 
+                                  ? { ...d, models: [...d.models, modelId] } 
                                   : d
                               )
                             );
-                            toast.info(`Model removed from ${device.name}`, {
-                              description: "The model has been unloaded from the edge device"
+                            toast.success(`Model deployed to ${device.name}`, {
+                              description: "Edge device is now using the new model for inference"
                             });
                             
                             if (onDeviceSelect) {
                               const updatedDevice = {
                                 ...device,
-                                models: device.models.filter(m => m !== modelId)
+                                models: [...device.models, modelId]
                               };
                               onDeviceSelect(updatedDevice);
                             }
-                          }}
-                        />
-                      </TabsContent>
-                      
-                      <TabsContent value="cameras">
-                        <div className="space-y-4">
-                          <h4 className="font-medium text-sm">Assigned Cameras</h4>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {device.cameras.map(camera => (
-                              <div key={camera} className="border rounded-md p-2 flex justify-between items-center">
-                                <div className="flex items-center">
-                                  <MonitorCheck className="h-4 w-4 mr-2 text-avianet-red" />
-                                  <span className="text-sm">{camera}</span>
-                                </div>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm"
-                                  onClick={() => {
-                                    setEdgeDevices(prevDevices => 
-                                      prevDevices.map(d => 
-                                        d.id === device.id 
-                                          ? { ...d, cameras: d.cameras.filter(c => c !== camera) } 
-                                          : d
-                                      )
-                                    );
-                                    toast.info(`Camera unassigned from ${device.name}`);
-                                  }}
-                                >
-                                  Unassign
-                                </Button>
+                          }
+                        }}
+                        onModelRemoved={(modelId) => {
+                          setEdgeDevices(prevDevices => 
+                            prevDevices.map(d => 
+                              d.id === device.id 
+                                ? { ...d, models: d.models.filter(m => m !== modelId) } 
+                                : d
+                            )
+                          );
+                          toast.info(`Model removed from ${device.name}`, {
+                            description: "The model has been unloaded from the edge device"
+                          });
+                          
+                          if (onDeviceSelect) {
+                            const updatedDevice = {
+                              ...device,
+                              models: device.models.filter(m => m !== modelId)
+                            };
+                            onDeviceSelect(updatedDevice);
+                          }
+                        }}
+                      />
+                    </TabsContent>
+                    
+                    <TabsContent value="cameras">
+                      <div className="space-y-4">
+                        <h4 className="font-medium text-sm">Assigned Cameras</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {device.cameras.map(camera => (
+                            <div key={camera} className="border rounded-md p-2 flex justify-between items-center">
+                              <div className="flex items-center">
+                                <MonitorSmartphone className="h-4 w-4 mr-2 text-avianet-red" />
+                                <span className="text-sm">{camera}</span>
                               </div>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => {
+                                  setEdgeDevices(prevDevices => 
+                                    prevDevices.map(d => 
+                                      d.id === device.id 
+                                        ? { ...d, cameras: d.cameras.filter(c => c !== camera) } 
+                                        : d
+                                    )
+                                  );
+                                  toast.info(`Camera unassigned from ${device.name}`);
+                                }}
+                              >
+                                Unassign
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                        
+                        <div className="mt-4">
+                          <h4 className="font-medium text-sm mb-2">Available Cameras</h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {['Parking Lot', 'Office Area', 'Side Entrance', 'Loading Dock', 'Front Entrance', 'Reception', 'Warehouse']
+                              .filter(camera => !device.cameras.includes(camera))
+                              .map(camera => (
+                                <div key={camera} className="border rounded-md p-2 flex justify-between items-center">
+                                  <div className="flex items-center">
+                                    <MonitorSmartphone className="h-4 w-4 mr-2 text-gray-400" />
+                                    <span className="text-sm">{camera}</span>
+                                  </div>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => {
+                                      setEdgeDevices(prevDevices => 
+                                        prevDevices.map(d => 
+                                          d.id === device.id 
+                                            ? { ...d, cameras: [...d.cameras, camera] } 
+                                            : d
+                                        )
+                                      );
+                                      toast.success(`Camera assigned to ${device.name}`);
+                                    }}
+                                  >
+                                    Assign
+                                  </Button>
+                                </div>
                             ))}
                           </div>
-                          
-                          <div className="mt-4">
-                            <h4 className="font-medium text-sm mb-2">Available Cameras</h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {['Parking Lot', 'Office Area', 'Side Entrance', 'Loading Dock', 'Front Entrance', 'Reception', 'Warehouse']
-                                .filter(camera => !device.cameras.includes(camera))
-                                .map(camera => (
-                                  <div key={camera} className="border rounded-md p-2 flex justify-between items-center">
-                                    <div className="flex items-center">
-                                      <MonitorCheck className="h-4 w-4 mr-2 text-gray-400" />
-                                      <span className="text-sm">{camera}</span>
-                                    </div>
-                                    <Button 
-                                      variant="outline" 
-                                      size="sm"
-                                      onClick={() => {
-                                        setEdgeDevices(prevDevices => 
-                                          prevDevices.map(d => 
-                                            d.id === device.id 
-                                              ? { ...d, cameras: [...d.cameras, camera] } 
-                                              : d
-                                          )
-                                        );
-                                        toast.success(`Camera assigned to ${device.name}`);
-                                      }}
-                                    >
-                                      Assign
-                                    </Button>
-                                  </div>
-                              ))}
-                            </div>
-                          </div>
                         </div>
-                      </TabsContent>
-                    </Tabs>
-                  </div>
+                      </div>
+                    </TabsContent>
+                  </Tabs>
                 )}
               </div>
             ))}
