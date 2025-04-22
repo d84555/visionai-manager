@@ -1,12 +1,20 @@
 
 import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
+import SettingsService from '@/services/SettingsService';
 
 // Create a singleton instance of FFmpeg
 const getFFmpegInstance = () => {
-  const customPath = localStorage.getItem('ffmpeg-core-path');
+  // Load FFmpeg settings from our service 
+  const ffmpegSettings = SettingsService.getSettings('ffmpeg');
+  
+  // Use the custom path if enabled, otherwise use default
+  const corePath = ffmpegSettings.customPath ? 
+    ffmpegSettings.corePath : 
+    'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js';
+  
   return createFFmpeg({
     log: true,
-    corePath: customPath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+    corePath: corePath,
   });
 };
 

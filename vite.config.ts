@@ -1,3 +1,4 @@
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -18,5 +19,21 @@ export default defineConfig(({ mode }) => ({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  build: {
+    commonjsOptions: {
+      transformMixedEsModules: true, // Handle both ES modules and CommonJS
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          ffmpeg: ['@ffmpeg/ffmpeg', '@ffmpeg/core'],
+        },
+      },
+    },
+  },
+  define: {
+    // Needed to fix "require is not defined" error
+    global: 'globalThis',
   },
 }));

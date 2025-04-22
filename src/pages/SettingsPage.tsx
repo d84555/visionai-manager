@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings, Save, Mail, Database, Logs, Server } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,40 +13,85 @@ import { toast } from 'sonner';
 import SyslogConfig from '@/components/config/SyslogConfig';
 import SmtpConfig from '@/components/config/SmtpConfig';
 import StorageConfig from '@/components/config/StorageConfig';
+import SettingsService, { 
+  ModelSettings, 
+  VideoSettings, 
+  AlertSettings, 
+  FFmpegSettings 
+} from '@/services/SettingsService';
 
 const SettingsPage = () => {
-  const [modelSettings, setModelSettings] = useState({
+  const [modelSettings, setModelSettings] = useState<ModelSettings>({
     confidenceThreshold: 70,
     detectionFrequency: 3,
     maxDetections: 10,
     useHighResolution: false,
   });
   
-  const [videoSettings, setVideoSettings] = useState({
+  const [videoSettings, setVideoSettings] = useState<VideoSettings>({
     defaultStreamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
     autoStart: false,
     showOverlays: true,
     showLabels: true,
   });
   
-  const [alertSettings, setAlertSettings] = useState({
+  const [alertSettings, setAlertSettings] = useState<AlertSettings>({
     enableNotifications: true,
     soundAlerts: false,
     minimumConfidence: 85,
     automaticDismiss: false,
   });
   
-  const [ffmpegSettings, setFfmpegSettings] = useState({
+  const [ffmpegSettings, setFfmpegSettings] = useState<FFmpegSettings>({
     corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
     customPath: false
   });
+
+  useEffect(() => {
+    const loadedModelSettings = SettingsService.getSettings('model');
+    const loadedVideoSettings = SettingsService.getSettings('video');
+    const loadedAlertSettings = SettingsService.getSettings('alerts');
+    const loadedFfmpegSettings = SettingsService.getSettings('ffmpeg');
+    
+    setModelSettings(loadedModelSettings);
+    setVideoSettings(loadedVideoSettings);
+    setAlertSettings(loadedAlertSettings);
+    setFfmpegSettings(loadedFfmpegSettings);
+  }, []);
+
+  useEffect(() => {
+    SettingsService.updateSettings('model', modelSettings);
+  }, [modelSettings]);
+
+  useEffect(() => {
+    SettingsService.updateSettings('video', videoSettings);
+  }, [videoSettings]);
+
+  useEffect(() => {
+    SettingsService.updateSettings('alerts', alertSettings);
+  }, [alertSettings]);
+
+  useEffect(() => {
+    SettingsService.updateSettings('ffmpeg', ffmpegSettings);
+  }, [ffmpegSettings]);
   
   const handleSaveSettings = () => {
+    SettingsService.saveAllSettings({
+      model: modelSettings,
+      video: videoSettings,
+      alerts: alertSettings,
+      syslog: SettingsService.getSettings('syslog'),
+      smtp: SettingsService.getSettings('smtp'),
+      storage: SettingsService.getSettings('storage'),
+      ffmpeg: ffmpegSettings,
+    });
+
     if (ffmpegSettings.customPath) {
       localStorage.setItem('ffmpeg-core-path', ffmpegSettings.corePath);
     } else {
       localStorage.removeItem('ffmpeg-core-path');
     }
+    
     toast.success('Settings saved successfully');
   };
 

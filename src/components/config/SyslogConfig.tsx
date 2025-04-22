@@ -1,15 +1,17 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import SettingsService, { SyslogSettings } from '@/services/SettingsService';
 
 const SyslogConfig = () => {
   const [syslogEnabled, setSyslogEnabled] = useState(false);
-  const [syslogConfig, setSyslogConfig] = useState({
+  const [syslogConfig, setSyslogConfig] = useState<SyslogSettings>({
+    enabled: false,
     server: '',
     port: '514',
     protocol: 'udp',
@@ -17,6 +19,21 @@ const SyslogConfig = () => {
     severity: 'notice',
   });
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
+
+  // Load settings from storage on component mount
+  useEffect(() => {
+    const savedSettings = SettingsService.getSettings('syslog');
+    setSyslogEnabled(savedSettings.enabled);
+    setSyslogConfig(savedSettings);
+  }, []);
+
+  // Save settings whenever they change
+  useEffect(() => {
+    SettingsService.updateSettings('syslog', {
+      ...syslogConfig,
+      enabled: syslogEnabled,
+    });
+  }, [syslogEnabled, syslogConfig]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -54,7 +71,10 @@ const SyslogConfig = () => {
           <Switch
             id="enable-syslog"
             checked={syslogEnabled}
-            onCheckedChange={setSyslogEnabled}
+            onCheckedChange={(checked) => {
+              setSyslogEnabled(checked);
+              setSyslogConfig(prev => ({ ...prev, enabled: checked }));
+            }}
           />
           <Label htmlFor="enable-syslog">Enable Syslog Integration</Label>
         </div>
