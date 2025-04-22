@@ -6,28 +6,26 @@ import { toast } from "sonner";
 
 // Types for inference requests and responses
 export interface InferenceRequest {
+  imageData: string;
   cameraId: string;
-  timestamp: number;
-  modelId: string;
-  settings?: Record<string, any>;
+  modelName: string;
+  thresholdConfidence: number;
 }
 
 export interface InferenceResult {
   detections: Detection[];
-  processingTimeMs: number;
-  frameId: string;
-  timestamp: number;
+  processedAt: 'edge' | 'server';
+  inferenceTime: number;
 }
 
 export interface Detection {
-  label: string;
+  id: string;
+  class: string;
   confidence: number;
-  boundingBox: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 // Mock data for simulation
@@ -47,7 +45,8 @@ class EdgeAIInferenceService {
         console.log(`Connecting to edge device ${deviceId} at ${ipAddress}`);
         
         // In a real implementation, we would establish a WebSocket connection:
-        // const ws = new WebSocket(`ws://${ipAddress}/inference`);
+        // const wsUrl = `ws://${ipAddress}/inference`;
+        // const ws = new WebSocket(wsUrl);
         
         // Simulate successful connection
         setTimeout(() => {
@@ -72,15 +71,10 @@ class EdgeAIInferenceService {
     this.deviceConnections.delete(deviceId);
   }
   
-  // Request inference from an edge device
-  async requestInference(deviceId: string, request: InferenceRequest): Promise<InferenceResult> {
-    // Check if we're connected to this device
-    if (!this.deviceConnections.has(deviceId)) {
-      throw new Error(`Not connected to edge device ${deviceId}`);
-    }
-    
-    // In a real implementation, send the request over WebSocket
-    console.info(`Performing inference on edge device ${deviceId} for camera ${request.cameraId}`);
+  // Process an inference request
+  async performInference(request: InferenceRequest): Promise<InferenceResult> {
+    // Check if we're connected to a device for this camera
+    console.info(`Performing inference for camera ${request.cameraId} with model ${request.modelName}`);
     
     // For simulation purposes, return mock data after a delay
     return new Promise((resolve) => {
@@ -93,22 +87,23 @@ class EdgeAIInferenceService {
         for (let i = 0; i < numDetections; i++) {
           const label = mockDetectionLabels[Math.floor(Math.random() * mockDetectionLabels.length)];
           detections.push({
-            label,
+            id: `det-${Date.now()}-${i}`,
+            class: label,
             confidence: 0.5 + Math.random() * 0.5, // 0.5-1.0
-            boundingBox: {
-              x: Math.random() * 0.8,
-              y: Math.random() * 0.8,
-              width: 0.1 + Math.random() * 0.2,
-              height: 0.1 + Math.random() * 0.2
-            }
+            x: Math.random() * 0.8 * 640,
+            y: Math.random() * 0.8 * 360,
+            width: (0.1 + Math.random() * 0.2) * 640,
+            height: (0.1 + Math.random() * 0.2) * 360
           });
         }
         
+        // Simulate edge processing success with 70% probability
+        const isEdgeProcessed = Math.random() < 0.7;
+        
         resolve({
           detections,
-          processingTimeMs: 20 + Math.random() * 100,
-          frameId: `frame-${Date.now()}`,
-          timestamp: Date.now()
+          processedAt: isEdgeProcessed ? 'edge' : 'server',
+          inferenceTime: isEdgeProcessed ? 20 + Math.random() * 50 : 100 + Math.random() * 150
         });
       }, 500);
     });

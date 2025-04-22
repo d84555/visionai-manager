@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, Camera, VideoIcon, Play, Pause, Loader, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -7,7 +6,7 @@ import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { convertToPlayableFormat } from '@/utils/ffmpegUtils';
-import EdgeAIInference, { EdgeInferenceRequest, Detection } from '@/services/EdgeAIInference';
+import EdgeAIInference, { InferenceRequest, Detection } from '@/services/EdgeAIInference';
 import { Badge } from '@/components/ui/badge';
 
 interface CameraFeed {
@@ -45,14 +44,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   const [inferenceLocation, setInferenceLocation] = useState<'edge' | 'server' | null>(null);
   const [inferenceTime, setInferenceTime] = useState<number | null>(null);
   
-  // Start streaming automatically if autoStart is true
   useEffect(() => {
     if (autoStart && initialVideoUrl) {
       startStream();
     }
   }, [autoStart, initialVideoUrl]);
   
-  // Update video URL if initialVideoUrl prop changes
   useEffect(() => {
     if (initialVideoUrl && initialVideoUrl !== videoUrl) {
       setVideoUrl(initialVideoUrl);
@@ -70,7 +67,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
 
   const detectObjects = async () => {
     if (!camera && !showControls) {
-      // For mini-view without a camera, use the old mock detection
       const mockClasses = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus'];
       const newDetections: Detection[] = [];
       
@@ -100,15 +96,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       return;
     }
     
-    // Only for cameras with IDs, use the edge inference service
     if (camera?.id) {
       try {
-        // In a real implementation, we would capture a frame from the video element
-        // Here we'll just simulate with the camera ID
-        const request: EdgeInferenceRequest = {
+        const request: InferenceRequest = {
           imageData: "base64_image_data_would_go_here",
           cameraId: camera.name,
-          modelName: "YOLOv11", // Default model
+          modelName: "YOLOv11",
           thresholdConfidence: 0.5
         };
         
@@ -118,7 +111,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
         setInferenceLocation(result.processedAt);
         setInferenceTime(result.inferenceTime);
         
-        // Only show toast notifications for high confidence detections and not for auto-started streams
         if (!autoStart) {
           result.detections.forEach(detection => {
             if (detection.confidence > 0.85) {
@@ -135,17 +127,15 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
         });
         setInferenceLocation("server");
         
-        // Fall back to mock detections if edge inference fails
         const mockDetections = generateMockDetections();
         setDetections(mockDetections);
       }
     } else {
-      // For non-camera feeds (e.g., uploaded files), use mock detections
       const mockDetections = generateMockDetections();
       setDetections(mockDetections);
     }
   };
-  
+
   const generateMockDetections = (): Detection[] => {
     const mockClasses = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus'];
     const newDetections: Detection[] = [];
@@ -199,7 +189,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       });
     }
     
-    // Initial detection
     await detectObjects();
     
     const interval = setInterval(detectObjects, 3000);
@@ -317,7 +306,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     };
   }, [hasUploadedFile, videoUrl]);
 
-  // For mini-view (used in grid), return a simplified version
   if (!showControls) {
     return (
       <div className="video-feed relative" ref={containerRef}>
@@ -391,7 +379,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     );
   }
 
-  // Full view with controls
   return (
     <Card className="w-full">
       <CardHeader className="border-b">
