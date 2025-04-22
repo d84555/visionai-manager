@@ -14,6 +14,11 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
       '/api/ws': {
         target: 'ws://localhost:3001',
         ws: true,
+      },
+      // Add proxy for local FFmpeg access if needed
+      '/api/ffmpeg': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
       }
     }
   },

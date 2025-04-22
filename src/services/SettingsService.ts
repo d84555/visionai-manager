@@ -1,4 +1,3 @@
-
 /**
  * Settings persistence service for Avianet Vision
  * Handles loading, saving, and updating of application settings in local storage
@@ -58,6 +57,8 @@ export interface StorageSettings {
 export interface FFmpegSettings {
   corePath: string;
   customPath: boolean;
+  localBinaryPath?: string;
+  useLocalBinary: boolean;
 }
 
 // Complete settings object structure
@@ -117,6 +118,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   ffmpeg: {
     corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
     customPath: false,
+    localBinaryPath: '/usr/bin/ffmpeg',
+    useLocalBinary: false,
   },
 };
 

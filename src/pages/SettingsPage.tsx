@@ -44,7 +44,9 @@ const SettingsPage = () => {
   
   const [ffmpegSettings, setFfmpegSettings] = useState<FFmpegSettings>({
     corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-    customPath: false
+    customPath: false,
+    localBinaryPath: '/usr/bin/ffmpeg',
+    useLocalBinary: false
   });
 
   useEffect(() => {
@@ -326,27 +328,63 @@ const SettingsPage = () => {
           <div className="space-y-4">
             <div className="flex items-center space-x-2">
               <Switch
-                id="custom-ffmpeg"
-                checked={ffmpegSettings.customPath}
-                onCheckedChange={(checked) => setFfmpegSettings({...ffmpegSettings, customPath: checked})}
+                id="use-local-ffmpeg"
+                checked={ffmpegSettings.useLocalBinary}
+                onCheckedChange={(checked) => setFfmpegSettings({...ffmpegSettings, useLocalBinary: checked})}
               />
-              <Label htmlFor="custom-ffmpeg">Use custom FFmpeg core path</Label>
+              <Label htmlFor="use-local-ffmpeg">Use local FFmpeg binary installation</Label>
             </div>
             
-            {ffmpegSettings.customPath && (
+            {ffmpegSettings.useLocalBinary && (
               <div className="space-y-2">
-                <Label htmlFor="ffmpeg-path">FFmpeg Core Path</Label>
+                <Label htmlFor="ffmpeg-local-path">FFmpeg Binary Path</Label>
                 <Input
-                  id="ffmpeg-path"
-                  value={ffmpegSettings.corePath}
-                  onChange={(e) => setFfmpegSettings({...ffmpegSettings, corePath: e.target.value})}
-                  placeholder="Enter FFmpeg core path"
+                  id="ffmpeg-local-path"
+                  value={ffmpegSettings.localBinaryPath || '/usr/bin/ffmpeg'}
+                  onChange={(e) => setFfmpegSettings({...ffmpegSettings, localBinaryPath: e.target.value})}
+                  placeholder="Enter path to FFmpeg binary (e.g. /usr/bin/ffmpeg)"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Default path: https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js
+                  Default path for Unix: /usr/bin/ffmpeg, Windows: C:\ffmpeg\bin\ffmpeg.exe
                 </p>
               </div>
             )}
+            
+            {!ffmpegSettings.useLocalBinary && (
+              <>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="custom-ffmpeg"
+                    checked={ffmpegSettings.customPath}
+                    onCheckedChange={(checked) => setFfmpegSettings({...ffmpegSettings, customPath: checked})}
+                  />
+                  <Label htmlFor="custom-ffmpeg">Use custom FFmpeg WebAssembly core path</Label>
+                </div>
+                
+                {ffmpegSettings.customPath && (
+                  <div className="space-y-2">
+                    <Label htmlFor="ffmpeg-path">FFmpeg Core Path</Label>
+                    <Input
+                      id="ffmpeg-path"
+                      value={ffmpegSettings.corePath}
+                      onChange={(e) => setFfmpegSettings({...ffmpegSettings, corePath: e.target.value})}
+                      placeholder="Enter FFmpeg core path"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Default path: https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+            
+            <div className="mt-4 p-3 border rounded-md bg-yellow-50">
+              <p className="text-sm text-amber-800">
+                <strong>Note:</strong> Using a local FFmpeg binary requires FFmpeg to be installed on your system.
+                The web application cannot directly access local system binaries due to browser security restrictions.
+                This option is intended for cases where video processing happens server-side.
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
