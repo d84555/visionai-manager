@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   Card, 
@@ -12,14 +11,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { 
   Server, 
-  Cpu, 
-  HardDrive, 
-  Gauge, 
   Settings, 
-  WifiOff, 
-  Database, 
-  CloudUpload, 
-  MonitorCheck 
+  Cpu,
+  Trash2,
+  Network,
+  RefreshCw,
+  Plus 
 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
@@ -48,7 +45,11 @@ export interface EdgeDevice {
   hwAcceleration: string;
 }
 
-const EdgeDeviceManager: React.FC = () => {
+interface EdgeDeviceManagerProps {
+  onDeviceSelect?: (device: EdgeDevice) => void;
+}
+
+const EdgeDeviceManager: React.FC<EdgeDeviceManagerProps> = ({ onDeviceSelect }) => {
   const [edgeDevices, setEdgeDevices] = useState<EdgeDevice[]>([
     {
       id: 'edge-1',
@@ -115,7 +116,6 @@ const EdgeDeviceManager: React.FC = () => {
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
 
   useEffect(() => {
-    // Simulate real-time updates for online devices
     const updateInterval = setInterval(() => {
       setEdgeDevices(prevDevices => 
         prevDevices.map(device => {
@@ -141,12 +141,20 @@ const EdgeDeviceManager: React.FC = () => {
     return () => clearInterval(updateInterval);
   }, []);
 
+  useEffect(() => {
+    if (selectedDevice && onDeviceSelect) {
+      const device = edgeDevices.find(d => d.id === selectedDevice);
+      if (device) {
+        onDeviceSelect(device);
+      }
+    }
+  }, [selectedDevice, edgeDevices, onDeviceSelect]);
+
   const handleRebootDevice = (deviceId: string) => {
     toast.info("Rebooting edge device...", {
       description: "This may take a few minutes"
     });
     
-    // Simulate reboot process
     setEdgeDevices(prevDevices => 
       prevDevices.map(device => 
         device.id === deviceId 
@@ -186,9 +194,7 @@ const EdgeDeviceManager: React.FC = () => {
       description: "Establishing connection to edge device"
     });
     
-    // Simulate reconnection attempt
     setTimeout(() => {
-      // 80% chance of successful reconnection
       if (Math.random() > 0.2) {
         setEdgeDevices(prevDevices => 
           prevDevices.map(device => 
@@ -247,7 +253,12 @@ const EdgeDeviceManager: React.FC = () => {
               <div 
                 key={device.id} 
                 className={`border rounded-md p-4 ${selectedDevice === device.id ? 'border-avianet-red' : ''}`}
-                onClick={() => setSelectedDevice(device.id === selectedDevice ? null : device.id)}
+                onClick={() => {
+                  setSelectedDevice(device.id === selectedDevice ? null : device.id);
+                  if (device.id !== selectedDevice && onDeviceSelect) {
+                    onDeviceSelect(device);
+                  }
+                }}
               >
                 <div className="flex justify-between items-start">
                   <div>
@@ -354,6 +365,14 @@ const EdgeDeviceManager: React.FC = () => {
                               toast.success(`Model deployed to ${device.name}`, {
                                 description: "Edge device is now using the new model for inference"
                               });
+                              
+                              if (onDeviceSelect) {
+                                const updatedDevice = {
+                                  ...device,
+                                  models: [...device.models, modelId]
+                                };
+                                onDeviceSelect(updatedDevice);
+                              }
                             }
                           }}
                           onModelRemoved={(modelId) => {
@@ -367,6 +386,14 @@ const EdgeDeviceManager: React.FC = () => {
                             toast.info(`Model removed from ${device.name}`, {
                               description: "The model has been unloaded from the edge device"
                             });
+                            
+                            if (onDeviceSelect) {
+                              const updatedDevice = {
+                                ...device,
+                                models: device.models.filter(m => m !== modelId)
+                              };
+                              onDeviceSelect(updatedDevice);
+                            }
                           }}
                         />
                       </TabsContent>
@@ -447,7 +474,6 @@ const EdgeDeviceManager: React.FC = () => {
             onClick={() => {
               toast.info("Scanning network for edge devices...");
               
-              // Simulate discovery of a new device
               setTimeout(() => {
                 const newDevice: EdgeDevice = {
                   id: `edge-${edgeDevices.length + 1}`,

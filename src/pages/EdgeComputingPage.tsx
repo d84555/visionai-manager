@@ -1,13 +1,60 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import EdgeDeviceManager from '@/components/edge/EdgeDeviceManager';
 import EdgeDeviceMetrics from '@/components/edge/EdgeDeviceMetrics';
 import EdgeModelDeployment from '@/components/edge/EdgeModelDeployment';
 import EdgeDeviceList from '@/components/edge/EdgeDeviceList';
+import { EdgeDevice } from '@/components/edge/EdgeDeviceManager';
+import { toast } from 'sonner';
 
 const EdgeComputingPage = () => {
+  // Sample placeholder device for when no device is selected
+  const [selectedDevice, setSelectedDevice] = useState<EdgeDevice>({
+    id: 'placeholder',
+    name: 'Select a device',
+    type: 'None',
+    status: 'offline',
+    lastSeen: new Date(),
+    metrics: {
+      cpu: 0,
+      gpu: 0,
+      ram: 0,
+      storage: 0,
+      temperature: 0,
+      inferenceTime: 0,
+      inferenceCount: 0
+    },
+    models: [],
+    cameras: [],
+    ipAddress: '',
+    hwAcceleration: 'OpenVINO'
+  });
+
+  // Handlers for device selection and model management
+  const handleDeviceSelect = (device: EdgeDevice) => {
+    setSelectedDevice(device);
+  };
+  
+  const handleModelDeployed = (modelId: string) => {
+    if (!selectedDevice.models.includes(modelId)) {
+      setSelectedDevice(prev => ({
+        ...prev,
+        models: [...prev.models, modelId]
+      }));
+      toast.success(`Model deployed to ${selectedDevice.name}`);
+    }
+  };
+  
+  const handleModelRemoved = (modelId: string) => {
+    setSelectedDevice(prev => ({
+      ...prev,
+      models: prev.models.filter(m => m !== modelId)
+    }));
+    toast.info(`Model removed from ${selectedDevice.name}`);
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -30,7 +77,7 @@ const EdgeComputingPage = () => {
             </TabsList>
             
             <TabsContent value="devices">
-              <EdgeDeviceManager />
+              <EdgeDeviceManager onDeviceSelect={handleDeviceSelect} />
             </TabsContent>
             
             <TabsContent value="manual">
@@ -38,7 +85,7 @@ const EdgeComputingPage = () => {
             </TabsContent>
             
             <TabsContent value="metrics">
-              <EdgeDeviceMetrics />
+              <EdgeDeviceMetrics device={selectedDevice} />
             </TabsContent>
           </Tabs>
         </CardContent>
@@ -49,7 +96,11 @@ const EdgeComputingPage = () => {
           <CardTitle>Model Deployment</CardTitle>
         </CardHeader>
         <CardContent>
-          <EdgeModelDeployment />
+          <EdgeModelDeployment 
+            device={selectedDevice}
+            onModelDeployed={handleModelDeployed}
+            onModelRemoved={handleModelRemoved}
+          />
         </CardContent>
       </Card>
     </div>
