@@ -43,4 +43,22 @@ export default defineConfig(({ mode }) => ({
     // Needed to fix "require is not defined" error
     global: 'globalThis',
   },
+  optimizeDeps: {
+    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/core']
+  },
+  // Handle Node.js modules that aren't available in browser
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      // Provide empty implementations for Node.js modules
+      path: 'path-browserify',
+      fs: false,
+      crypto: false,
+      'worker_threads': false,
+      'perf_hooks': false,
+      stream: 'stream-browserify',
+      // Add alias for ws module
+      ws: false
+    }
+  }
 }));

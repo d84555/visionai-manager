@@ -15,6 +15,12 @@ const getFFmpegInstance = () => {
   return createFFmpeg({
     log: true,
     corePath: corePath,
+    // Add browser-specific config
+    config: {
+      wasm: {
+        url: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.wasm'
+      }
+    }
   });
 };
 
@@ -25,8 +31,13 @@ let isFFmpegLoaded = false;
 
 export const loadFFmpeg = async () => {
   if (!isFFmpegLoaded) {
-    await ffmpeg.load();
-    isFFmpegLoaded = true;
+    try {
+      await ffmpeg.load();
+      isFFmpegLoaded = true;
+    } catch (error) {
+      console.error('Failed to load FFmpeg:', error);
+      throw new Error('Failed to load video processing library');
+    }
   }
   return ffmpeg;
 };
