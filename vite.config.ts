@@ -9,6 +9,13 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    proxy: {
+      // Add proxying for WebSocket connections if needed
+      '/api/ws': {
+        target: 'ws://localhost:3001',
+        ws: true,
+      }
+    }
   },
   plugins: [
     react(),
