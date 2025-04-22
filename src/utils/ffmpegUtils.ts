@@ -1,6 +1,5 @@
 
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile } from '@ffmpeg/ffmpeg/dist/esm/utils';
 import { toBlobURL } from '@ffmpeg/util';
 import SettingsService from '@/services/SettingsService';
 
@@ -60,7 +59,7 @@ export const convertToPlayableFormat = async (videoFile: File): Promise<string> 
     const outputFileName = `output_${Date.now()}.mp4`;
     
     // Write the input file to FFmpeg's virtual file system
-    await ffmpeg.writeFile(inputFileName, await fetchFile(videoFile));
+    await ffmpeg.writeFile(inputFileName, await fetchFileData(videoFile));
     
     // Run FFmpeg command to convert to MP4
     await ffmpeg.exec([
@@ -87,3 +86,8 @@ export const convertToPlayableFormat = async (videoFile: File): Promise<string> 
     throw new Error('Failed to convert video format');
   }
 };
+
+// Helper function to fetch file data
+async function fetchFileData(file: File): Promise<Uint8Array> {
+  return new Uint8Array(await file.arrayBuffer());
+}

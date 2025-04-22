@@ -28,6 +28,10 @@ export default defineConfig(({ mode }) => ({
       // Provide empty implementations for Node.js modules
       path: 'path-browserify',
       stream: 'stream-browserify',
+      fs: 'memfs',
+      crypto: 'crypto-browserify',
+      'worker_threads': false,
+      'perf_hooks': false,
     }
   },
   build: {
