@@ -35,8 +35,6 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
       "stream": 'stream-browserify',
       "fs": 'memfs',
       "crypto": 'crypto-browserify',
-      "worker_threads": ''+false,
-      "perf_hooks": ''+false,
     }
   },
   build: {
@@ -44,11 +42,10 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
       transformMixedEsModules: true, // Handle both ES modules and CommonJS
     },
     rollupOptions: {
-      output: {
-        manualChunks: {
-          ffmpeg: ['@ffmpeg/ffmpeg', '@ffmpeg/core', '@ffmpeg/util'],
-        },
-      },
+      external: [
+        // Mark FFmpeg packages as external during build
+        /@ffmpeg\/(ffmpeg|core|util)/
+      ]
     },
   },
   define: {

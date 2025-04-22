@@ -32,19 +32,20 @@ export const convertToPlayableFormat = async (videoFile: File): Promise<string> 
     // Check if FFmpeg is available (this is now just a flag)
     await loadFFmpeg();
     
-    // Instead of using the WASM version, we'll create a blob URL directly
-    // This assumes the browser can play the video format
-    // Or that the server-side FFmpeg has already processed it
+    if (ffmpegSettings.useLocalBinary) {
+      // For production build: We'll use server-side FFmpeg processing
+      // The actual processing will happen on the server, not in the browser
+      
+      // For development or demo purposes, we create a direct blob URL
+      console.log(`Using local FFmpeg binary at: ${ffmpegSettings.localBinaryPath || 'default system path'}`);
+    }
     
     // Create a blob URL for the video file as-is
+    // This assumes the browser can play the video format
     const blob = new Blob([await fetchFileData(videoFile)], { 
       type: videoFile.type || 'video/mp4' 
     });
     
-    // Log the path to the FFmpeg binary that would be used
-    console.log('Using FFmpeg path:', ffmpegSettings.localBinaryPath || 'Default system FFmpeg');
-    
-    // Return the blob URL
     return URL.createObjectURL(blob);
   } catch (error) {
     console.error('Error handling video:', error);
