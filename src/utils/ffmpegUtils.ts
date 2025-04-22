@@ -26,10 +26,10 @@ const getFFmpegInstance = async () => {
 };
 
 // Initialize FFmpeg
-let ffmpegInstance = null;
+let ffmpegInstance: FFmpeg | null = null;
 let isFFmpegLoaded = false;
 
-export const loadFFmpeg = async () => {
+export const loadFFmpeg = async (): Promise<FFmpeg> => {
   if (!isFFmpegLoaded) {
     try {
       ffmpegInstance = await getFFmpegInstance();
@@ -39,7 +39,7 @@ export const loadFFmpeg = async () => {
       throw new Error('Failed to load video processing library');
     }
   }
-  return ffmpegInstance;
+  return ffmpegInstance as FFmpeg;
 };
 
 /**
