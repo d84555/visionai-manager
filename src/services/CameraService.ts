@@ -1,3 +1,4 @@
+
 /**
  * Service for managing IP cameras in Avianet Vision
  * Provides functionality to add, edit, delete and manage camera connections
@@ -172,10 +173,13 @@ const checkCameraStatus = async (id: string): Promise<boolean> => {
   const isOnline = Math.random() > 0.3; // 70% chance of being online
   
   // Update the camera status
-  updateCamera(id, { 
-    isOnline, 
-    lastChecked: new Date() 
-  });
+  const updatedCamera = {
+    ...camera,
+    isOnline,
+    lastChecked: new Date()
+  };
+  
+  updateCamera(updatedCamera);
   
   return isOnline;
 };
@@ -192,10 +196,13 @@ const refreshAllCameraStatuses = async (): Promise<void> => {
   // Update each camera with a random status
   cameras.forEach(camera => {
     const isOnline = Math.random() > 0.3; // 70% chance of being online
-    updateCamera(camera.id, { 
-      isOnline, 
-      lastChecked: new Date() 
-    });
+    const updatedCamera = {
+      ...camera,
+      isOnline,
+      lastChecked: new Date()
+    };
+    
+    updateCamera(updatedCamera);
   });
 };
 
