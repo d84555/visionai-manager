@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Video, Bell, FileText, Brain, Settings, Server, Cpu } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import MultiCameraGrid from '@/components/video/MultiCameraGrid';
+import CameraGrid from '@/components/camera/CameraGrid';
 import CameraControls from '@/components/video/CameraControls';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AIModelUpload from '@/components/ai/AIModelUpload';
@@ -98,8 +98,8 @@ const Home = () => {
             />
           </div>
           
-          <TabsContent value="multicamera" className="p-0">
-            <MultiCameraGrid layout={gridLayout} streamType={streamType} />
+          <TabsContent value="multicamera" className="p-4">
+            <CameraGrid layout={gridLayout} />
           </TabsContent>
           
           <TabsContent value="aimodels" className="p-4">

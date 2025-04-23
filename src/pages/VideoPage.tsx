@@ -1,16 +1,55 @@
 
 import React from 'react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Cpu, VideoIcon, Camera } from 'lucide-react';
 import VideoFeed from '@/components/video/VideoFeed';
-import { Cpu } from 'lucide-react';
+import CameraManagement from '@/components/camera/CameraManagement';
+import CameraGrid from '@/components/camera/CameraGrid';
 
 const VideoPage = () => {
+  const [refreshKey, setRefreshKey] = React.useState(0);
+
+  const handleCamerasChanged = () => {
+    // Force refresh the camera grid when cameras are changed
+    setRefreshKey(prev => prev + 1);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Video Stream</h1>
+        <h1 className="text-3xl font-bold">Video Management</h1>
       </div>
       
-      <VideoFeed />
+      <Tabs defaultValue="stream">
+        <TabsList className="mb-4">
+          <TabsTrigger value="stream">
+            <VideoIcon className="mr-2 h-4 w-4" />
+            Single Stream
+          </TabsTrigger>
+          <TabsTrigger value="cameras">
+            <Camera className="mr-2 h-4 w-4" />
+            Camera Management
+          </TabsTrigger>
+          <TabsTrigger value="grid">
+            <VideoIcon className="mr-2 h-4 w-4" />
+            Camera Grid
+          </TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="stream">
+          <VideoFeed />
+        </TabsContent>
+        
+        <TabsContent value="cameras">
+          <CameraManagement onCamerasChanged={handleCamerasChanged} />
+        </TabsContent>
+        
+        <TabsContent value="grid">
+          <div key={refreshKey}>
+            <CameraGrid layout="2x2" />
+          </div>
+        </TabsContent>
+      </Tabs>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="border rounded-md p-4">
