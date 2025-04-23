@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, Camera, VideoIcon, Play, Pause, Loader, Server } from 'lucide-react';
+import { AlertTriangle, Camera, VideoIcon, Play, Pause, Loader, Server, Pin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
@@ -23,13 +23,19 @@ interface VideoFeedProps {
   autoStart?: boolean;
   showControls?: boolean;
   camera?: CameraFeed;
+  isPinned?: boolean;
+  onPinToggle?: () => void;
+  activeModel?: { name: string; path: string };
 }
 
 const VideoFeed: React.FC<VideoFeedProps> = ({ 
   initialVideoUrl = '', 
   autoStart = false,
   showControls = true,
-  camera
+  camera,
+  isPinned = false,
+  onPinToggle,
+  activeModel
 }) => {
   const [videoUrl, setVideoUrl] = useState(initialVideoUrl);
   const [isStreaming, setIsStreaming] = useState(autoStart);
@@ -329,14 +335,27 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               className="w-full max-h-[200px] object-cover"
             />
             
-            <Button 
-              variant="outline" 
-              size="icon"
-              className="absolute bottom-2 right-2 h-6 w-6 bg-black/50 text-white hover:bg-black/70"
-              onClick={togglePlayPause}
-            >
-              {isPlaying ? <Pause size={12} /> : <Play size={12} />}
-            </Button>
+            <div className="absolute bottom-2 right-2 flex gap-1">
+              {onPinToggle && (
+                <Button 
+                  variant="outline" 
+                  size="icon"
+                  className={`h-6 w-6 bg-black/50 text-white hover:bg-black/70 ${isPinned ? 'bg-avianet-red hover:bg-avianet-red/90' : ''}`}
+                  onClick={onPinToggle}
+                >
+                  <Pin size={12} className={isPinned ? 'text-white' : ''} />
+                </Button>
+              )}
+              
+              <Button 
+                variant="outline" 
+                size="icon"
+                className="h-6 w-6 bg-black/50 text-white hover:bg-black/70"
+                onClick={togglePlayPause}
+              >
+                {isPlaying ? <Pause size={12} /> : <Play size={12} />}
+              </Button>
+            </div>
             
             {inferenceLocation && (
               <Badge 
