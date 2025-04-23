@@ -1,12 +1,21 @@
-
 import React, { useState, useEffect } from 'react';
-import { Camera as CameraIcon, RefreshCw } from 'lucide-react';
+import { Camera as CameraIcon, RefreshCw, Settings, Layers } from 'lucide-react';
 import { Camera } from '@/services/CameraService';
 import CameraService from '@/services/CameraService';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import VideoFeed from '@/components/video/VideoFeed';
 import { Badge } from '@/components/ui/badge';
+import SettingsService from '@/services/SettingsService';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { toast } from 'sonner';
 
 interface CameraGridProps {
   layout?: '1x1' | '2x2' | '3x3' | '4x4';
@@ -15,14 +24,48 @@ interface CameraGridProps {
 const CameraGrid: React.FC<CameraGridProps> = ({ layout = '2x2' }) => {
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeModel, setActiveModel] = useState<{ name: string; path: string } | undefined>(undefined);
+  const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
+  const [camerasWithCustomModel, setCamerasWithCustomModel] = useState<Record<string, { name: string; path: string }>>({});
   
   useEffect(() => {
     loadCameras();
+    loadActiveModel();
+    loadModels();
+    loadCameraModels();
   }, []);
   
   const loadCameras = () => {
     const loadedCameras = CameraService.getAllCameras();
     setCameras(loadedCameras);
+  };
+  
+  const loadActiveModel = () => {
+    const model = SettingsService.getActiveModel();
+    setActiveModel(model);
+  };
+  
+  const loadModels = () => {
+    const modelsList = [
+      { id: 'yolov11-n', name: 'YOLOv11 Nano', path: '/models/yolov11-n.onnx' },
+      { id: 'yolov11-s', name: 'YOLOv11 Small', path: '/models/yolov11-s.onnx' },
+      { id: 'yolov11', name: 'YOLOv11 Base', path: '/models/yolov11.onnx' },
+      { id: 'yolov11-m', name: 'YOLOv11 Medium', path: '/models/yolov11-m.onnx' },
+      { id: 'yolov11-l', name: 'YOLOv11 Large', path: '/models/yolov11-l.onnx' }
+    ];
+    setAvailableModels(modelsList);
+  };
+  
+  const loadCameraModels = () => {
+    const savedCameraModels = localStorage.getItem('camera-models');
+    if (savedCameraModels) {
+      setCamerasWithCustomModel(JSON.parse(savedCameraModels));
+    }
+  };
+  
+  const saveCameraModels = (newCameraModels: Record<string, { name: string; path: string }>) => {
+    localStorage.setItem('camera-models', JSON.stringify(newCameraModels));
+    setCamerasWithCustomModel(newCameraModels);
   };
   
   const handleRefreshStatuses = async () => {
@@ -57,6 +100,53 @@ const CameraGrid: React.FC<CameraGridProps> = ({ layout = '2x2' }) => {
     }
   };
   
+  const handleApplyModelToCamera = (cameraId: string, modelId: string | null) => {
+    const newCameraModels = { ...camerasWithCustomModel };
+    
+    if (modelId === null) {
+      // Remove custom model
+      delete newCameraModels[cameraId];
+      saveCameraModels(newCameraModels);
+      toast.success("Camera will use global AI model");
+      return;
+    }
+    
+    const model = availableModels.find(m => m.id === modelId);
+    if (model) {
+      newCameraModels[cameraId] = { name: model.name, path: model.path };
+      saveCameraModels(newCameraModels);
+      toast.success(`Applied ${model.name} to camera`);
+    }
+  };
+  
+  const handleApplyModelToAll = (modelId: string | null) => {
+    if (modelId === null) {
+      // Clear all custom models
+      saveCameraModels({});
+      toast.success("All cameras will use global AI model");
+      return;
+    }
+    
+    const model = availableModels.find(m => m.id === modelId);
+    if (model) {
+      const newCameraModels: Record<string, { name: string; path: string }> = {};
+      cameras.forEach(camera => {
+        newCameraModels[camera.id] = { name: model.name, path: model.path };
+      });
+      saveCameraModels(newCameraModels);
+      toast.success(`Applied ${model.name} to all cameras`);
+    }
+  };
+  
+  const getCameraModel = (cameraId: string) => {
+    // First check if camera has a custom model assigned
+    if (camerasWithCustomModel[cameraId]) {
+      return camerasWithCustomModel[cameraId];
+    }
+    // Otherwise use the global active model
+    return activeModel;
+  };
+  
   // Only show the number of cameras based on the layout
   const visibleCameras = cameras.slice(0, getCameraCount());
   
@@ -76,15 +166,38 @@ const CameraGrid: React.FC<CameraGridProps> = ({ layout = '2x2' }) => {
     <div>
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-medium">Camera Feeds</h3>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={handleRefreshStatuses}
-          disabled={isRefreshing}
-        >
-          <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh Status
-        </Button>
+        <div className="flex gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Layers className="mr-2 h-4 w-4" />
+                Apply Model
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Apply Model to All Cameras</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleApplyModelToAll(null)}>
+                Use Global AI Model
+              </DropdownMenuItem>
+              {availableModels.map(model => (
+                <DropdownMenuItem key={model.id} onClick={() => handleApplyModelToAll(model.id)}>
+                  {model.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleRefreshStatuses}
+            disabled={isRefreshing}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh Status
+          </Button>
+        </div>
       </div>
       
       <div className={`grid ${getGridClassName()} gap-4`}>
@@ -95,18 +208,54 @@ const CameraGrid: React.FC<CameraGridProps> = ({ layout = '2x2' }) => {
                 <CameraIcon className="mr-2 h-4 w-4 text-avianet-red" />
                 <span className="text-sm font-medium">{camera.name}</span>
               </div>
-              <Badge
-                variant={camera.isOnline ? "default" : "outline"}
-                className={camera.isOnline ? "bg-green-500" : "text-red-500 border-red-500"}
-              >
-                {camera.isOnline ? "Online" : "Offline"}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant={camera.isOnline ? "default" : "outline"}
+                  className={camera.isOnline ? "bg-green-500" : "text-red-500 border-red-500"}
+                >
+                  {camera.isOnline ? "Online" : "Offline"}
+                </Badge>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel>AI Model</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => handleApplyModelToCamera(camera.id, null)}>
+                      Use Global AI Model
+                    </DropdownMenuItem>
+                    {availableModels.map(model => (
+                      <DropdownMenuItem 
+                        key={model.id} 
+                        onClick={() => handleApplyModelToCamera(camera.id, model.id)}
+                        className={
+                          camerasWithCustomModel[camera.id]?.path === model.path ? "bg-muted" : ""
+                        }
+                      >
+                        {model.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <VideoFeed
                 initialVideoUrl={CameraService.getPlayableStreamUrl(camera)}
                 autoStart={camera.isOnline}
                 showControls={false}
+                camera={{
+                  id: camera.id,
+                  name: camera.name,
+                  streamUrl: {
+                    main: CameraService.getPlayableStreamUrl(camera),
+                    sub: CameraService.getPlayableStreamUrl(camera)
+                  }
+                }}
+                activeModel={getCameraModel(camera.id)}
               />
             </CardContent>
           </Card>

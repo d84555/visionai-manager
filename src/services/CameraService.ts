@@ -1,8 +1,13 @@
 
-import { v4 as uuidv4 } from 'uuid';
-import { toast } from 'sonner';
+/**
+ * Service for managing IP cameras in Avianet Vision
+ * Provides functionality to add, edit, delete and manage camera connections
+ */
 
-// Camera interface
+// We'll use local storage as our "database" since we don't have a backend database connection
+// In a real implementation, this would be replaced with API calls to your backend
+const CAMERAS_STORAGE_KEY = 'avianet-vision-cameras';
+
 export interface Camera {
   id: string;
   name: string;
@@ -15,232 +20,253 @@ export interface Camera {
   username: string;
   password: string;
   customStreamUrl?: string;
-  isOnline?: boolean;
-  lastChecked?: Date;
+  // Status properties
+  isOnline: boolean;
+  lastChecked: Date;
 }
 
-// Storage key for localStorage
-const CAMERAS_STORAGE_KEY = 'avianet-vision-cameras';
+export interface CameraFormData extends Partial<Omit<Camera, 'id' | 'isOnline' | 'lastChecked'>> {
+  id?: string;
+}
 
-// Get all cameras from storage
-export const getAllCameras = (): Camera[] => {
+/**
+ * Get all cameras from storage
+ */
+const getAllCameras = (): Camera[] => {
   try {
     const storedCameras = localStorage.getItem(CAMERAS_STORAGE_KEY);
-    return storedCameras ? JSON.parse(storedCameras) : [];
+    if (storedCameras) {
+      return JSON.parse(storedCameras);
+    }
   } catch (error) {
     console.error('Failed to load cameras from storage:', error);
-    return [];
   }
+  
+  return [];
 };
 
-// Save all cameras to storage
-export const saveAllCameras = (cameras: Camera[]): void => {
-  try {
-    localStorage.setItem(CAMERAS_STORAGE_KEY, JSON.stringify(cameras));
-  } catch (error) {
-    console.error('Failed to save cameras to storage:', error);
-    toast.error('Failed to save cameras');
-  }
+/**
+ * Get a single camera by ID
+ */
+const getCameraById = (id: string): Camera | undefined => {
+  const cameras = getAllCameras();
+  return cameras.find(camera => camera.id === id);
 };
 
-// Add a new camera
-export const addCamera = (camera: Omit<Camera, 'id'>): Camera => {
+/**
+ * Add a new camera
+ */
+const addCamera = (camera: Omit<Camera, 'id' | 'isOnline' | 'lastChecked'>): Camera => {
   const cameras = getAllCameras();
   
-  // Create new camera with ID
   const newCamera: Camera = {
-    id: uuidv4(),
     ...camera,
+    id: Date.now().toString(),
     isOnline: false,
     lastChecked: new Date()
   };
   
-  // Add to cameras list
   cameras.push(newCamera);
-  
-  // Save to storage
-  saveAllCameras(cameras);
-  toast.success(`Camera '${newCamera.name}' added successfully`);
+  saveCameras(cameras);
   
   return newCamera;
 };
 
-// Update an existing camera
-export const updateCamera = (camera: Camera): Camera => {
+/**
+ * Update an existing camera
+ */
+const updateCamera = (id: string, updates: Partial<Omit<Camera, 'id'>>): Camera | undefined => {
   const cameras = getAllCameras();
-  const index = cameras.findIndex(c => c.id === camera.id);
+  const index = cameras.findIndex(camera => camera.id === id);
   
-  if (index === -1) {
-    throw new Error(`Camera with ID ${camera.id} not found`);
-  }
-  
-  // Update camera
-  cameras[index] = camera;
-  
-  // Save to storage
-  saveAllCameras(cameras);
-  toast.success(`Camera '${camera.name}' updated successfully`);
-  
-  return camera;
-};
-
-// Delete a camera
-export const deleteCamera = (cameraId: string): void => {
-  const cameras = getAllCameras();
-  const cameraToDelete = cameras.find(c => c.id === cameraId);
-  
-  if (!cameraToDelete) {
-    toast.error('Camera not found');
-    return;
-  }
-  
-  // Filter out the camera
-  const updatedCameras = cameras.filter(c => c.id !== cameraId);
-  
-  // Save to storage
-  saveAllCameras(updatedCameras);
-  toast.success(`Camera '${cameraToDelete.name}' deleted successfully`);
-};
-
-// Test camera connection
-export const testCameraConnection = async (camera: Camera | Omit<Camera, 'id'>): Promise<boolean> => {
-  try {
-    // In a real application, you would implement actual connection testing here
-    // For now, we'll simulate a connection test with a random result
-    const isSuccessful = Math.random() > 0.3; // 70% chance of success
-
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
+  if (index !== -1) {
+    cameras[index] = {
+      ...cameras[index],
+      ...updates
+    };
     
-    return isSuccessful;
+    saveCameras(cameras);
+    return cameras[index];
+  }
+  
+  return undefined;
+};
+
+/**
+ * Delete a camera by ID
+ */
+const deleteCamera = (id: string): boolean => {
+  const cameras = getAllCameras();
+  const filteredCameras = cameras.filter(camera => camera.id !== id);
+  
+  if (filteredCameras.length < cameras.length) {
+    saveCameras(filteredCameras);
+    return true;
+  }
+  
+  return false;
+};
+
+/**
+ * Save cameras array to storage
+ */
+const saveCameras = (cameras: Camera[]): void => {
+  try {
+    localStorage.setItem(CAMERAS_STORAGE_KEY, JSON.stringify(cameras));
   } catch (error) {
-    console.error('Camera connection test failed:', error);
-    return false;
+    console.error('Failed to save cameras to storage:', error);
   }
 };
 
-// Build stream URL based on camera configuration
-export const buildStreamUrl = (camera: Camera): string => {
+/**
+ * Get a playable stream URL for the camera
+ * In a real implementation, this would construct the correct URL format based on brand or return a proxy URL
+ */
+const getPlayableStreamUrl = (camera: Camera): string => {
+  // For demo purposes, return a sample video if this is a demo camera
+  if (camera.name.includes('Demo')) {
+    if (camera.name.includes('1')) {
+      return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+    } else if (camera.name.includes('2')) {
+      return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4';
+    } else {
+      return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+    }
+  }
+  
+  // If a custom stream URL is provided, use that
   if (camera.customStreamUrl) {
     return camera.customStreamUrl;
   }
   
-  let url = '';
-  
+  // In a real application, you would construct the URL based on camera type/brand
   switch (camera.protocol) {
     case 'RTSP':
-      url = `rtsp://${camera.username ? `${camera.username}:${camera.password}@` : ''}${camera.ipAddress}:${camera.port}`;
-      
-      // Add brand-specific paths
-      switch (camera.brand.toLowerCase()) {
-        case 'hikvision':
-          url += `/Streaming/Channels/${camera.channelNumber}${camera.streamType === 'main' ? '01' : camera.streamType === 'sub' ? '02' : '03'}`;
-          break;
-        case 'dahua':
-          url += `/cam/realmonitor?channel=${camera.channelNumber}&subtype=${camera.streamType === 'main' ? '0' : camera.streamType === 'sub' ? '1' : '2'}`;
-          break;
-        case 'axis':
-          url += `/axis-media/media.amp?videocodec=h264&resolution=1280x720`;
-          break;
-        default:
-          // Generic ONVIF path
-          url += `/live/${camera.channelNumber}/${camera.streamType}`;
-      }
-      break;
-      
+      // For demo purposes, we'll return a sample video since browsers can't play RTSP directly
+      // In a real app, you'd convert this to HLS or WebRTC using a streaming server
+      return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+    
     case 'HTTP':
-      url = `http://${camera.username ? `${camera.username}:${camera.password}@` : ''}${camera.ipAddress}:${camera.port}`;
-      
-      // Add brand-specific paths
-      switch (camera.brand.toLowerCase()) {
-        case 'hikvision':
-          url += `/ISAPI/Streaming/channels/${camera.channelNumber}${camera.streamType === 'main' ? '01' : camera.streamType === 'sub' ? '02' : '03'}/http`;
-          break;
-        case 'dahua':
-          url += `/cgi-bin/snapshot.cgi?channel=${camera.channelNumber}`;
-          break;
-        case 'axis':
-          url += `/axis-cgi/mjpg/video.cgi`;
-          break;
-        default:
-          url += `/video`;
-      }
-      break;
-      
+      // Simulate an HTTP camera with sample videos
+      return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4';
+    
     case 'ONVIF':
-      // ONVIF discovery would be implemented here in a real application
-      url = `http://${camera.username ? `${camera.username}:${camera.password}@` : ''}${camera.ipAddress}:${camera.port}/onvif/device_service`;
-      break;
-  }
-  
-  return url;
-};
-
-// Get a playable URL for the browser (for demo purposes)
-export const getPlayableStreamUrl = (camera: Camera): string => {
-  // In a real application with proper backend, we would transcode RTSP streams to HLS/DASH
-  // For this demo, we'll use sample videos based on camera ID to simulate different streams
-  const sampleVideos = [
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4',
-    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4'
-  ];
-  
-  // Use the first character of the camera ID as an index
-  const charCode = camera.id.charCodeAt(0);
-  const index = charCode % sampleVideos.length;
-  
-  return sampleVideos[index];
-};
-
-// Update camera online status
-export const updateCameraStatus = (cameraId: string, isOnline: boolean): void => {
-  const cameras = getAllCameras();
-  const index = cameras.findIndex(c => c.id === cameraId);
-  
-  if (index !== -1) {
-    cameras[index].isOnline = isOnline;
-    cameras[index].lastChecked = new Date();
-    saveAllCameras(cameras);
+      // Simulate an ONVIF camera with sample videos
+      return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4';
+      
+    default:
+      return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
   }
 };
 
-// Refresh status of all cameras
-export const refreshAllCameraStatuses = async (): Promise<void> => {
+/**
+ * Check camera connection status
+ * In a real implementation, this would try to connect to the camera and update the status
+ */
+const checkCameraStatus = async (id: string): Promise<boolean> => {
+  const camera = getCameraById(id);
+  if (!camera) {
+    return false;
+  }
+  
+  // Simulate a random connection result
+  const isOnline = Math.random() > 0.3; // 70% chance of being online
+  
+  // Update the camera status
+  updateCamera(id, { 
+    isOnline, 
+    lastChecked: new Date() 
+  });
+  
+  return isOnline;
+};
+
+/**
+ * Refresh status of all cameras
+ */
+const refreshAllCameraStatuses = async (): Promise<void> => {
   const cameras = getAllCameras();
   
-  for (const camera of cameras) {
-    // In a real app, you would test the actual connection
-    const isOnline = await testCameraConnection(camera);
-    camera.isOnline = isOnline;
-    camera.lastChecked = new Date();
-  }
+  // For demo purposes, we'll resolve after a short delay
+  await new Promise(resolve => setTimeout(resolve, 1000));
   
-  saveAllCameras(cameras);
-  toast.success('Camera statuses refreshed');
+  // Update each camera with a random status
+  cameras.forEach(camera => {
+    const isOnline = Math.random() > 0.3; // 70% chance of being online
+    updateCamera(camera.id, { 
+      isOnline, 
+      lastChecked: new Date() 
+    });
+  });
 };
+
+/**
+ * Get sample cameras for demo
+ */
+const createSampleCameras = (): void => {
+  const existingCameras = getAllCameras();
+  
+  // Only add sample cameras if none exist
+  if (existingCameras.length === 0) {
+    const demoCamera1: Omit<Camera, 'id' | 'isOnline' | 'lastChecked'> = {
+      name: 'Demo Camera 1',
+      ipAddress: '192.168.1.100',
+      port: 554,
+      protocol: 'RTSP',
+      brand: 'Hikvision',
+      streamType: 'main',
+      channelNumber: 1,
+      username: 'admin',
+      password: 'password',
+      customStreamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+    };
+    
+    const demoCamera2: Omit<Camera, 'id' | 'isOnline' | 'lastChecked'> = {
+      name: 'Demo Camera 2',
+      ipAddress: '192.168.1.101',
+      port: 80,
+      protocol: 'HTTP',
+      brand: 'Dahua',
+      streamType: 'sub',
+      channelNumber: 1,
+      username: 'admin',
+      password: 'password',
+      customStreamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4'
+    };
+    
+    const demoCamera3: Omit<Camera, 'id' | 'isOnline' | 'lastChecked'> = {
+      name: 'Demo Camera 3',
+      ipAddress: '192.168.1.102',
+      port: 554,
+      protocol: 'ONVIF',
+      brand: 'Axis',
+      streamType: 'main',
+      channelNumber: 1,
+      username: 'admin',
+      password: 'password',
+      customStreamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'
+    };
+    
+    // Add the demo cameras
+    addCamera(demoCamera1);
+    addCamera(demoCamera2);
+    addCamera(demoCamera3);
+  }
+};
+
+// Create sample cameras when the module is imported
+createSampleCameras();
 
 const CameraService = {
   getAllCameras,
-  saveAllCameras,
+  getCameraById,
   addCamera,
   updateCamera,
   deleteCamera,
-  testCameraConnection,
-  buildStreamUrl,
   getPlayableStreamUrl,
-  updateCameraStatus,
-  refreshAllCameraStatuses
+  checkCameraStatus,
+  refreshAllCameraStatuses,
+  createSampleCameras
 };
 
 export default CameraService;

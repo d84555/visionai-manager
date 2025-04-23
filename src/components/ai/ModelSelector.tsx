@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import SettingsService from '@/services/SettingsService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Info } from 'lucide-react';
+import { Info, Check, Layers } from 'lucide-react';
 
 interface ModelSelectorProps {
   onModelSelected?: (modelName: string, modelPath: string) => void;
@@ -57,6 +57,7 @@ const availableModels = [
 const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   const [selectedModel, setSelectedModel] = useState<string>('yolov11');
   const [autoApply, setAutoApply] = useState<boolean>(true);
+  const [activeModel, setActiveModel] = useState<{name: string; path: string} | undefined>(undefined);
   
   // Load saved model on mount
   useEffect(() => {
@@ -66,6 +67,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
       const modelId = availableModels.find(m => m.path === model.path)?.id;
       if (modelId) {
         setSelectedModel(modelId);
+        setActiveModel(model);
       }
     }
     
@@ -92,20 +94,31 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     if (model) {
       // Save to settings
       SettingsService.setActiveModel(model.name, model.path);
+      setActiveModel({ name: model.name, path: model.path });
       
       // Notify parent component if callback provided
       if (onModelSelected) {
         onModelSelected(model.name, model.path);
       }
       
-      toast.success(`Applied model: ${model.name}`);
+      toast.success(`Applied model: ${model.name}`, {
+        description: autoApply ? "This model will be applied to all cameras" : "This model will be used as the default"
+      });
+      
+      // If auto-apply is enabled, clear any per-camera model assignments
+      if (autoApply) {
+        localStorage.removeItem('camera-models');
+      }
     }
   };
   
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Object Detection Model</CardTitle>
+        <CardTitle className="flex items-center">
+          <Layers className="mr-2 text-avianet-red" size={20} />
+          Object Detection Model
+        </CardTitle>
         <CardDescription>
           Select the YOLO model to use for object detection
         </CardDescription>
@@ -117,11 +130,21 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
           className="space-y-2"
         >
           {availableModels.map((model) => (
-            <div key={model.id} className="flex items-center space-x-2 border p-3 rounded-lg">
+            <div 
+              key={model.id} 
+              className={`flex items-center space-x-2 border p-3 rounded-lg transition-colors ${
+                activeModel?.path === model.path ? 'border-avianet-red bg-avianet-red/5' : ''
+              }`}
+            >
               <RadioGroupItem value={model.id} id={`model-${model.id}`} />
-              <div className="grid gap-1.5">
+              <div className="grid gap-1.5 flex-1">
                 <Label htmlFor={`model-${model.id}`} className="font-medium">
                   {model.name}
+                  {activeModel?.path === model.path && (
+                    <span className="ml-2 inline-flex items-center text-xs font-medium text-green-600">
+                      <Check className="w-3 h-3 mr-1" /> Active
+                    </span>
+                  )}
                 </Label>
                 <p className="text-sm text-muted-foreground">
                   {model.description}
@@ -152,9 +175,15 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
           </TooltipProvider>
         </div>
       </CardContent>
-      <CardFooter className="flex justify-end">
+      <CardFooter className="flex justify-between">
+        <div className="text-sm text-muted-foreground">
+          {activeModel ? `Currently active: ${activeModel.name}` : "No model is currently active"}
+        </div>
         <Button onClick={handleApplyModel}>
-          Apply Model
+          {activeModel?.path === availableModels.find(m => m.id === selectedModel)?.path
+            ? "Reapply Model"
+            : "Apply Model"
+          }
         </Button>
       </CardFooter>
     </Card>

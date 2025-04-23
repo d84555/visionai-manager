@@ -1,16 +1,34 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Cpu, VideoIcon, Camera } from 'lucide-react';
+import { Cpu, VideoIcon, Camera, Layers } from 'lucide-react';
 import VideoFeed from '@/components/video/VideoFeed';
 import CameraManagement from '@/components/camera/CameraManagement';
 import CameraGrid from '@/components/camera/CameraGrid';
+import ModelSelector from '@/components/ai/ModelSelector';
+import SettingsService from '@/services/SettingsService';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 const VideoPage = () => {
-  const [refreshKey, setRefreshKey] = React.useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [activeModel, setActiveModel] = useState<{ name: string; path: string } | undefined>(undefined);
+
+  useEffect(() => {
+    // Load the active model from settings
+    const savedModel = SettingsService.getActiveModel();
+    if (savedModel) {
+      setActiveModel(savedModel);
+    }
+  }, []);
 
   const handleCamerasChanged = () => {
     // Force refresh the camera grid when cameras are changed
+    setRefreshKey(prev => prev + 1);
+  };
+
+  const handleModelSelected = (modelName: string, modelPath: string) => {
+    setActiveModel({ name: modelName, path: modelPath });
+    // Force refresh the camera grid when the model changes
     setRefreshKey(prev => prev + 1);
   };
 
@@ -34,10 +52,14 @@ const VideoPage = () => {
             <VideoIcon className="mr-2 h-4 w-4" />
             Camera Grid
           </TabsTrigger>
+          <TabsTrigger value="models">
+            <Layers className="mr-2 h-4 w-4" />
+            AI Models
+          </TabsTrigger>
         </TabsList>
         
         <TabsContent value="stream">
-          <VideoFeed />
+          <VideoFeed activeModel={activeModel} />
         </TabsContent>
         
         <TabsContent value="cameras">
@@ -47,6 +69,27 @@ const VideoPage = () => {
         <TabsContent value="grid">
           <div key={refreshKey}>
             <CameraGrid layout="2x2" />
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="models">
+          <div className="max-w-3xl mx-auto">
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle>AI Model Management</CardTitle>
+                <CardDescription>
+                  Configure and manage AI models used for object detection across all video feeds
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-6">
+                  Select an AI model to use for object detection on video feeds. You can apply a single model to all 
+                  cameras or configure individual cameras to use different models.
+                </p>
+                
+                <ModelSelector onModelSelected={handleModelSelected} />
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
       </Tabs>
@@ -86,8 +129,8 @@ const VideoPage = () => {
               <span className="font-medium">Every 3 seconds</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span>Model:</span>
-              <span className="font-medium">YOLOv11</span>
+              <span>Active Model:</span>
+              <span className="font-medium">{activeModel?.name || "None"}</span>
             </div>
           </div>
         </div>

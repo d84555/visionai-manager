@@ -8,6 +8,8 @@ import { Label } from '@/components/ui/label';
 import { convertToPlayableFormat } from '@/utils/ffmpegUtils';
 import EdgeAIInference, { InferenceRequest, Detection } from '@/services/EdgeAIInference';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import SettingsService from '@/services/SettingsService';
 
 interface CameraFeed {
   id: string;
@@ -49,6 +51,26 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [inferenceLocation, setInferenceLocation] = useState<'edge' | 'server' | null>(null);
   const [inferenceTime, setInferenceTime] = useState<number | null>(null);
+  const [selectedModel, setSelectedModel] = useState<{name: string; path: string} | null>(null);
+  const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
+  
+  useEffect(() => {
+    const modelsList = [
+      { id: 'yolov11-n', name: 'YOLOv11 Nano', path: '/models/yolov11-n.onnx' },
+      { id: 'yolov11-s', name: 'YOLOv11 Small', path: '/models/yolov11-s.onnx' },
+      { id: 'yolov11', name: 'YOLOv11 Base', path: '/models/yolov11.onnx' },
+      { id: 'yolov11-m', name: 'YOLOv11 Medium', path: '/models/yolov11-m.onnx' },
+      { id: 'yolov11-l', name: 'YOLOv11 Large', path: '/models/yolov11-l.onnx' }
+    ];
+    setAvailableModels(modelsList);
+    
+    const savedModel = SettingsService.getActiveModel();
+    if (savedModel) {
+      setSelectedModel(savedModel);
+    } else if (activeModel) {
+      setSelectedModel(activeModel);
+    }
+  }, [activeModel]);
   
   useEffect(() => {
     if (autoStart && initialVideoUrl) {
@@ -72,6 +94,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   }, [initialVideoUrl]);
 
   const detectObjects = async () => {
+    if (!selectedModel && !activeModel) {
+      setDetections([]);
+      return;
+    }
+    
     if (!camera && !showControls) {
       const mockClasses = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus'];
       const newDetections: Detection[] = [];
@@ -104,10 +131,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     
     if (camera?.id) {
       try {
+        const modelToUse = selectedModel || activeModel;
+        
         const request: InferenceRequest = {
           imageData: "base64_image_data_would_go_here",
           cameraId: camera.name,
-          modelName: "YOLOv11",
+          modelName: modelToUse?.name || "YOLOv11",
           thresholdConfidence: 0.5
         };
         
@@ -195,11 +224,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       });
     }
     
-    await detectObjects();
-    
-    const interval = setInterval(detectObjects, 3000);
-    
-    return () => clearInterval(interval);
+    if (selectedModel || activeModel) {
+      await detectObjects();
+      const interval = setInterval(detectObjects, 3000);
+      return () => clearInterval(interval);
+    }
   };
 
   const stopStream = () => {
@@ -311,6 +340,28 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       }
     };
   }, [hasUploadedFile, videoUrl]);
+
+  const handleModelChange = (modelId: string) => {
+    if (modelId === "none") {
+      setSelectedModel(null);
+      return;
+    }
+    
+    const model = availableModels.find(m => m.id === modelId);
+    if (model) {
+      setSelectedModel({ name: model.name, path: model.path });
+      
+      SettingsService.setActiveModel(model.name, model.path);
+      
+      if (isStreaming) {
+        detectObjects();
+      }
+      
+      toast.success(`Model ${model.name} selected`, {
+        description: "Detection will use this model"
+      });
+    }
+  };
 
   if (!showControls) {
     return (
@@ -506,6 +557,29 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             </Button>
           </div>
 
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="model-selector">AI Model for Object Detection</Label>
+            <Select 
+              onValueChange={handleModelChange}
+              value={selectedModel ? availableModels.find(m => m.name === selectedModel.name)?.id : "none"}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select a model for detection" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No detection (Clear model)</SelectItem>
+                {availableModels.map(model => (
+                  <SelectItem key={model.id} value={model.id}>
+                    {model.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Select an AI model to use for object detection on this video feed
+            </p>
+          </div>
+
           <div className="video-feed mt-4 relative" ref={containerRef}>
             {isProcessing ? (
               <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
@@ -587,7 +661,14 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             )}
           </div>
           
-          {isStreaming && detections.length === 0 && (
+          {isStreaming && detections.length === 0 && !selectedModel && !activeModel && (
+            <div className="flex items-center justify-center p-4 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 rounded-md">
+              <AlertTriangle className="mr-2" size={16} />
+              <span className="text-sm">No AI model selected. Select a model to enable object detection.</span>
+            </div>
+          )}
+          
+          {isStreaming && detections.length === 0 && (selectedModel || activeModel) && (
             <div className="flex items-center justify-center p-4 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 rounded-md">
               <AlertTriangle className="mr-2" size={16} />
               <span className="text-sm">Running object detection...</span>
