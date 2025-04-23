@@ -1,8 +1,8 @@
-
 import React, { useEffect, useState } from 'react';
 import VideoFeed from './VideoFeed';
 import { Loader, Camera } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import SettingsService from '@/services/SettingsService';
 
 interface MultiCameraGridProps {
   layout: '1x1' | '2x2' | '3x3' | '4x4';
@@ -21,10 +21,22 @@ interface CameraFeed {
 const MultiCameraGrid: React.FC<MultiCameraGridProps> = ({ layout, streamType }) => {
   const [cameraFeeds, setCameraFeeds] = useState<CameraFeed[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pinnedCameraIds, setPinnedCameraIds] = useState<string[]>([]);
+  const [activeModel, setActiveModel] = useState<{ name: string; path: string } | undefined>();
   
-  // Mock camera data - in a real app, this would come from an API
   useEffect(() => {
-    // Simulate API fetch
+    const gridSettings = SettingsService.getGridLayout();
+    if (gridSettings.pinnedCameraIds && gridSettings.pinnedCameraIds.length > 0) {
+      setPinnedCameraIds(gridSettings.pinnedCameraIds);
+    }
+    
+    const model = SettingsService.getActiveModel();
+    if (model) {
+      setActiveModel(model);
+    }
+  }, []);
+  
+  useEffect(() => {
     setTimeout(() => {
       const mockCameras: CameraFeed[] = [
         {
@@ -162,7 +174,16 @@ const MultiCameraGrid: React.FC<MultiCameraGridProps> = ({ layout, streamType })
     }, 1000);
   }, []);
   
-  // Determine how many cameras to show based on layout
+  useEffect(() => {
+    if (pinnedCameraIds.length > 0) {
+      const gridSettings = SettingsService.getGridLayout();
+      SettingsService.saveGridLayout({
+        ...gridSettings,
+        pinnedCameraIds
+      });
+    }
+  }, [pinnedCameraIds]);
+  
   const getCameraCount = () => {
     switch (layout) {
       case '1x1': return 1;
@@ -183,6 +204,35 @@ const MultiCameraGrid: React.FC<MultiCameraGridProps> = ({ layout, streamType })
     }
   };
   
+  const handlePinCamera = (cameraId: string) => {
+    const isAlreadyPinned = pinnedCameraIds.includes(cameraId);
+    
+    if (isAlreadyPinned) {
+      setPinnedCameraIds(prev => prev.filter(id => id !== cameraId));
+    } else {
+      const maxCameras = getCameraCount();
+      const newPinned = [...pinnedCameraIds, cameraId].slice(0, maxCameras);
+      setPinnedCameraIds(newPinned);
+    }
+  };
+  
+  const getVisibleCameras = () => {
+    const maxCameras = getCameraCount();
+    
+    if (pinnedCameraIds.length > 0) {
+      const pinnedCameras = cameraFeeds.filter(cam => pinnedCameraIds.includes(cam.id));
+      
+      if (pinnedCameras.length < maxCameras) {
+        const unpinnedCameras = cameraFeeds.filter(cam => !pinnedCameraIds.includes(cam.id));
+        return [...pinnedCameras, ...unpinnedCameras].slice(0, maxCameras);
+      }
+      
+      return pinnedCameras.slice(0, maxCameras);
+    }
+    
+    return cameraFeeds.slice(0, maxCameras);
+  };
+  
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center p-12">
@@ -192,7 +242,7 @@ const MultiCameraGrid: React.FC<MultiCameraGridProps> = ({ layout, streamType })
     );
   }
   
-  const visibleCameras = cameraFeeds.slice(0, getCameraCount());
+  const visibleCameras = getVisibleCameras();
   
   return (
     <div className="p-4">
@@ -205,9 +255,16 @@ const MultiCameraGrid: React.FC<MultiCameraGridProps> = ({ layout, streamType })
                   <Camera className="mr-2 text-avianet-red" size={16} />
                   <span className="text-sm font-medium">{camera.name}</span>
                 </div>
-                <span className="text-xs bg-black/10 py-1 px-2 rounded-full">
-                  {streamType.toUpperCase()} STREAM
-                </span>
+                <div className="flex items-center space-x-2">
+                  {activeModel && (
+                    <span className="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 py-1 px-2 rounded-full">
+                      {activeModel.name}
+                    </span>
+                  )}
+                  <span className="text-xs bg-black/10 py-1 px-2 rounded-full">
+                    {streamType.toUpperCase()} STREAM
+                  </span>
+                </div>
               </div>
               <div className="p-2">
                 <VideoFeed
@@ -215,6 +272,9 @@ const MultiCameraGrid: React.FC<MultiCameraGridProps> = ({ layout, streamType })
                   autoStart={true}
                   showControls={false}
                   camera={camera}
+                  isPinned={pinnedCameraIds.includes(camera.id)}
+                  onPinToggle={() => handlePinCamera(camera.id)}
+                  activeModel={activeModel}
                 />
               </div>
             </Card>

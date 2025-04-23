@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Video, Bell, FileText, Brain, Settings, Server, Cpu } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,10 +7,29 @@ import MultiCameraGrid from '@/components/video/MultiCameraGrid';
 import CameraControls from '@/components/video/CameraControls';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AIModelUpload from '@/components/ai/AIModelUpload';
+import SettingsService from '@/services/SettingsService';
+import { toast } from 'sonner';
 
 const Home = () => {
   const [gridLayout, setGridLayout] = useState<'1x1' | '2x2' | '3x3' | '4x4'>('1x1');
   const [streamType, setStreamType] = useState<'main' | 'sub'>('main');
+  
+  // Load saved grid layout settings on component mount
+  useEffect(() => {
+    const savedLayout = SettingsService.getGridLayout();
+    if (savedLayout) {
+      setGridLayout(savedLayout.layout);
+      setStreamType(savedLayout.streamType);
+    }
+  }, []);
+  
+  // Save grid layout settings when they change
+  useEffect(() => {
+    SettingsService.saveGridLayout({
+      layout: gridLayout,
+      streamType: streamType
+    });
+  }, [gridLayout, streamType]);
   
   const features = [
     {
@@ -67,9 +86,15 @@ const Home = () => {
             
             <CameraControls 
               gridLayout={gridLayout} 
-              onLayoutChange={setGridLayout}
+              onLayoutChange={(layout) => {
+                setGridLayout(layout);
+                toast.success(`Grid layout changed to ${layout}`);
+              }}
               streamType={streamType}
-              onStreamTypeChange={setStreamType}
+              onStreamTypeChange={(type) => {
+                setStreamType(type);
+                toast.success(`Stream type changed to ${type}`);
+              }}
             />
           </div>
           

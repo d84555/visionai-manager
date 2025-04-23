@@ -12,6 +12,9 @@ export interface ModelSettings {
   detectionFrequency: number;
   maxDetections: number;
   useHighResolution: boolean;
+  activeModelName?: string; // Name of the currently loaded model
+  activeModelPath?: string; // Path to the currently loaded model file
+  autoApplyModel: boolean;  // Whether to automatically apply the model to videos
 }
 
 export interface VideoSettings {
@@ -61,7 +64,12 @@ export interface FFmpegSettings {
   useLocalBinary: boolean;
 }
 
-// Complete settings object structure
+export interface GridLayoutSettings {
+  layout: '1x1' | '2x2' | '3x3' | '4x4';
+  streamType: 'main' | 'sub';
+  pinnedCameraIds?: string[]; // IDs of cameras pinned to the grid
+}
+
 export interface AppSettings {
   model: ModelSettings;
   video: VideoSettings;
@@ -70,6 +78,7 @@ export interface AppSettings {
   smtp: SmtpSettings;
   storage: StorageSettings;
   ffmpeg: FFmpegSettings;
+  gridLayout: GridLayoutSettings; // New grid layout settings
 }
 
 // Default settings to use when nothing is stored
@@ -79,6 +88,9 @@ const DEFAULT_SETTINGS: AppSettings = {
     detectionFrequency: 3,
     maxDetections: 10,
     useHighResolution: false,
+    activeModelName: 'YOLOv11',
+    activeModelPath: '/models/yolov11.onnx',
+    autoApplyModel: true,
   },
   video: {
     defaultStreamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
@@ -121,10 +133,16 @@ const DEFAULT_SETTINGS: AppSettings = {
     localBinaryPath: '/usr/bin/ffmpeg',
     useLocalBinary: false,
   },
+  gridLayout: {
+    layout: '2x2',
+    streamType: 'main',
+    pinnedCameraIds: []
+  }
 };
 
 // Storage keys
 const SETTINGS_STORAGE_KEY = 'avianet-vision-settings';
+const EDGE_DEVICES_KEY = 'avianet-vision-edge-devices';
 
 /**
  * Load all settings from storage
@@ -200,6 +218,51 @@ export const resetCategorySettings = <K extends keyof AppSettings>(
   saveAllSettings(updatedSettings);
 };
 
+/**
+ * Set the currently active YOLO model
+ * @param modelName Name of the model
+ * @param modelPath Path to the model file
+ */
+export const setActiveModel = (modelName: string, modelPath: string): void => {
+  const modelSettings = getSettings('model');
+  updateSettings('model', {
+    ...modelSettings,
+    activeModelName: modelName,
+    activeModelPath: modelPath
+  });
+};
+
+/**
+ * Get the active YOLO model information
+ * @returns Object containing model name and path, or undefined if not set
+ */
+export const getActiveModel = (): { name: string; path: string } | undefined => {
+  const modelSettings = getSettings('model');
+  if (modelSettings.activeModelName && modelSettings.activeModelPath) {
+    return {
+      name: modelSettings.activeModelName,
+      path: modelSettings.activeModelPath
+    };
+  }
+  return undefined;
+};
+
+/**
+ * Save grid layout configuration
+ * @param layout Grid layout configuration
+ */
+export const saveGridLayout = (layout: GridLayoutSettings): void => {
+  updateSettings('gridLayout', layout);
+};
+
+/**
+ * Get saved grid layout configuration
+ * @returns The saved grid layout or default if not found
+ */
+export const getGridLayout = (): GridLayoutSettings => {
+  return getSettings('gridLayout');
+};
+
 const SettingsService = {
   loadAllSettings,
   saveAllSettings,
@@ -207,6 +270,10 @@ const SettingsService = {
   getSettings,
   resetAllSettings,
   resetCategorySettings,
+  setActiveModel,
+  getActiveModel,
+  saveGridLayout,
+  getGridLayout,
 };
 
 export default SettingsService;

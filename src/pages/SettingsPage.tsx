@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import SyslogConfig from '@/components/config/SyslogConfig';
 import SmtpConfig from '@/components/config/SmtpConfig';
 import StorageConfig from '@/components/config/StorageConfig';
+import ModelSelector from '@/components/ai/ModelSelector';
 import SettingsService, { 
   ModelSettings, 
   VideoSettings, 
@@ -26,6 +27,7 @@ const SettingsPage = () => {
     detectionFrequency: 3,
     maxDetections: 10,
     useHighResolution: false,
+    autoApplyModel: true,
   });
   
   const [videoSettings, setVideoSettings] = useState<VideoSettings>({
@@ -86,6 +88,7 @@ const SettingsPage = () => {
       smtp: SettingsService.getSettings('smtp'),
       storage: SettingsService.getSettings('storage'),
       ffmpeg: ffmpegSettings,
+      gridLayout: SettingsService.getSettings('gridLayout'),
     });
 
     if (ffmpegSettings.customPath) {
@@ -124,6 +127,10 @@ const SettingsPage = () => {
             
             <TabsContent value="model" className="space-y-6 pt-4">
               <div className="space-y-4">
+                <div className="mb-6">
+                  <ModelSelector />
+                </div>
+                
                 <div className="space-y-2">
                   <Label htmlFor="confidence-threshold">
                     Confidence Threshold ({modelSettings.confidenceThreshold}%)
