@@ -1,6 +1,6 @@
 
-import React, { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -28,11 +28,7 @@ type LoginFormValues = z.infer<typeof formSchema>;
 const LoginPage = () => {
   const { user, login } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // Redirect if already logged in
-  if (user) {
-    return <Navigate to="/" replace />;
-  }
+  const location = useLocation();
   
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(formSchema),
@@ -41,6 +37,13 @@ const LoginPage = () => {
       password: '',
     },
   });
+
+  // Early return but AFTER all hooks have been called
+  if (user) {
+    // Get the redirect path from location state, or default to home
+    const from = location.state?.from?.pathname || '/';
+    return <Navigate to={from} replace />;
+  }
 
   const onSubmit = async (values: LoginFormValues) => {
     setIsSubmitting(true);
