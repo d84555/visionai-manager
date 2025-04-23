@@ -53,6 +53,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   const [inferenceTime, setInferenceTime] = useState<number | null>(null);
   const [selectedModel, setSelectedModel] = useState<{name: string; path: string} | null>(null);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
+  const [isHikvisionFormat, setIsHikvisionFormat] = useState(false);
   
   useEffect(() => {
     const modelsList = [
@@ -210,12 +211,18 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     setIsPlaying(true);
     
     if (videoRef.current) {
-      videoRef.current.play()
-        .catch(err => {
-          toast.error('Could not play video', {
-            description: err.message
-          });
+      try {
+        await videoRef.current.play();
+      } catch (err) {
+        console.error("Video play error:", err);
+        toast.error('Could not play video', {
+          description: 'The video format may not be supported directly. Attempting to process...'
         });
+        
+        if (originalFile) {
+          await handleFileUpload({ target: { files: [originalFile] } } as any);
+        }
+      }
     }
     
     if (!autoStart) {
@@ -259,7 +266,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement> | { target: { files: File[] } }) => {
     const file = event.target.files?.[0];
     if (file) {
       if (hasUploadedFile && videoUrl.startsWith('blob:')) {
@@ -268,6 +275,18 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       
       setOriginalFile(file);
       setHasUploadedFile(true);
+      
+      const isHikvision = file.name.toLowerCase().endsWith('.dav') || 
+                          file.type === 'video/x-dav' || 
+                          file.type === 'application/octet-stream';
+      
+      setIsHikvisionFormat(isHikvision);
+      
+      if (isHikvision) {
+        toast.info('Hikvision video format detected', {
+          description: 'Using specialized processing for Hikvision format'
+        });
+      }
       
       try {
         setIsProcessing(true);
@@ -283,12 +302,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
         });
       } catch (error) {
         console.error("Error processing video:", error);
+        toast.error('Failed to process video format', {
+          description: 'Attempting direct playback as fallback'
+        });
+        
         const localUrl = URL.createObjectURL(file);
         setVideoUrl(localUrl);
-        
-        toast.warning('Using native video playback', {
-          description: 'Some video formats may not play correctly'
-        });
       } finally {
         setIsProcessing(false);
       }
@@ -308,11 +327,18 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     }
   };
 
-  const handleVideoError = () => {
+  const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    console.error("Video error:", e);
+    
     toast.error('Failed to load video', {
-      description: 'The video URL may be invalid or inaccessible'
+      description: 'The video format may not be supported. Attempting alternative processing...'
     });
-    stopStream();
+    
+    if (originalFile && !isProcessing) {
+      handleFileUpload({ target: { files: [originalFile] } } as any);
+    } else {
+      stopStream();
+    }
   };
 
   useEffect(() => {
@@ -421,6 +447,15 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               </Badge>
             )}
             
+            {isHikvisionFormat && (
+              <Badge 
+                variant="outline" 
+                className="absolute top-2 left-2 text-[8px] bg-blue-500/80 text-white"
+              >
+                HIKVISION
+              </Badge>
+            )}
+            
             {detections.map((detection) => (
               <div
                 key={detection.id}
@@ -455,6 +490,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
         <CardTitle className="flex items-center">
           <Camera className="mr-2 text-avianet-red" size={20} />
           Real-time Video Feed
+          {isHikvisionFormat && (
+            <Badge variant="outline" className="ml-2 bg-blue-500 text-white">
+              HIKVISION
+            </Badge>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="p-6">
@@ -486,7 +526,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               </div>
               {hasUploadedFile && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  {isProcessing ? 'Processing video file...' : 'Local file loaded. Click Start to begin.'}
+                  {isProcessing ? 'Processing video file...' : (
+                    isHikvisionFormat ? 'Hikvision format detected. Click Start to begin.' : 'Local file loaded. Click Start to begin.'
+                  )}
                 </p>
               )}
             </div>
@@ -498,11 +540,14 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               <Input
                 id="video-file"
                 type="file"
-                accept="video/*"
+                accept="video/*,.dav"
                 onChange={handleFileUpload}
                 className="mt-1"
                 disabled={isProcessing}
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                Supports MP4, WebM, Hikvision DAV, and other NVR export formats
+              </p>
             </div>
           </div>
 
@@ -514,6 +559,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4');
                 setHasUploadedFile(false);
                 setOriginalFile(null);
+                setIsHikvisionFormat(false);
                 if (isStreaming) {
                   stopStream();
                 }
@@ -530,6 +576,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4');
                 setHasUploadedFile(false);
                 setOriginalFile(null);
+                setIsHikvisionFormat(false);
                 if (isStreaming) {
                   stopStream();
                 }
@@ -546,6 +593,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4');
                 setHasUploadedFile(false);
                 setOriginalFile(null);
+                setIsHikvisionFormat(false);
                 if (isStreaming) {
                   stopStream();
                 }
@@ -631,6 +679,15 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                       </Badge>
                     )}
                   </div>
+                )}
+                
+                {isHikvisionFormat && (
+                  <Badge 
+                    variant="outline" 
+                    className="absolute top-4 left-4 bg-blue-500 text-white"
+                  >
+                    HIKVISION FORMAT
+                  </Badge>
                 )}
                 
                 {detections.map((detection) => (

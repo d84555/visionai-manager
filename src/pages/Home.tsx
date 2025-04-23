@@ -1,18 +1,25 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Video, Bell, FileText, Brain, Settings, Server, Cpu } from 'lucide-react';
+import { Video, Bell, FileText, Brain, Settings, Server, Cpu, Grid, Grip } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import CameraGrid from '@/components/camera/CameraGrid';
 import CameraControls from '@/components/video/CameraControls';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AIModelUpload from '@/components/ai/AIModelUpload';
 import SettingsService from '@/services/SettingsService';
+import CameraService from '@/services/CameraService';
+import { Camera } from '@/services/CameraService';
 import { toast } from 'sonner';
+import CameraListPanel from '@/components/camera/CameraListPanel';
+import { Resizable } from '@/components/ui/resizable';
 
 const Home = () => {
   const [gridLayout, setGridLayout] = useState<'1x1' | '2x2' | '3x3' | '4x4'>('1x1');
   const [streamType, setStreamType] = useState<'main' | 'sub'>('main');
+  const [cameras, setCameras] = useState<Camera[]>([]);
+  const [cameraAssignments, setCameraAssignments] = useState<Record<string, string>>({});
+  const [showCameraPanel, setShowCameraPanel] = useState(true);
   
   // Load saved grid layout settings on component mount
   useEffect(() => {
@@ -21,6 +28,16 @@ const Home = () => {
       setGridLayout(savedLayout.layout);
       setStreamType(savedLayout.streamType);
     }
+    
+    // Load camera assignments
+    const savedAssignments = localStorage.getItem('camera-grid-assignments');
+    if (savedAssignments) {
+      setCameraAssignments(JSON.parse(savedAssignments));
+    }
+    
+    // Load cameras
+    const loadedCameras = CameraService.getAllCameras();
+    setCameras(loadedCameras);
   }, []);
   
   // Save grid layout settings when they change
@@ -30,6 +47,27 @@ const Home = () => {
       streamType: streamType
     });
   }, [gridLayout, streamType]);
+  
+  // Save camera assignments when they change
+  useEffect(() => {
+    localStorage.setItem('camera-grid-assignments', JSON.stringify(cameraAssignments));
+  }, [cameraAssignments]);
+  
+  const handleAssignCamera = (cameraId: string, gridPositionId: string) => {
+    const newAssignments = { ...cameraAssignments };
+    newAssignments[gridPositionId] = cameraId;
+    setCameraAssignments(newAssignments);
+    toast.success('Camera assigned to grid position', {
+      description: 'Your grid layout will be saved automatically'
+    });
+  };
+  
+  const handleClearAssignment = (gridPositionId: string) => {
+    const newAssignments = { ...cameraAssignments };
+    delete newAssignments[gridPositionId];
+    setCameraAssignments(newAssignments);
+    toast.info('Camera removed from grid position');
+  };
   
   const features = [
     {
@@ -84,22 +122,52 @@ const Home = () => {
               <TabsTrigger value="aimodels">AI Models</TabsTrigger>
             </TabsList>
             
-            <CameraControls 
-              gridLayout={gridLayout} 
-              onLayoutChange={(layout) => {
-                setGridLayout(layout);
-                toast.success(`Grid layout changed to ${layout}`);
-              }}
-              streamType={streamType}
-              onStreamTypeChange={(type) => {
-                setStreamType(type);
-                toast.success(`Stream type changed to ${type}`);
-              }}
-            />
+            <div className="flex items-center space-x-2">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setShowCameraPanel(!showCameraPanel)}
+                className="flex items-center gap-1"
+              >
+                <Grid className="h-4 w-4" />
+                {showCameraPanel ? 'Hide Camera Panel' : 'Show Camera Panel'}
+              </Button>
+              
+              <CameraControls 
+                gridLayout={gridLayout} 
+                onLayoutChange={(layout) => {
+                  setGridLayout(layout);
+                  toast.success(`Grid layout changed to ${layout}`);
+                }}
+                streamType={streamType}
+                onStreamTypeChange={(type) => {
+                  setStreamType(type);
+                  toast.success(`Stream type changed to ${type}`);
+                }}
+              />
+            </div>
           </div>
           
           <TabsContent value="multicamera" className="p-4">
-            <CameraGrid layout={gridLayout} />
+            <div className="flex gap-4">
+              <div className={`flex-grow transition-all ${showCameraPanel ? 'w-3/4' : 'w-full'}`}>
+                <CameraGrid 
+                  layout={gridLayout} 
+                  cameraAssignments={cameraAssignments}
+                  onClearAssignment={handleClearAssignment}
+                />
+              </div>
+              
+              {showCameraPanel && (
+                <div className="w-1/4 border-l pl-4">
+                  <CameraListPanel 
+                    cameras={cameras} 
+                    onAssignCamera={handleAssignCamera}
+                    gridLayout={gridLayout}
+                  />
+                </div>
+              )}
+            </div>
           </TabsContent>
           
           <TabsContent value="aimodels" className="p-4">
@@ -134,5 +202,8 @@ const Home = () => {
     </div>
   );
 };
+
+// Import needed for the Button component that was missing
+import { Button } from '@/components/ui/button';
 
 export default Home;

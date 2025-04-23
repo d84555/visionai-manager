@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { Camera as CameraIcon, RefreshCw, Settings, Layers } from 'lucide-react';
+import { Camera as CameraIcon, RefreshCw, Settings, Layers, X } from 'lucide-react';
 import { Camera } from '@/services/CameraService';
 import CameraService from '@/services/CameraService';
 import { Button } from '@/components/ui/button';
@@ -19,14 +20,21 @@ import { toast } from 'sonner';
 
 interface CameraGridProps {
   layout?: '1x1' | '2x2' | '3x3' | '4x4';
+  cameraAssignments?: Record<string, string>;
+  onClearAssignment?: (gridPositionId: string) => void;
 }
 
-const CameraGrid: React.FC<CameraGridProps> = ({ layout = '2x2' }) => {
+const CameraGrid: React.FC<CameraGridProps> = ({ 
+  layout = '2x2',
+  cameraAssignments = {},
+  onClearAssignment 
+}) => {
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeModel, setActiveModel] = useState<{ name: string; path: string } | undefined>(undefined);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
   const [camerasWithCustomModel, setCamerasWithCustomModel] = useState<Record<string, { name: string; path: string }>>({});
+  const [dragOverPosition, setDragOverPosition] = useState<string | null>(null);
   
   useEffect(() => {
     loadCameras();
@@ -147,8 +155,155 @@ const CameraGrid: React.FC<CameraGridProps> = ({ layout = '2x2' }) => {
     return activeModel;
   };
   
-  // Only show the number of cameras based on the layout
-  const visibleCameras = cameras.slice(0, getCameraCount());
+  const getAssignedCamera = (positionId: string) => {
+    const cameraId = cameraAssignments[positionId];
+    if (!cameraId) return null;
+    
+    return cameras.find(camera => camera.id === cameraId);
+  };
+  
+  // Handler for drag over events
+  const handleDragOver = (e: React.DragEvent, positionId: string) => {
+    e.preventDefault();
+    setDragOverPosition(positionId);
+  };
+  
+  // Handler for drag leave events
+  const handleDragLeave = () => {
+    setDragOverPosition(null);
+  };
+  
+  // Handler for drop events
+  const handleDrop = (e: React.DragEvent, positionId: string) => {
+    e.preventDefault();
+    setDragOverPosition(null);
+    
+    const cameraId = e.dataTransfer.getData('text/plain');
+    if (cameraId) {
+      // Notify parent component about the assignment
+      if (onClearAssignment) {
+        onClearAssignment(positionId);
+      }
+    }
+  };
+  
+  // Handler for context menu to clear assignment
+  const handleContextMenu = (e: React.MouseEvent, positionId: string) => {
+    e.preventDefault();
+    
+    if (onClearAssignment && cameraAssignments[positionId]) {
+      onClearAssignment(positionId);
+    }
+  };
+  
+  // Generate grid positions
+  const renderGridPositions = () => {
+    const count = getCameraCount();
+    const positions = [];
+    
+    for (let i = 0; i < count; i++) {
+      const positionId = `position-${i}`;
+      const assignedCamera = getAssignedCamera(positionId);
+      
+      positions.push(
+        <Card 
+          key={positionId} 
+          className={`overflow-hidden ${
+            dragOverPosition === positionId 
+              ? 'ring-2 ring-avianet-red ring-opacity-70' 
+              : ''
+          }`}
+          onDragOver={(e) => handleDragOver(e, positionId)}
+          onDragLeave={handleDragLeave}
+          onDrop={(e) => handleDrop(e, positionId)}
+          onContextMenu={(e) => handleContextMenu(e, positionId)}
+        >
+          <CardHeader className="py-2 px-4 flex-row justify-between items-center bg-muted/30">
+            <div className="flex items-center">
+              <CameraIcon className="mr-2 h-4 w-4 text-avianet-red" />
+              <span className="text-sm font-medium">
+                {assignedCamera ? assignedCamera.name : `Grid Position ${i + 1}`}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {assignedCamera && (
+                <>
+                  <Badge
+                    variant={assignedCamera.isOnline ? "default" : "outline"}
+                    className={assignedCamera.isOnline ? "bg-green-500" : "text-red-500 border-red-500"}
+                  >
+                    {assignedCamera.isOnline ? "Online" : "Offline"}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={() => onClearAssignment && onClearAssignment(positionId)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </>
+              )}
+              {assignedCamera && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel>AI Model</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => handleApplyModelToCamera(assignedCamera.id, null)}>
+                      Use Global AI Model
+                    </DropdownMenuItem>
+                    {availableModels.map(model => (
+                      <DropdownMenuItem 
+                        key={model.id} 
+                        onClick={() => handleApplyModelToCamera(assignedCamera.id, model.id)}
+                        className={
+                          camerasWithCustomModel[assignedCamera.id]?.path === model.path ? "bg-muted" : ""
+                        }
+                      >
+                        {model.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {assignedCamera ? (
+              <VideoFeed
+                initialVideoUrl={CameraService.getPlayableStreamUrl(assignedCamera)}
+                autoStart={assignedCamera.isOnline}
+                showControls={false}
+                camera={{
+                  id: assignedCamera.id,
+                  name: assignedCamera.name,
+                  streamUrl: {
+                    main: CameraService.getPlayableStreamUrl(assignedCamera),
+                    sub: CameraService.getPlayableStreamUrl(assignedCamera)
+                  }
+                }}
+                activeModel={getCameraModel(assignedCamera.id)}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 h-[160px]">
+                <div className="text-center text-muted-foreground">
+                  <p className="text-sm">Drop camera here</p>
+                  <p className="text-xs mt-1">or right-click to clear</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      );
+    }
+    
+    return positions;
+  };
   
   if (cameras.length === 0) {
     return (
@@ -201,72 +356,8 @@ const CameraGrid: React.FC<CameraGridProps> = ({ layout = '2x2' }) => {
       </div>
       
       <div className={`grid ${getGridClassName()} gap-4`}>
-        {visibleCameras.map((camera) => (
-          <Card key={camera.id} className="overflow-hidden">
-            <CardHeader className="py-2 px-4 flex-row justify-between items-center bg-muted/30">
-              <div className="flex items-center">
-                <CameraIcon className="mr-2 h-4 w-4 text-avianet-red" />
-                <span className="text-sm font-medium">{camera.name}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge
-                  variant={camera.isOnline ? "default" : "outline"}
-                  className={camera.isOnline ? "bg-green-500" : "text-red-500 border-red-500"}
-                >
-                  {camera.isOnline ? "Online" : "Offline"}
-                </Badge>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      <Settings className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>AI Model</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => handleApplyModelToCamera(camera.id, null)}>
-                      Use Global AI Model
-                    </DropdownMenuItem>
-                    {availableModels.map(model => (
-                      <DropdownMenuItem 
-                        key={model.id} 
-                        onClick={() => handleApplyModelToCamera(camera.id, model.id)}
-                        className={
-                          camerasWithCustomModel[camera.id]?.path === model.path ? "bg-muted" : ""
-                        }
-                      >
-                        {model.name}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <VideoFeed
-                initialVideoUrl={CameraService.getPlayableStreamUrl(camera)}
-                autoStart={camera.isOnline}
-                showControls={false}
-                camera={{
-                  id: camera.id,
-                  name: camera.name,
-                  streamUrl: {
-                    main: CameraService.getPlayableStreamUrl(camera),
-                    sub: CameraService.getPlayableStreamUrl(camera)
-                  }
-                }}
-                activeModel={getCameraModel(camera.id)}
-              />
-            </CardContent>
-          </Card>
-        ))}
+        {renderGridPositions()}
       </div>
-      
-      {cameras.length > getCameraCount() && (
-        <p className="mt-4 text-center text-sm text-muted-foreground">
-          {cameras.length - getCameraCount()} more cameras are configured but not shown in the current grid layout
-        </p>
-      )}
     </div>
   );
 };
