@@ -1,4 +1,3 @@
-
 /**
  * Service for managing IP cameras in Avianet Vision
  * Provides functionality to add, edit, delete and manage camera connections
@@ -75,21 +74,21 @@ const addCamera = (camera: Omit<Camera, 'id' | 'isOnline' | 'lastChecked'>): Cam
 /**
  * Update an existing camera
  */
-const updateCamera = (id: string, updates: Partial<Omit<Camera, 'id'>>): Camera | undefined => {
+const updateCamera = (camera: Camera): Camera => {
   const cameras = getAllCameras();
-  const index = cameras.findIndex(camera => camera.id === id);
+  const index = cameras.findIndex(c => c.id === camera.id);
   
   if (index !== -1) {
     cameras[index] = {
       ...cameras[index],
-      ...updates
+      ...camera
     };
     
     saveCameras(cameras);
     return cameras[index];
   }
   
-  return undefined;
+  throw new Error(`Camera with id ${camera.id} not found`);
 };
 
 /**
@@ -257,6 +256,19 @@ const createSampleCameras = (): void => {
 // Create sample cameras when the module is imported
 createSampleCameras();
 
+/**
+ * Test camera connection
+ * In a real implementation, this would try to connect to the camera and return success/failure
+ */
+const testCameraConnection = async (camera: Partial<Camera>): Promise<boolean> => {
+  // Simulate a network request with a delay
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // For demo purposes, return a random result
+  // In a real app, this would actually test the connection to the camera
+  return Math.random() > 0.3; // 70% chance of success
+};
+
 const CameraService = {
   getAllCameras,
   getCameraById,
@@ -266,7 +278,8 @@ const CameraService = {
   getPlayableStreamUrl,
   checkCameraStatus,
   refreshAllCameraStatuses,
-  createSampleCameras
+  createSampleCameras,
+  testCameraConnection
 };
 
 export default CameraService;

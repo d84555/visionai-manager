@@ -89,7 +89,7 @@ const CameraForm: React.FC<CameraFormProps> = ({
     try {
       const testCamera = {
         ...values,
-        id: camera?.id || '',
+        id: camera?.id || ''
       };
 
       const isConnected = await CameraService.testCameraConnection(testCamera);
@@ -117,15 +117,13 @@ const CameraForm: React.FC<CameraFormProps> = ({
       if (camera) {
         // Update existing camera
         const updatedCamera = await CameraService.updateCamera({
-          ...values,
-          id: camera.id,
-          isOnline: camera.isOnline,
-          lastChecked: new Date()
+          ...camera,
+          ...values
         });
         onSave(updatedCamera);
       } else {
         // Add new camera
-        const newCamera = await CameraService.addCamera(values);
+        const newCamera = await CameraService.addCamera(values as Omit<Camera, 'id' | 'isOnline' | 'lastChecked'>);
         onSave(newCamera);
       }
     } catch (error) {
