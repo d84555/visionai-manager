@@ -108,7 +108,7 @@ const CameraList: React.FC<CameraListProps> = ({ onCamerasChanged }) => {
   const filteredCameras = cameras.filter((camera) =>
     camera.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     camera.ipAddress.includes(searchTerm) ||
-    camera.description?.toLowerCase().includes(searchTerm.toLowerCase())
+    (camera.description?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
   const areAllSelected =
@@ -116,14 +116,14 @@ const CameraList: React.FC<CameraListProps> = ({ onCamerasChanged }) => {
     filteredCameras.every((camera) => selectedCameras.includes(camera.id));
 
   if (isAddingCamera) {
-    return <CameraForm onSaved={handleCameraSaved} onCancel={() => setIsAddingCamera(false)} />;
+    return <CameraForm onSave={handleCameraSaved} onCancel={() => setIsAddingCamera(false)} />;
   }
 
   if (isEditingCamera && editingCamera) {
     return (
       <CameraForm
         camera={editingCamera}
-        onSaved={handleCameraSaved}
+        onSave={handleCameraSaved}
         onCancel={() => {
           setIsEditingCamera(false);
           setEditingCamera(null);

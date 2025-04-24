@@ -35,6 +35,7 @@ const formSchema = z.object({
   channelNumber: z.coerce.number().int().min(1, 'Channel number must be a positive number'),
   username: z.string().optional(),
   password: z.string().optional(),
+  description: z.string().optional(),
   customStreamUrl: z.string().optional()
 });
 
@@ -63,6 +64,7 @@ const CameraForm: React.FC<CameraFormProps> = ({
     channelNumber: camera.channelNumber,
     username: camera.username || '',
     password: camera.password || '',
+    description: camera.description || '',
     customStreamUrl: camera.customStreamUrl || ''
   } : {
     name: '',
@@ -74,6 +76,7 @@ const CameraForm: React.FC<CameraFormProps> = ({
     channelNumber: 1,
     username: 'admin',
     password: '',
+    description: '',
     customStreamUrl: ''
   };
 

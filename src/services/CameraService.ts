@@ -19,6 +19,7 @@ export interface Camera {
   channelNumber: number;
   username: string;
   password: string;
+  description?: string; // Added the description property as optional
   customStreamUrl?: string;
   // Status properties
   isOnline: boolean;
