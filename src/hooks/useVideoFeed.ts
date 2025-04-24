@@ -257,6 +257,7 @@ export const useVideoFeed = ({
     inferenceLocation,
     inferenceTime,
     isHikvisionFormat,
+    setIsHikvisionFormat,
     videoRef,
     containerRef,
     startStream,
