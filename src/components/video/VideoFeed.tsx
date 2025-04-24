@@ -28,6 +28,7 @@ interface VideoFeedProps {
   isPinned?: boolean;
   onPinToggle?: () => void;
   activeModel?: { name: string; path: string };
+  streamType?: 'main' | 'sub';
 }
 
 const VideoFeed: React.FC<VideoFeedProps> = ({ 
@@ -37,7 +38,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   camera,
   isPinned = false,
   onPinToggle,
-  activeModel
+  activeModel,
+  streamType = 'main'
 }) => {
   const [videoUrl, setVideoUrl] = useState(initialVideoUrl);
   const [isStreaming, setIsStreaming] = useState(autoStart);
@@ -407,7 +409,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
           <div className="relative">
             <video
               ref={videoRef}
-              src={videoUrl}
+              src={camera?.streamUrl ? camera.streamUrl[streamType] : videoUrl}
               width="100%"
               height="auto"
               onLoadedMetadata={handleVideoMetadata}
@@ -646,7 +648,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               <div className="relative">
                 <video
                   ref={videoRef}
-                  src={videoUrl}
+                  src={camera?.streamUrl ? camera.streamUrl[streamType] : videoUrl}
                   width={resolution.width}
                   height={resolution.height}
                   onLoadedMetadata={handleVideoMetadata}
