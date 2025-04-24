@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Camera as CameraIcon, RefreshCw, Settings, Layers, X, Play, CircleStop, Maximize, Minimize } from 'lucide-react';
 import { Camera } from '@/services/CameraService';
@@ -480,7 +479,7 @@ const CameraGrid: React.FC<CameraGridProps> = ({
         </div>
       </div>
       
-      <style jsx global>{`
+      <style>{`
         .fullscreen-container video {
           width: 100%;
           height: 100vh;
