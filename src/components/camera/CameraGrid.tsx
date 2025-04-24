@@ -1,11 +1,11 @@
-
 import React from 'react';
+import { Camera } from 'lucide-react';
 import { useCameraGrid } from '@/hooks/useCameraGrid';
 import CameraGridHeader from './CameraGridHeader';
 import CameraGridPosition from './CameraGridPosition';
 import CameraService from '@/services/CameraService';
 import { toast } from 'sonner';
-import { Camera } from '@/services/CameraService';
+import { Camera as CameraType } from '@/services/CameraService';
 
 interface CameraGridProps {
   layout?: '1x1' | '2x2' | '3x3' | '4x4';
@@ -58,7 +58,7 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     }
   };
 
-  const getAssignedCamera = (positionId: string): Camera | null => {
+  const getAssignedCamera = (positionId: string): CameraType | null => {
     const cameraId = cameraAssignments[positionId];
     if (!cameraId) return null;
     return cameras.find(camera => camera.id === cameraId) || null;
@@ -141,7 +141,7 @@ const CameraGrid: React.FC<CameraGridProps> = ({
   if (cameras.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center border rounded-md p-8 text-center">
-        <CameraIcon className="h-12 w-12 text-gray-400 mb-4" />
+        <Camera className="h-12 w-12 text-gray-400 mb-4" />
         <h3 className="text-lg font-medium mb-2">No Cameras Configured</h3>
         <p className="text-sm text-muted-foreground">
           Add cameras in the Camera Management section to view live feeds
