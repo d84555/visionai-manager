@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { VideoIcon, Camera, Layers } from 'lucide-react';
+import { VideoIcon, Camera, Layers, Cpu } from 'lucide-react';
 import VideoFeed from '@/components/video/VideoFeed';
 import CameraManagement from '@/components/camera/CameraManagement';
 import CameraGrid from '@/components/camera/CameraGrid';
