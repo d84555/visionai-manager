@@ -63,7 +63,14 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       { id: 'yolov11-m', name: 'YOLOv11 Medium', path: '/models/yolov11-m.onnx' },
       { id: 'yolov11-l', name: 'YOLOv11 Large', path: '/models/yolov11-l.onnx' }
     ];
-    setAvailableModels(modelsList);
+    
+    const customModels = SettingsService.getCustomModels().map(model => ({
+      id: model.id,
+      name: model.name,
+      path: model.path
+    }));
+    
+    setAvailableModels([...modelsList, ...customModels]);
     
     const savedModel = SettingsService.getActiveModel();
     if (savedModel) {

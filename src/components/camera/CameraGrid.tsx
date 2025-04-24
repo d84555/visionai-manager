@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Camera as CameraIcon, RefreshCw, Settings, Layers, X, Play, CircleStop, Maximize, Minimize } from 'lucide-react';
 import { Camera } from '@/services/CameraService';
@@ -43,7 +44,24 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     loadActiveModel();
     loadModels();
     loadCameraModels();
+
+    // Listen for fullscreen changes to update UI when ESC is pressed
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
   }, []);
+  
+  // Handle fullscreen change event (including ESC key)
+  const handleFullscreenChange = () => {
+    if (!document.fullscreenElement) {
+      setIsFullscreen(false);
+      setFullscreenCamera(null);
+    } else {
+      setIsFullscreen(true);
+    }
+  };
   
   const loadCameras = () => {
     const loadedCameras = CameraService.getAllCameras();
@@ -184,14 +202,13 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     const camera = cameras.find(c => c.id === cameraId);
     
     if (cameraId && cameraId.length > 0 && camera && onClearAssignment) {
-      if (cameraAssignments) {
-        const newAssignments = { ...cameraAssignments };
-        newAssignments[positionId] = cameraId;
-        
-        if (onClearAssignment) {
-          localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
-          toast.success('Camera assigned to grid position');
-        }
+      const newAssignments = { ...cameraAssignments };
+      newAssignments[positionId] = cameraId;
+      
+      if (onClearAssignment) {
+        localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
+        toast.success('Camera assigned to grid position');
+        window.location.reload(); // Force a refresh to update the grid
       }
     }
   };
@@ -212,6 +229,7 @@ const CameraGrid: React.FC<CameraGridProps> = ({
       } else {
         await document.exitFullscreen();
         setIsFullscreen(false);
+        setFullscreenCamera(null);
       }
     } catch (err) {
       console.error('Fullscreen error:', err);
@@ -347,20 +365,22 @@ const CameraGrid: React.FC<CameraGridProps> = ({
           </CardHeader>
           <CardContent className="p-0" id={`camera-${positionId}`}>
             {assignedCamera ? (
-              <VideoFeed
-                initialVideoUrl={CameraService.getPlayableStreamUrl(assignedCamera)}
-                autoStart={playingStreams[positionId]}
-                showControls={false}
-                camera={{
-                  id: assignedCamera.id,
-                  name: assignedCamera.name,
-                  streamUrl: {
-                    main: CameraService.getPlayableStreamUrl(assignedCamera),
-                    sub: CameraService.getPlayableStreamUrl(assignedCamera)
-                  }
-                }}
-                activeModel={getCameraModel(assignedCamera.id)}
-              />
+              <div className={`${fullscreenCamera === positionId ? 'fullscreen-container' : ''}`}>
+                <VideoFeed
+                  initialVideoUrl={CameraService.getPlayableStreamUrl(assignedCamera)}
+                  autoStart={playingStreams[positionId]}
+                  showControls={false}
+                  camera={{
+                    id: assignedCamera.id,
+                    name: assignedCamera.name,
+                    streamUrl: {
+                      main: CameraService.getPlayableStreamUrl(assignedCamera),
+                      sub: CameraService.getPlayableStreamUrl(assignedCamera)
+                    }
+                  }}
+                  activeModel={getCameraModel(assignedCamera.id)}
+                />
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 h-[160px]">
                 <div className="text-center text-muted-foreground">
@@ -459,6 +479,30 @@ const CameraGrid: React.FC<CameraGridProps> = ({
           </Button>
         </div>
       </div>
+      
+      <style jsx global>{`
+        .fullscreen-container video {
+          width: 100%;
+          height: 100vh;
+          object-fit: contain;
+          background: black;
+        }
+        
+        #camera-grid:fullscreen {
+          background: black;
+          padding: 20px;
+          overflow-y: auto;
+        }
+        
+        #camera-grid:fullscreen .card {
+          height: auto;
+        }
+        
+        #camera-grid:fullscreen video {
+          width: 100%;
+          object-fit: contain;
+        }
+      `}</style>
       
       <div 
         id="camera-grid" 

@@ -122,6 +122,30 @@ const Home = () => {
         <h1 className="text-3xl font-bold">Welcome to Avianet Vision</h1>
       </div>
       
+      <style jsx global>{`
+        #camera-grid:fullscreen {
+          background: black;
+          padding: 20px;
+          overflow-y: auto;
+        }
+        
+        #camera-grid:fullscreen .card {
+          height: auto;
+        }
+        
+        #camera-grid:fullscreen video {
+          width: 100%;
+          object-fit: contain;
+        }
+        
+        .fullscreen-container video {
+          width: 100%;
+          height: 100vh;
+          object-fit: contain;
+          background: black;
+        }
+      `}</style>
+      
       <div className="bg-card rounded-md border shadow-sm">
         <Tabs defaultValue="multicamera" className="w-full">
           <div className="flex items-center justify-between border-b px-4 py-2">
