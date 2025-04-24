@@ -109,75 +109,43 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       return;
     }
     
-    if (!camera && !showControls) {
-      const mockClasses = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus'];
-      const newDetections: Detection[] = [];
-      
-      const count = Math.floor(Math.random() * 5) + 1;
-      
-      for (let i = 0; i < count; i++) {
-        const classIndex = Math.floor(Math.random() * mockClasses.length);
-        const confidence = 0.5 + Math.random() * 0.5;
-        
-        const width = 50 + Math.random() * 150;
-        const height = 50 + Math.random() * 100;
-        const x = Math.random() * (resolution.width - width);
-        const y = Math.random() * (resolution.height - height);
-        
-        newDetections.push({
-          id: `det-${Date.now()}-${i}`,
-          class: mockClasses[classIndex],
-          confidence,
-          x,
-          y,
-          width,
-          height
-        });
-      }
-      
-      setDetections(newDetections);
+    if (!camera && !videoUrl && !showControls) {
+      setDetections([]);
       return;
     }
     
-    if (camera?.id) {
-      try {
-        const modelToUse = selectedModel || activeModel;
-        
-        const request: InferenceRequest = {
-          imageData: "base64_image_data_would_go_here",
-          cameraId: camera.name,
-          modelName: modelToUse?.name || "YOLOv11",
-          thresholdConfidence: 0.5
-        };
-        
-        const result = await EdgeAIInference.performInference(request);
-        
-        setDetections(result.detections);
-        setInferenceLocation(result.processedAt);
-        setInferenceTime(result.inferenceTime);
-        
-        if (!autoStart) {
-          result.detections.forEach(detection => {
-            if (detection.confidence > 0.85) {
-              toast.warning(`High confidence detection: ${detection.class}`, {
-                description: `Confidence: ${(detection.confidence * 100).toFixed(1)}%`
-              });
-            }
-          });
-        }
-      } catch (error) {
-        console.error("Edge inference error:", error);
-        toast.error("AI inference failed", {
-          description: "Falling back to server processing"
+    try {
+      const modelToUse = selectedModel || activeModel;
+      
+      const request: InferenceRequest = {
+        imageData: "base64_image_data_would_go_here",
+        cameraId: camera?.id || videoUrl || "unknown",
+        modelName: modelToUse?.name || "YOLOv11",
+        thresholdConfidence: 0.5
+      };
+      
+      const result = await EdgeAIInference.performInference(request);
+      
+      setDetections(result.detections);
+      setInferenceLocation(result.processedAt);
+      setInferenceTime(result.inferenceTime);
+      
+      if (!autoStart) {
+        result.detections.forEach(detection => {
+          if (detection.confidence > 0.85) {
+            toast.warning(`High confidence detection: ${detection.class}`, {
+              description: `Confidence: ${(detection.confidence * 100).toFixed(1)}%`
+            });
+          }
         });
-        setInferenceLocation("server");
-        
-        const mockDetections = generateMockDetections();
-        setDetections(mockDetections);
       }
-    } else {
-      const mockDetections = generateMockDetections();
-      setDetections(mockDetections);
+    } catch (error) {
+      console.error("Edge inference error:", error);
+      toast.error("AI inference failed", {
+        description: "Falling back to server processing"
+      });
+      setInferenceLocation("server");
+      setDetections([]);
     }
   };
 
