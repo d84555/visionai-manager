@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,6 +21,7 @@ import {
 import { toast } from 'sonner';
 import { Brain, Upload, Trash2, Camera } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import SettingsService from '@/services/SettingsService';
 
 interface AIModel {
   id: string;
@@ -32,56 +33,127 @@ interface AIModel {
 }
 
 const AIModelUpload: React.FC = () => {
-  const [uploadedModels, setUploadedModels] = useState<AIModel[]>([
-    {
-      id: 'model-1',
-      name: 'YOLOv11',
-      type: 'Object Detection',
-      size: '23.4 MB',
-      cameras: ['All Cameras'],
-      uploaded: new Date('2025-01-15')
-    },
-    {
-      id: 'model-2',
-      name: 'Face Recognition Pro',
-      type: 'Face Recognition',
-      size: '42.1 MB',
-      cameras: ['Front Entrance', 'Reception'],
-      uploaded: new Date('2025-02-20')
-    }
-  ]);
-  
+  const [uploadedModels, setUploadedModels] = useState<AIModel[]>([]);
+  const [modelName, setModelName] = useState('');
+  const [modelType, setModelType] = useState('object-detection');
+  const [modelFile, setModelFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [assignTarget, setAssignTarget] = useState<string | null>(null);
   
-  const handleUpload = () => {
+  // Load saved models on component mount
+  useEffect(() => {
+    const customModels = SettingsService.getCustomModels();
+    const formattedModels = customModels.map(model => ({
+      id: model.id,
+      name: model.name,
+      type: 'Object Detection', // Default type for existing models
+      size: model.size || 'Unknown size',
+      cameras: model.cameras || ['All Cameras'],
+      uploaded: new Date(model.uploadedAt)
+    }));
+    
+    // Also load any mock models that might be in state
+    const mockModels = [
+      {
+        id: 'model-1',
+        name: 'YOLOv11',
+        type: 'Object Detection',
+        size: '23.4 MB',
+        cameras: ['All Cameras'],
+        uploaded: new Date('2025-01-15')
+      },
+      {
+        id: 'model-2',
+        name: 'Face Recognition Pro',
+        type: 'Face Recognition',
+        size: '42.1 MB',
+        cameras: ['Front Entrance', 'Reception'],
+        uploaded: new Date('2025-02-20')
+      }
+    ];
+    
+    // Combine saved models and mock models (avoiding duplicates by ID)
+    const allModels = [...formattedModels];
+    if (allModels.length === 0) {
+      allModels.push(...mockModels);
+    }
+    
+    setUploadedModels(allModels);
+  }, []);
+  
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setModelFile(e.target.files[0]);
+    }
+  };
+  
+  const handleUpload = async () => {
+    if (!modelFile) {
+      toast.error('Please select a model file to upload');
+      return;
+    }
+    
+    if (!modelName.trim()) {
+      toast.error('Please enter a name for the model');
+      return;
+    }
+    
     setIsUploading(true);
     
-    // Simulate upload delay
-    setTimeout(() => {
-      setIsUploading(false);
+    try {
+      // Calculate file size in MB
+      const fileSizeMB = (modelFile.size / (1024 * 1024)).toFixed(1);
+      
+      // Upload the model using SettingsService
+      const uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName);
       
       const newModel: AIModel = {
-        id: `model-${uploadedModels.length + 1}-${Date.now()}`,
-        name: `Custom Model ${uploadedModels.length + 1}`,
-        type: 'Object Detection',
-        size: `${Math.floor(Math.random() * 50) + 10}.${Math.floor(Math.random() * 9)}MB`,
+        id: `custom-${Date.now()}`,
+        name: modelName,
+        type: modelType === 'object-detection' ? 'Object Detection' : 
+              modelType === 'face-recognition' ? 'Face Recognition' : 
+              modelType === 'anomaly-detection' ? 'Anomaly Detection' : 'Behavior Analysis',
+        size: `${fileSizeMB} MB`,
         cameras: ['All Cameras'],
         uploaded: new Date()
       };
       
-      setUploadedModels([...uploadedModels, newModel]);
+      // Update state with the new model
+      setUploadedModels(prev => [...prev, newModel]);
       
+      // Reset form
+      setModelName('');
+      setModelFile(null);
+      setModelType('object-detection');
+      
+      // Success notification
       toast.success('AI Model Uploaded', {
         description: `${newModel.name} has been successfully uploaded and is ready to use.`
       });
-    }, 2000);
+    } catch (error) {
+      console.error('Error uploading model:', error);
+      toast.error('Failed to upload model', {
+        description: 'Please try again or contact support if the issue persists.'
+      });
+    } finally {
+      setIsUploading(false);
+    }
   };
   
   const handleDelete = (modelId: string) => {
+    // Find the model to delete
+    const modelToDelete = uploadedModels.find(model => model.id === modelId);
+    if (!modelToDelete) return;
+    
+    // Remove from state
     setUploadedModels(uploadedModels.filter(model => model.id !== modelId));
+    
+    // Remove from localStorage
+    const customModels = SettingsService.getCustomModels().filter(model => model.id !== modelId);
+    localStorage.setItem('custom-ai-models', JSON.stringify(customModels));
+    
     toast.success('Model Removed', {
-      description: 'The AI model has been successfully removed.'
+      description: `${modelToDelete.name} has been successfully removed.`
     });
   };
   
@@ -109,7 +181,17 @@ const AIModelUpload: React.FC = () => {
           }
         }
         
-        return { ...model, cameras: updatedCameras };
+        const updatedModel = { ...model, cameras: updatedCameras };
+        
+        // Update camera assignments in localStorage
+        const customModels = SettingsService.getCustomModels();
+        const modelIndex = customModels.findIndex(m => m.id === modelId);
+        if (modelIndex >= 0) {
+          customModels[modelIndex].cameras = updatedCameras;
+          localStorage.setItem('custom-ai-models', JSON.stringify(customModels));
+        }
+        
+        return updatedModel;
       }
       return model;
     }));
@@ -148,7 +230,13 @@ const AIModelUpload: React.FC = () => {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="model-file">Select Model File</Label>
-              <Input id="model-file" type="file" accept=".pt,.onnx,.tflite,.pb" />
+              <Input 
+                id="model-file" 
+                type="file" 
+                accept=".pt,.onnx,.tflite,.pb" 
+                onChange={handleFileChange}
+                disabled={isUploading}
+              />
               <p className="text-xs text-muted-foreground">
                 Supported formats: ONNX, TFLite, PyTorch, TensorFlow
               </p>
@@ -157,12 +245,23 @@ const AIModelUpload: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="model-name">Model Name</Label>
-                <Input id="model-name" placeholder="e.g., YOLOv11 Custom" />
+                <Input 
+                  id="model-name" 
+                  placeholder="e.g., YOLOv11 Custom" 
+                  value={modelName}
+                  onChange={(e) => setModelName(e.target.value)}
+                  disabled={isUploading}
+                />
               </div>
               
               <div className="space-y-2">
                 <Label htmlFor="model-type">Model Type</Label>
-                <Select defaultValue="object-detection">
+                <Select 
+                  defaultValue="object-detection"
+                  value={modelType}
+                  onValueChange={setModelType}
+                  disabled={isUploading}
+                >
                   <SelectTrigger id="model-type">
                     <SelectValue placeholder="Select model type" />
                   </SelectTrigger>
@@ -178,7 +277,7 @@ const AIModelUpload: React.FC = () => {
           </div>
         </CardContent>
         <CardFooter className="flex justify-end">
-          <Button variant="default" onClick={handleUpload} disabled={isUploading}>
+          <Button variant="default" onClick={handleUpload} disabled={isUploading || !modelFile || !modelName.trim()}>
             {isUploading ? (
               <>
                 <Upload className="mr-2 h-4 w-4 animate-pulse" />

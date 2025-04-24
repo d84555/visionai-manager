@@ -57,6 +57,16 @@ export interface StorageSettings {
   compressionEnabled: boolean;
 }
 
+export interface CustomModel {
+  id: string;
+  name: string;
+  path: string;
+  uploadedAt: string;
+  size?: string;
+  cameras?: string[];
+  type?: string;
+}
+
 const SettingsService = {
   // Get active AI model
   getActiveModel: () => {
@@ -87,7 +97,7 @@ const SettingsService = {
     return modelData;
   },
   
-  // Upload a custom YOLO model
+  // Upload a custom YOLO model with improved persistence
   uploadCustomModel: (file: File, name: string): Promise<{ name: string; path: string }> => {
     return new Promise((resolve, reject) => {
       // In a real implementation, this would upload the file to a server
@@ -102,15 +112,33 @@ const SettingsService = {
           // Generate a mock path that looks like a local file URL
           const modelPath = `/custom_models/${name.replace(/\s+/g, '_').toLowerCase()}_${Date.now()}.onnx`;
           
+          // Get file size in MB
+          const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
+          
+          // Generate a unique ID for the model
+          const modelId = `custom-${Date.now()}`;
+          
+          // Create the model object with all necessary data
+          const modelData = {
+            id: modelId,
+            name,
+            path: modelPath,
+            uploadedAt: new Date().toISOString(),
+            size: fileSizeMB,
+            cameras: ['All Cameras'],
+            type: 'Object Detection'
+          };
+          
           // Store in custom models list
           const customModels = SettingsService.getCustomModels();
-          customModels.push({ 
-            id: `custom-${Date.now()}`, 
-            name, 
-            path: modelPath,
-            uploadedAt: new Date().toISOString()
-          });
+          customModels.push(modelData);
           localStorage.setItem('custom-ai-models', JSON.stringify(customModels));
+          
+          // Also store in the general settings under a specific key
+          const settings = SettingsService.getAllSettings();
+          settings.customModels = settings.customModels || [];
+          settings.customModels.push(modelData);
+          localStorage.setItem('avianet-settings', JSON.stringify(settings));
           
           // Also set as active model
           SettingsService.setActiveModel(name, modelPath);
@@ -127,7 +155,19 @@ const SettingsService = {
   // Get list of custom models
   getCustomModels: () => {
     const storedModels = localStorage.getItem('custom-ai-models');
-    return storedModels ? JSON.parse(storedModels) : [];
+    const models = storedModels ? JSON.parse(storedModels) : [];
+    
+    // Also check in general settings as a fallback and for redundancy
+    if (models.length === 0) {
+      const settings = SettingsService.getAllSettings();
+      if (settings.customModels && settings.customModels.length > 0) {
+        // Restore models from settings and update the dedicated storage
+        localStorage.setItem('custom-ai-models', JSON.stringify(settings.customModels));
+        return settings.customModels;
+      }
+    }
+    
+    return models;
   },
   
   // Save grid layout settings
