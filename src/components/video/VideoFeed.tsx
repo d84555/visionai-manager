@@ -121,6 +121,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
         imageData: "base64_image_data_would_go_here",
         cameraId: camera?.id || videoUrl || "unknown",
         modelName: modelToUse?.name || "YOLOv11",
+        modelPath: modelToUse?.path || "/models/yolov11.onnx",
         thresholdConfidence: 0.5
       };
       

@@ -9,6 +9,7 @@ export interface InferenceRequest {
   imageData: string;
   cameraId: string;
   modelName: string;
+  modelPath: string; // Added model path to better identify the model
   thresholdConfidence: number;
 }
 
@@ -102,6 +103,7 @@ const predefinedDetections: Record<string, Detection[]> = {
 
 class EdgeAIInferenceService {
   private deviceConnections: Map<string, WebSocket | null> = new Map();
+  private modelCache: Map<string, boolean> = new Map(); // Track loaded models
   
   // Connect to an edge device using WebSocket
   connectToDevice(deviceId: string, ipAddress: string, authToken?: string): Promise<boolean> {
@@ -139,12 +141,17 @@ class EdgeAIInferenceService {
   
   // Process an inference request
   async performInference(request: InferenceRequest): Promise<InferenceResult> {
-    // Check if we're connected to a device for this camera
-    console.info(`Performing inference for camera ${request.cameraId} with model ${request.modelName}`);
+    // Log the request details for debugging
+    console.info(`Performing inference for camera ${request.cameraId} with model ${request.modelName} (${request.modelPath})`);
     
     // Check if this is a demo video and has predefined detections
     const demoDetections = this.getDemoVideoDetections(request.cameraId);
-    if (demoDetections) {
+    
+    // Check if this is a custom model (not a default YOLO model)
+    const isCustomModel = !request.modelPath.includes('/models/yolov11');
+    
+    // If this is a demo video and NOT a custom model, return predefined detections
+    if (demoDetections && !isCustomModel) {
       return new Promise((resolve) => {
         setTimeout(() => {
           resolve({
@@ -156,22 +163,104 @@ class EdgeAIInferenceService {
       });
     }
     
-    // For simulation purposes, return a more realistic detection after a delay
+    // For custom models or when using real inference, generate more specific detections
+    // In a real implementation, this would use the actual model for inference
     return new Promise((resolve) => {
+      const inferenceStartTime = performance.now();
+      
       setTimeout(() => {
-        // Generate between 1-3 detections from the actual YOLO class labels
-        const detections = this.generateRealisticDetections(request.modelName);
+        // For custom models, we'll generate fewer and more specific detections
+        // to give the impression of a more accurate model
+        let detections: Detection[];
         
-        // Simulate edge processing success with 70% probability
-        const isEdgeProcessed = Math.random() < 0.7;
-        
-        resolve({
-          detections,
-          processedAt: isEdgeProcessed ? 'edge' : 'server',
-          inferenceTime: isEdgeProcessed ? 20 + Math.random() * 50 : 100 + Math.random() * 150
-        });
+        if (isCustomModel) {
+          // Custom models should appear more precise with fewer false positives
+          detections = this.generateCustomModelDetections(request.cameraId, request.modelName);
+          
+          // Custom models might be processed on the server more often
+          const isEdgeProcessed = Math.random() < 0.4; // 40% chance for edge processing
+          const inferenceTime = isEdgeProcessed ? 
+            40 + Math.random() * 60 : // Edge: 40-100ms (slower for custom models)
+            120 + Math.random() * 180; // Server: 120-300ms
+          
+          resolve({
+            detections,
+            processedAt: isEdgeProcessed ? 'edge' : 'server',
+            inferenceTime
+          });
+        } else {
+          // Standard YOLO models use the default realistic detections
+          detections = this.generateRealisticDetections(request.modelName);
+          
+          // Simulate edge processing success with 70% probability
+          const isEdgeProcessed = Math.random() < 0.7;
+          
+          resolve({
+            detections,
+            processedAt: isEdgeProcessed ? 'edge' : 'server',
+            inferenceTime: isEdgeProcessed ? 20 + Math.random() * 50 : 100 + Math.random() * 150
+          });
+        }
       }, 500);
     });
+  }
+  
+  // Generate detections that appear to come from a custom model
+  private generateCustomModelDetections(cameraId: string, modelName: string): Detection[] {
+    // For custom models, generate more specific and fewer detections
+    // to give the impression of a model trained for specific use cases
+    
+    const detections: Detection[] = [];
+    const specificClasses = ["person", "car", "truck"]; // Focus on common classes
+    
+    // Determine if we should detect anything based on camera and model
+    // This simulates the behavior of a specialized model that only detects certain objects
+    const shouldDetect = Math.random() < 0.7; // 70% chance to detect something
+    
+    if (!shouldDetect) {
+      return []; // Return empty detections - the model didn't find anything
+    }
+    
+    // For custom models, generate 1-2 high confidence detections
+    const numDetections = 1 + Math.floor(Math.random() * 1.5); // 1-2 detections
+    
+    for (let i = 0; i < numDetections; i++) {
+      // Select from the specific classes for custom models
+      const classIndex = Math.floor(Math.random() * specificClasses.length);
+      const className = specificClasses[classIndex];
+      
+      // Higher confidence for custom models
+      const confidence = 0.75 + Math.random() * 0.2; // 0.75-0.95
+      
+      // Reasonable object sizes relative to frame
+      const width = (className === "person" ? 0.1 : 0.15) * 640 + Math.random() * 60;
+      const height = (className === "person" ? 0.25 : 0.15) * 360 + Math.random() * 40;
+      
+      // Position objects in realistic areas of the frame
+      let x, y;
+      if (className === "person") {
+        x = Math.random() * (640 - width);
+        y = 120 + Math.random() * (240 - height); // Lower half
+      } else if (className === "car" || className === "truck") {
+        x = Math.random() * (640 - width);
+        y = 180 + Math.random() * (180 - height); // Road level
+      } else {
+        x = Math.random() * (640 - width);
+        y = Math.random() * (360 - height);
+      }
+      
+      detections.push({
+        id: `det-${Date.now()}-${i}`,
+        class: className,
+        confidence,
+        x,
+        y,
+        width,
+        height
+      });
+    }
+    
+    return detections;
   }
   
   // Generate realistic detections based on the model
@@ -258,6 +347,8 @@ class EdgeAIInferenceService {
       setTimeout(() => {
         // 90% chance of success
         if (Math.random() < 0.9) {
+          // Mark the model as loaded for this device
+          this.modelCache.set(`${deviceId}-${modelId}`, true);
           toast.success(`Model ${modelId} deployed successfully`);
           resolve(true);
         } else {
@@ -277,6 +368,8 @@ class EdgeAIInferenceService {
       
       // Simulate operation time
       setTimeout(() => {
+        // Remove from cache
+        this.modelCache.delete(`${deviceId}-${modelId}`);
         toast.success(`Model ${modelId} removed successfully`);
         resolve(true);
       }, 1000);
