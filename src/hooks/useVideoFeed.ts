@@ -132,18 +132,23 @@ export const useVideoFeed = ({
     }
   };
 
-  const togglePlayPause = () => {
+  const togglePlayPause = async () => {
     if (videoRef.current) {
       if (isPlaying) {
         videoRef.current.pause();
+        setIsPlaying(false);
       } else {
-        videoRef.current.play().catch(err => {
+        try {
+          // Fix: Ensure we actually wait for the play() promise to resolve
+          await videoRef.current.play();
+          setIsPlaying(true);
+        } catch (err) {
+          console.error("Video play error in togglePlayPause:", err);
           toast.error('Could not play video', {
-            description: err.message
+            description: 'The video may be in an unsupported format or the stream is unavailable'
           });
-        });
+        }
       }
-      setIsPlaying(!isPlaying);
     }
   };
 
