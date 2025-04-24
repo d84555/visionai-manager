@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Video, Bell, FileText, Brain, Settings, Server, Cpu, Grid, Grip } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +13,7 @@ import { Camera } from '@/services/CameraService';
 import { toast } from 'sonner';
 import CameraListPanel from '@/components/camera/CameraListPanel';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
+import { Button } from '@/components/ui/button';
 
 const Home = () => {
   const [gridLayout, setGridLayout] = useState<'1x1' | '2x2' | '3x3' | '4x4'>('1x1');
@@ -47,6 +49,7 @@ const Home = () => {
     localStorage.setItem('camera-grid-assignments', JSON.stringify(cameraAssignments));
   }, [cameraAssignments]);
   
+  // FIX: Updated the handler to properly assign camera to grid position
   const handleAssignCamera = (cameraId: string, gridPositionId: string) => {
     const newAssignments = { ...cameraAssignments };
     newAssignments[gridPositionId] = cameraId;
@@ -143,25 +146,32 @@ const Home = () => {
           </div>
           
           <TabsContent value="multicamera" className="p-4">
-            <div className="flex gap-4">
-              <div className={`flex-grow transition-all ${showCameraPanel ? 'w-3/4' : 'w-full'}`}>
-                <CameraGrid 
-                  layout={gridLayout} 
-                  cameraAssignments={cameraAssignments}
-                  onClearAssignment={handleClearAssignment}
-                />
-              </div>
-              
-              {showCameraPanel && (
-                <div className="w-1/4 border-l pl-4">
-                  <CameraListPanel 
-                    cameras={cameras} 
-                    onAssignCamera={handleAssignCamera}
-                    gridLayout={gridLayout}
+            <ResizablePanelGroup direction="horizontal" className="min-h-[400px]">
+              <ResizablePanel defaultSize={75} minSize={30}>
+                <div className="h-full">
+                  <CameraGrid 
+                    layout={gridLayout} 
+                    cameraAssignments={cameraAssignments}
+                    onClearAssignment={handleClearAssignment}
                   />
                 </div>
+              </ResizablePanel>
+              
+              {showCameraPanel && (
+                <>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel defaultSize={25} minSize={20}>
+                    <div className="h-full border-l pl-4">
+                      <CameraListPanel 
+                        cameras={cameras} 
+                        onAssignCamera={handleAssignCamera}
+                        gridLayout={gridLayout}
+                      />
+                    </div>
+                  </ResizablePanel>
+                </>
               )}
-            </div>
+            </ResizablePanelGroup>
           </TabsContent>
           
           <TabsContent value="aimodels" className="p-4">
@@ -196,7 +206,5 @@ const Home = () => {
     </div>
   );
 };
-
-import { Button } from '@/components/ui/button';
 
 export default Home;

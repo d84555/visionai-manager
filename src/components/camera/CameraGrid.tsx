@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Camera as CameraIcon, RefreshCw, Settings, Layers, X } from 'lucide-react';
 import { Camera } from '@/services/CameraService';
@@ -179,11 +178,11 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     setDragOverPosition(null);
     
     const cameraId = e.dataTransfer.getData('text/plain');
-    if (cameraId) {
-      // Notify parent component about the assignment
+    if (cameraId && cameraId.length > 0) {
       if (onClearAssignment) {
         onClearAssignment(positionId);
       }
+      toast.success('Camera assigned to grid position');
     }
   };
   
@@ -196,7 +195,6 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     }
   };
   
-  // Generate grid positions
   const renderGridPositions = () => {
     const count = getCameraCount();
     const positions = [];

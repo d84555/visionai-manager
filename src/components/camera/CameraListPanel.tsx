@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Camera } from '@/services/CameraService';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Grip, Video, Camera as CameraIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -22,18 +22,26 @@ const CameraListPanel: React.FC<CameraListPanelProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [draggedCameraId, setDraggedCameraId] = useState<string | null>(null);
   
+  // FIX: Improved drag start handler to ensure data is properly set
   const handleDragStart = (cameraId: string, e: React.DragEvent) => {
     setDraggedCameraId(cameraId);
-    // Set the data that will be transferred
+    
+    // Set the data that will be transferred - make sure it's properly set
     e.dataTransfer.setData('text/plain', cameraId);
+    e.dataTransfer.effectAllowed = 'copy';
     
     // Custom styling for the drag image (optional)
     const dragImage = document.createElement('div');
     dragImage.innerHTML = `<div class="p-2 bg-primary text-white rounded">Camera</div>`;
-    document.body.appendChild(dragImage);
     dragImage.style.position = 'absolute';
     dragImage.style.top = '-1000px';
+    document.body.appendChild(dragImage);
     e.dataTransfer.setDragImage(dragImage, 0, 0);
+    
+    // Cleanup the drag image element after drag ends
+    setTimeout(() => {
+      document.body.removeChild(dragImage);
+    }, 0);
   };
   
   const handleDragEnd = () => {

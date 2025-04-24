@@ -89,6 +89,7 @@ const EdgeDeviceService = {
     const devices = getStoredDevices();
     const updatedDevices = devices.filter(d => d.id !== deviceId);
     saveDevicesToStorage(updatedDevices);
+    return Promise.resolve();
   },
 
   // Test connectivity to an edge device
