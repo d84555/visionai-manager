@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Video, Bell, FileText, Brain, Settings, Server, Cpu, Grid, Grip } from 'lucide-react';
@@ -12,7 +11,7 @@ import CameraService from '@/services/CameraService';
 import { Camera } from '@/services/CameraService';
 import { toast } from 'sonner';
 import CameraListPanel from '@/components/camera/CameraListPanel';
-import { Resizable } from '@/components/ui/resizable';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 
 const Home = () => {
   const [gridLayout, setGridLayout] = useState<'1x1' | '2x2' | '3x3' | '4x4'>('1x1');
@@ -21,7 +20,6 @@ const Home = () => {
   const [cameraAssignments, setCameraAssignments] = useState<Record<string, string>>({});
   const [showCameraPanel, setShowCameraPanel] = useState(true);
   
-  // Load saved grid layout settings on component mount
   useEffect(() => {
     const savedLayout = SettingsService.getGridLayout();
     if (savedLayout) {
@@ -29,18 +27,15 @@ const Home = () => {
       setStreamType(savedLayout.streamType);
     }
     
-    // Load camera assignments
     const savedAssignments = localStorage.getItem('camera-grid-assignments');
     if (savedAssignments) {
       setCameraAssignments(JSON.parse(savedAssignments));
     }
     
-    // Load cameras
     const loadedCameras = CameraService.getAllCameras();
     setCameras(loadedCameras);
   }, []);
   
-  // Save grid layout settings when they change
   useEffect(() => {
     SettingsService.saveGridLayout({
       layout: gridLayout,
@@ -48,7 +43,6 @@ const Home = () => {
     });
   }, [gridLayout, streamType]);
   
-  // Save camera assignments when they change
   useEffect(() => {
     localStorage.setItem('camera-grid-assignments', JSON.stringify(cameraAssignments));
   }, [cameraAssignments]);
@@ -203,7 +197,6 @@ const Home = () => {
   );
 };
 
-// Import needed for the Button component that was missing
 import { Button } from '@/components/ui/button';
 
 export default Home;
