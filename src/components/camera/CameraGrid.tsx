@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Camera as CameraIcon, RefreshCw, Settings, Layers, X, Play, Stop, Maximize, Minimize } from 'lucide-react';
+import { Camera as CameraIcon, RefreshCw, Settings, Layers, X, Play, CircleStop, Maximize, Minimize } from 'lucide-react';
 import { Camera } from '@/services/CameraService';
 import CameraService from '@/services/CameraService';
 import { Button } from '@/components/ui/button';
@@ -297,7 +297,7 @@ const CameraGrid: React.FC<CameraGridProps> = ({
                     onClick={() => toggleStream(positionId)}
                   >
                     {playingStreams[positionId] ? 
-                      <Stop className="h-4 w-4" /> : 
+                      <CircleStop className="h-4 w-4" /> : 
                       <Play className="h-4 w-4" />
                     }
                   </Button>
@@ -410,7 +410,7 @@ const CameraGrid: React.FC<CameraGridProps> = ({
             onClick={() => toggleAllStreams(false)}
             className="flex items-center"
           >
-            <Stop className="mr-2 h-4 w-4" />
+            <CircleStop className="mr-2 h-4 w-4" />
             Stop All
           </Button>
           
