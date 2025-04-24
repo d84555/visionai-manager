@@ -14,6 +14,9 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from 'sonner';
 
@@ -37,7 +40,8 @@ const CameraGrid: React.FC<CameraGridProps> = ({
   const [playingStreams, setPlayingStreams] = useState<Record<string, boolean>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenCamera, setFullscreenCamera] = useState<string | null>(null);
-  
+  const [cameraStreamTypes, setCameraStreamTypes] = useState<Record<string, 'main' | 'sub'>>({});
+
   useEffect(() => {
     loadCameras();
     loadActiveModel();
@@ -269,6 +273,18 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     }));
   };
   
+  const handleStreamTypeChange = (cameraId: string, streamType: 'main' | 'sub') => {
+    setCameraStreamTypes(prev => ({
+      ...prev,
+      [cameraId]: streamType
+    }));
+    toast.success(`Switched to ${streamType} stream`);
+  };
+  
+  const getStreamTypeForCamera = (cameraId: string): 'main' | 'sub' => {
+    return cameraStreamTypes[cameraId] || 'main';
+  };
+
   const renderGridPositions = () => {
     const count = getCameraCount();
     const positions = [];
@@ -339,8 +355,29 @@ const CameraGrid: React.FC<CameraGridProps> = ({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>AI Model</DropdownMenuLabel>
+                        <DropdownMenuLabel>Camera Settings</DropdownMenuLabel>
                         <DropdownMenuSeparator />
+                        
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>Stream Type</DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent>
+                            <DropdownMenuItem 
+                              onClick={() => handleStreamTypeChange(assignedCamera.id, 'main')}
+                              className={getStreamTypeForCamera(assignedCamera.id) === 'main' ? "bg-muted" : ""}
+                            >
+                              Main Stream
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => handleStreamTypeChange(assignedCamera.id, 'sub')}
+                              className={getStreamTypeForCamera(assignedCamera.id) === 'sub' ? "bg-muted" : ""}
+                            >
+                              Sub Stream
+                            </DropdownMenuItem>
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                        
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel>AI Model</DropdownMenuLabel>
                         <DropdownMenuItem onClick={() => handleApplyModelToCamera(assignedCamera.id, null)}>
                           Use Global AI Model
                         </DropdownMenuItem>
@@ -373,11 +410,12 @@ const CameraGrid: React.FC<CameraGridProps> = ({
                     id: assignedCamera.id,
                     name: assignedCamera.name,
                     streamUrl: {
-                      main: CameraService.getPlayableStreamUrl(assignedCamera),
-                      sub: CameraService.getPlayableStreamUrl(assignedCamera)
+                      main: CameraService.getPlayableStreamUrl({ ...assignedCamera, streamType: 'main' }),
+                      sub: CameraService.getPlayableStreamUrl({ ...assignedCamera, streamType: 'sub' })
                     }
                   }}
                   activeModel={getCameraModel(assignedCamera.id)}
+                  streamType={getStreamTypeForCamera(assignedCamera.id)}
                 />
               </div>
             ) : (
