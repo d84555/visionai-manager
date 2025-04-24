@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Camera } from 'lucide-react';
 import { useCameraGrid } from '@/hooks/useCameraGrid';
@@ -129,12 +130,16 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     const camera = cameras.find(c => c.id === cameraId);
     
     if (cameraId && cameraId.length > 0 && camera && onClearAssignment) {
+      // Create a new assignments object with just this assignment - don't modify all existing ones
       const newAssignments = { ...cameraAssignments };
       newAssignments[positionId] = cameraId;
       
+      // Update localStorage - but don't force refresh the page
       localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
       toast.success('Camera assigned to grid position');
-      window.location.reload();
+      
+      // Instead of reloading the page, just return and let React update
+      // window.location.reload(); - This was causing the duplication bug
     }
   };
 

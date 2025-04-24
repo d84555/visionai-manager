@@ -6,6 +6,7 @@ import CameraManagement from '@/components/camera/CameraManagement';
 import CameraGrid from '@/components/camera/CameraGrid';
 import ModelSelector from '@/components/ai/ModelSelector';
 import SettingsService from '@/services/SettingsService';
+import CameraService from '@/services/CameraService';
 import CameraListPanel from '@/components/camera/CameraListPanel';
 import CameraControls from '@/components/video/CameraControls';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +19,7 @@ const VideoPage = () => {
   const [streamType, setStreamType] = useState<'main' | 'sub'>('main');
   const [cameraAssignments, setCameraAssignments] = useState<Record<string, string>>({});
   const [showCameraPanel, setShowCameraPanel] = useState(true);
+  const [cameras, setCameras] = useState([]);
 
   useEffect(() => {
     const savedModel = SettingsService.getActiveModel();
@@ -35,7 +37,14 @@ const VideoPage = () => {
     if (savedAssignments) {
       setCameraAssignments(JSON.parse(savedAssignments));
     }
+    
+    loadCameras();
   }, []);
+  
+  const loadCameras = () => {
+    const loadedCameras = CameraService.getAllCameras();
+    setCameras(loadedCameras);
+  };
 
   useEffect(() => {
     SettingsService.saveGridLayout({
@@ -49,6 +58,7 @@ const VideoPage = () => {
   }, [cameraAssignments]);
 
   const handleCamerasChanged = () => {
+    loadCameras();
     setRefreshKey(prev => prev + 1);
   };
 
@@ -61,12 +71,16 @@ const VideoPage = () => {
     const newAssignments = { ...cameraAssignments };
     newAssignments[gridPositionId] = cameraId;
     setCameraAssignments(newAssignments);
+    
+    localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
   };
 
   const handleClearAssignment = (gridPositionId: string) => {
     const newAssignments = { ...cameraAssignments };
     delete newAssignments[gridPositionId];
     setCameraAssignments(newAssignments);
+    
+    localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
   };
 
   return (
@@ -132,7 +146,7 @@ const VideoPage = () => {
                   <ResizablePanel defaultSize={25} minSize={20}>
                     <div className="h-full border-l pl-4">
                       <CameraListPanel
-                        cameras={[]}  // This will be populated from CameraService
+                        cameras={cameras}  
                         onAssignCamera={handleAssignCamera}
                         gridLayout={gridLayout}
                       />

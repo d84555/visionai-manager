@@ -1,30 +1,17 @@
 
 import React, { useState, useEffect } from 'react';
-import { 
-  Camera as CameraIcon, 
-  Edit, 
-  Trash2, 
-  RefreshCw, 
-  Plus,
-  Wifi,
-  WifiOff,
-  Check,
-  X
-} from 'lucide-react';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Camera } from '@/services/CameraService';
-import CameraService from '@/services/CameraService';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { 
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { toast } from 'sonner';
+import CameraService from '@/services/CameraService';
+import { Camera } from '@/services/CameraService';
+import CameraForm from './CameraForm';
+import { AlertCircle, Video, Trash, Plus } from 'lucide-react';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -33,11 +20,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import CameraForm from './CameraForm';
-import { toast } from 'sonner';
-import VideoFeed from '@/components/video/VideoFeed';
-import { Card } from '@/components/ui/card';
+} from "@/components/ui/alert-dialog";
 
 interface CameraListProps {
   onCamerasChanged?: () => void;
@@ -45,286 +28,236 @@ interface CameraListProps {
 
 const CameraList: React.FC<CameraListProps> = ({ onCamerasChanged }) => {
   const [cameras, setCameras] = useState<Camera[]>([]);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedCamera, setSelectedCamera] = useState<Camera | null>(null);
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [selectedCameras, setSelectedCameras] = useState<string[]>([]);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [isAddingCamera, setIsAddingCamera] = useState<boolean>(false);
+  const [isEditingCamera, setIsEditingCamera] = useState<boolean>(false);
+  const [editingCamera, setEditingCamera] = useState<Camera | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState<boolean>(false);
   const [cameraToDelete, setCameraToDelete] = useState<Camera | null>(null);
-  const [previewCamera, setPreviewCamera] = useState<Camera | null>(null);
-  
+
   useEffect(() => {
     loadCameras();
   }, []);
-  
+
   const loadCameras = () => {
-    const loadedCameras = CameraService.getAllCameras();
-    setCameras(loadedCameras);
+    const allCameras = CameraService.getAllCameras();
+    setCameras(allCameras);
+    setSelectedCameras([]);
   };
-  
-  const handleRefreshStatuses = async () => {
-    setIsRefreshing(true);
-    try {
-      await CameraService.refreshAllCameraStatuses();
-      loadCameras();
-    } catch (error) {
-      toast.error('Failed to refresh camera statuses');
-    } finally {
-      setIsRefreshing(false);
+
+  const handleSelectAllChange = (checked: boolean) => {
+    if (checked) {
+      const allIds = cameras.map((camera) => camera.id);
+      setSelectedCameras(allIds);
+    } else {
+      setSelectedCameras([]);
     }
   };
-  
-  const handleAddCamera = () => {
-    setSelectedCamera(null);
-    setIsFormOpen(true);
+
+  const handleSelectCamera = (id: string, checked: boolean) => {
+    if (checked) {
+      setSelectedCameras((prev) => [...prev, id]);
+    } else {
+      setSelectedCameras((prev) => prev.filter((cameraId) => cameraId !== id));
+    }
   };
-  
-  const handleEditCamera = (camera: Camera) => {
-    setSelectedCamera(camera);
-    setIsFormOpen(true);
-  };
-  
+
   const handleDeleteCamera = (camera: Camera) => {
+    // Set the specific camera to delete and open the dialog
     setCameraToDelete(camera);
-    setIsDeleteDialogOpen(true);
+    setDeleteDialogOpen(true);
   };
-  
-  const confirmDelete = () => {
+
+  const confirmDeleteCamera = () => {
     if (cameraToDelete) {
+      // Only delete the specific camera that was selected
       CameraService.deleteCamera(cameraToDelete.id);
-      loadCameras();
-      setIsDeleteDialogOpen(false);
+      toast.success(`Camera "${cameraToDelete.name}" deleted`);
+      
+      // Close the dialog and reset state
+      setDeleteDialogOpen(false);
       setCameraToDelete(null);
+      
+      // Reload the camera list
+      loadCameras();
+      
+      // Notify parent if needed
       if (onCamerasChanged) {
         onCamerasChanged();
       }
     }
   };
-  
-  const handleSaveCamera = (camera: Camera) => {
-    setIsFormOpen(false);
+
+  const handleEditCamera = (camera: Camera) => {
+    setEditingCamera(camera);
+    setIsEditingCamera(true);
+  };
+
+  const handleCameraSaved = () => {
     loadCameras();
+    setIsAddingCamera(false);
+    setIsEditingCamera(false);
+    setEditingCamera(null);
+    
     if (onCamerasChanged) {
       onCamerasChanged();
     }
   };
-  
-  const handlePreviewCamera = (camera: Camera) => {
-    setPreviewCamera(camera);
-  };
+
+  const filteredCameras = cameras.filter((camera) =>
+    camera.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    camera.ipAddress.includes(searchTerm) ||
+    camera.description?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const areAllSelected =
+    filteredCameras.length > 0 &&
+    filteredCameras.every((camera) => selectedCameras.includes(camera.id));
+
+  if (isAddingCamera) {
+    return <CameraForm onSaved={handleCameraSaved} onCancel={() => setIsAddingCamera(false)} />;
+  }
+
+  if (isEditingCamera && editingCamera) {
+    return (
+      <CameraForm
+        camera={editingCamera}
+        onSaved={handleCameraSaved}
+        onCancel={() => {
+          setIsEditingCamera(false);
+          setEditingCamera(null);
+        }}
+      />
+    );
+  }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-medium">Cameras</h3>
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row justify-between gap-4">
+        <div className="relative w-full sm:max-w-xs">
+          <Input
+            placeholder="Search cameras..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
+          <Video className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+        </div>
+        
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={handleRefreshStatuses}
-            disabled={isRefreshing}
-          >
-            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Refresh Status
+          <Button variant="outline" size="sm" onClick={() => loadCameras()}>
+            Refresh
           </Button>
-          <Button size="sm" onClick={handleAddCamera}>
-            <Plus className="mr-2 h-4 w-4" />
+          <Button onClick={() => setIsAddingCamera(true)}>
+            <Plus className="mr-1 h-4 w-4" />
             Add Camera
           </Button>
         </div>
       </div>
 
-      {cameras.length > 0 ? (
-        <div className="border rounded-md overflow-hidden">
+      <div className="border rounded-md">
+        <ScrollArea className="h-[400px]">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">
+                  <Checkbox
+                    checked={areAllSelected}
+                    onCheckedChange={handleSelectAllChange}
+                    aria-label="Select all cameras"
+                  />
+                </TableHead>
                 <TableHead>Name</TableHead>
-                <TableHead className="hidden sm:table-cell">Address</TableHead>
-                <TableHead className="hidden md:table-cell">Protocol</TableHead>
-                <TableHead className="hidden lg:table-cell">Brand</TableHead>
+                <TableHead>IP Address</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {cameras.map((camera) => (
-                <TableRow key={camera.id}>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center">
-                      <CameraIcon className="mr-2 h-4 w-4 text-avianet-red" />
-                      {camera.name}
-                    </div>
-                  </TableCell>
-                  <TableCell className="hidden sm:table-cell">
-                    {camera.ipAddress}:{camera.port}
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell">
-                    <Badge variant="outline">{camera.protocol}</Badge>
-                  </TableCell>
-                  <TableCell className="hidden lg:table-cell">
-                    {camera.brand}
-                  </TableCell>
-                  <TableCell>
-                    {camera.isOnline ? (
-                      <Badge className="bg-green-500">
-                        <Wifi className="mr-1 h-3 w-3" />
-                        Online
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-red-500 border-red-500">
-                        <WifiOff className="mr-1 h-3 w-3" />
-                        Offline
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => handlePreviewCamera(camera)}
-                      >
-                        <CameraIcon className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => handleEditCamera(camera)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => handleDeleteCamera(camera)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+              {filteredCameras.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-32 text-center">
+                    <div className="flex flex-col items-center justify-center text-muted-foreground">
+                      <AlertCircle className="h-8 w-8 mb-2" />
+                      <p>No cameras found</p>
+                      {searchTerm && (
+                        <p className="text-sm">
+                          Try adjusting your search query
+                        </p>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                filteredCameras.map((camera) => (
+                  <TableRow key={camera.id}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedCameras.includes(camera.id)}
+                        onCheckedChange={(checked) =>
+                          handleSelectCamera(camera.id, !!checked)
+                        }
+                        aria-label={`Select ${camera.name}`}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium">{camera.name}</div>
+                      {camera.description && (
+                        <div className="text-xs text-muted-foreground">
+                          {camera.description}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {camera.ipAddress}:{camera.port}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={camera.isOnline ? "default" : "outline"}
+                        className={camera.isOnline ? "bg-green-500" : "text-red-500 border-red-500"}
+                      >
+                        {camera.isOnline ? "Online" : "Offline"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleEditCamera(camera)}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleDeleteCamera(camera)}
+                        >
+                          <Trash className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center border rounded-md p-8 text-center">
-          <CameraIcon className="h-12 w-12 text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium mb-2">No Cameras Added</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Add an IP camera to start streaming video
-          </p>
-          <Button onClick={handleAddCamera}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Your First Camera
-          </Button>
-        </div>
-      )}
-
-      {/* Camera Add/Edit Dialog */}
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedCamera ? 'Edit Camera' : 'Add New Camera'}
-            </DialogTitle>
-          </DialogHeader>
-          <CameraForm 
-            camera={selectedCamera || undefined}
-            onSave={handleSaveCamera}
-            onCancel={() => setIsFormOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
-
-      {/* Camera Preview Dialog */}
-      <Dialog open={!!previewCamera} onOpenChange={() => setPreviewCamera(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center">
-              <CameraIcon className="mr-2 h-5 w-5 text-avianet-red" />
-              {previewCamera?.name}
-            </DialogTitle>
-          </DialogHeader>
-          {previewCamera && (
-            <div className="space-y-4">
-              <div className="aspect-video">
-                <VideoFeed 
-                  initialVideoUrl={CameraService.getPlayableStreamUrl(previewCamera)}
-                  autoStart={true}
-                  showControls={false}
-                />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Address</p>
-                  <p className="text-sm font-medium">
-                    {previewCamera.ipAddress}:{previewCamera.port}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Protocol</p>
-                  <p className="text-sm font-medium">
-                    {previewCamera.protocol}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Brand & Stream</p>
-                  <p className="text-sm font-medium">
-                    {previewCamera.brand} ({previewCamera.streamType})
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Status</p>
-                  <div>
-                    {previewCamera.isOnline ? (
-                      <Badge className="bg-green-500">
-                        <Wifi className="mr-1 h-3 w-3" />
-                        Online
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-red-500 border-red-500">
-                        <WifiOff className="mr-1 h-3 w-3" />
-                        Offline
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </div>
-              {previewCamera.customStreamUrl && (
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Custom URL</p>
-                  <p className="text-sm font-medium break-all">
-                    {previewCamera.customStreamUrl}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
-      >
+        </ScrollArea>
+      </div>
+      
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              Delete camera "{cameraToDelete?.name}"?
-            </AlertDialogTitle>
+            <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the camera
-              configuration and any associated data.
+              Are you sure you want to delete {cameraToDelete ? `camera "${cameraToDelete.name}"` : 'this camera'}? 
+              This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDelete}
-              className="bg-destructive text-destructive-foreground"
-            >
+            <AlertDialogCancel onClick={() => setCameraToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteCamera} className="bg-red-600 hover:bg-red-700">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

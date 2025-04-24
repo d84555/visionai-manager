@@ -171,6 +171,7 @@ const CameraGridPosition: React.FC<CameraGridPositionProps> = ({
               }}
               activeModel={getCameraModel(camera.id)}
               streamType={streamType}
+              isPinned={false}
             />
           </div>
         ) : (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Video, Bell, FileText, Brain, Settings, Server, Cpu, Grid, Grip } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,10 +30,13 @@ const Home = () => {
     }
     
     loadCameraAssignments();
-    
+    loadCameras();
+  }, []);
+  
+  const loadCameras = () => {
     const loadedCameras = CameraService.getAllCameras();
     setCameras(loadedCameras);
-  }, []);
+  };
   
   const loadCameraAssignments = () => {
     const savedAssignments = localStorage.getItem('camera-grid-assignments');
@@ -49,29 +52,32 @@ const Home = () => {
     });
   }, [gridLayout, streamType]);
   
-  useEffect(() => {
-    localStorage.setItem('camera-grid-assignments', JSON.stringify(cameraAssignments));
-  }, [cameraAssignments]);
-  
-  const handleAssignCamera = (cameraId: string, gridPositionId: string) => {
+  const handleAssignCamera = useCallback((cameraId: string, gridPositionId: string) => {
     console.log(`Assigning camera ${cameraId} to position ${gridPositionId}`);
     const newAssignments = { ...cameraAssignments };
     newAssignments[gridPositionId] = cameraId;
     setCameraAssignments(newAssignments);
+    
+    localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
     
     setRefreshKey(prev => prev + 1);
     
     toast.success('Camera assigned to grid position', {
       description: 'Your grid layout will be saved automatically'
     });
-  };
+  }, [cameraAssignments]);
   
-  const handleClearAssignment = (gridPositionId: string) => {
+  const handleClearAssignment = useCallback((gridPositionId: string) => {
     const newAssignments = { ...cameraAssignments };
     delete newAssignments[gridPositionId];
     setCameraAssignments(newAssignments);
+    
+    localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
+    
+    setRefreshKey(prev => prev + 1);
+    
     toast.info('Camera removed from grid position');
-  };
+  }, [cameraAssignments]);
   
   const features = [
     {
