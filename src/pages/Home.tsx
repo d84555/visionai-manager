@@ -21,6 +21,7 @@ const Home = () => {
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [cameraAssignments, setCameraAssignments] = useState<Record<string, string>>({});
   const [showCameraPanel, setShowCameraPanel] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0); // Add refresh key to force re-render
   
   useEffect(() => {
     const savedLayout = SettingsService.getGridLayout();
@@ -29,14 +30,19 @@ const Home = () => {
       setStreamType(savedLayout.streamType);
     }
     
-    const savedAssignments = localStorage.getItem('camera-grid-assignments');
-    if (savedAssignments) {
-      setCameraAssignments(JSON.parse(savedAssignments));
-    }
+    loadCameraAssignments();
     
     const loadedCameras = CameraService.getAllCameras();
     setCameras(loadedCameras);
   }, []);
+  
+  // Separate function to load camera assignments for clarity
+  const loadCameraAssignments = () => {
+    const savedAssignments = localStorage.getItem('camera-grid-assignments');
+    if (savedAssignments) {
+      setCameraAssignments(JSON.parse(savedAssignments));
+    }
+  };
   
   useEffect(() => {
     SettingsService.saveGridLayout({
@@ -49,11 +55,16 @@ const Home = () => {
     localStorage.setItem('camera-grid-assignments', JSON.stringify(cameraAssignments));
   }, [cameraAssignments]);
   
-  // FIX: Updated the handler to properly assign camera to grid position
+  // Fixed: properly assign camera to grid position
   const handleAssignCamera = (cameraId: string, gridPositionId: string) => {
+    console.log(`Assigning camera ${cameraId} to position ${gridPositionId}`);
     const newAssignments = { ...cameraAssignments };
     newAssignments[gridPositionId] = cameraId;
     setCameraAssignments(newAssignments);
+    
+    // Force a re-render of the CameraGrid component
+    setRefreshKey(prev => prev + 1);
+    
     toast.success('Camera assigned to grid position', {
       description: 'Your grid layout will be saved automatically'
     });
@@ -150,6 +161,7 @@ const Home = () => {
               <ResizablePanel defaultSize={75} minSize={30}>
                 <div className="h-full">
                   <CameraGrid 
+                    key={refreshKey} // Add key to force re-render when assignments change
                     layout={gridLayout} 
                     cameraAssignments={cameraAssignments}
                     onClearAssignment={handleClearAssignment}

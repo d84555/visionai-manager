@@ -20,61 +20,80 @@ interface ModelSelectorProps {
   onModelSelected?: (modelName: string, modelPath: string) => void;
 }
 
-// Mock models for demonstration
-const availableModels = [
-  { 
-    id: 'yolov11-n', 
-    name: 'YOLOv11 Nano', 
-    path: '/models/yolov11-n.onnx',
-    description: 'Smallest model, fastest inference, lowest accuracy'
-  },
-  { 
-    id: 'yolov11-s', 
-    name: 'YOLOv11 Small', 
-    path: '/models/yolov11-s.onnx',
-    description: 'Small model, good balance of speed and accuracy'
-  },
-  { 
-    id: 'yolov11', 
-    name: 'YOLOv11 Base', 
-    path: '/models/yolov11.onnx', 
-    description: 'Standard model, balanced performance'
-  },
-  { 
-    id: 'yolov11-m', 
-    name: 'YOLOv11 Medium', 
-    path: '/models/yolov11-m.onnx',
-    description: 'Medium model, higher accuracy, slower inference'
-  },
-  { 
-    id: 'yolov11-l', 
-    name: 'YOLOv11 Large', 
-    path: '/models/yolov11-l.onnx',
-    description: 'Largest model, highest accuracy, slowest inference'
-  }
-];
-
 const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   const [selectedModel, setSelectedModel] = useState<string>('yolov11');
   const [autoApply, setAutoApply] = useState<boolean>(true);
   const [activeModel, setActiveModel] = useState<{name: string; path: string} | undefined>(undefined);
+  const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string, description: string}[]>([]);
   
   // Load saved model on mount
   useEffect(() => {
+    loadModels();
+    loadActiveModel();
+    loadAutoApplySetting();
+  }, []);
+  
+  const loadModels = () => {
+    // Load default models
+    const defaultModels = [
+      { 
+        id: 'yolov11-n', 
+        name: 'YOLOv11 Nano', 
+        path: '/models/yolov11-n.onnx',
+        description: 'Smallest model, fastest inference, lowest accuracy'
+      },
+      { 
+        id: 'yolov11-s', 
+        name: 'YOLOv11 Small', 
+        path: '/models/yolov11-s.onnx',
+        description: 'Small model, good balance of speed and accuracy'
+      },
+      { 
+        id: 'yolov11', 
+        name: 'YOLOv11 Base', 
+        path: '/models/yolov11.onnx', 
+        description: 'Standard model, balanced performance'
+      },
+      { 
+        id: 'yolov11-m', 
+        name: 'YOLOv11 Medium', 
+        path: '/models/yolov11-m.onnx',
+        description: 'Medium model, higher accuracy, slower inference'
+      },
+      { 
+        id: 'yolov11-l', 
+        name: 'YOLOv11 Large', 
+        path: '/models/yolov11-l.onnx',
+        description: 'Largest model, highest accuracy, slowest inference'
+      }
+    ];
+    
+    // Load custom uploaded models
+    const customModels = SettingsService.getCustomModels().map(model => ({
+      id: model.id,
+      name: model.name,
+      path: model.path,
+      description: `Custom uploaded model (${model.size || 'unknown size'})`
+    }));
+    
+    // Combine both sets of models
+    setAvailableModels([...defaultModels, ...customModels]);
+  };
+  
+  const loadActiveModel = () => {
     const model = SettingsService.getActiveModel();
     if (model) {
+      setActiveModel(model);
       // Find the model ID based on the path
-      const modelId = availableModels.find(m => m.path === model.path)?.id;
-      if (modelId) {
-        setSelectedModel(modelId);
-        setActiveModel(model);
-      }
+      const modelId = availableModels.find(m => m.path === model.path)?.id || 'yolov11';
+      setSelectedModel(modelId);
     }
-    
-    // Load auto-apply setting
+  };
+  
+  const loadAutoApplySetting = () => {
     const modelSettings = SettingsService.getSettings('model');
-    setAutoApply(modelSettings.autoApplyModel);
-  }, []);
+    setAutoApply(modelSettings.autoApplyModel !== false);
+  };
   
   // Save auto-apply setting when it changes
   useEffect(() => {

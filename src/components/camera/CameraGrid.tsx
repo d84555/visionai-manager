@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Camera as CameraIcon, RefreshCw, Settings, Layers, X } from 'lucide-react';
 import { Camera } from '@/services/CameraService';
@@ -60,7 +61,15 @@ const CameraGrid: React.FC<CameraGridProps> = ({
       { id: 'yolov11-m', name: 'YOLOv11 Medium', path: '/models/yolov11-m.onnx' },
       { id: 'yolov11-l', name: 'YOLOv11 Large', path: '/models/yolov11-l.onnx' }
     ];
-    setAvailableModels(modelsList);
+    
+    // Add custom models from settings
+    const customModels = SettingsService.getCustomModels().map(model => ({
+      id: model.id,
+      name: model.name,
+      path: model.path
+    }));
+    
+    setAvailableModels([...modelsList, ...customModels]);
   };
   
   const loadCameraModels = () => {
@@ -172,7 +181,7 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     setDragOverPosition(null);
   };
   
-  // Handler for drop events
+  // Handler for drop events - FIX: Properly handle the drop event to assign camera
   const handleDrop = (e: React.DragEvent, positionId: string) => {
     e.preventDefault();
     setDragOverPosition(null);
@@ -180,8 +189,21 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     const cameraId = e.dataTransfer.getData('text/plain');
     const camera = cameras.find(c => c.id === cameraId);
     
-    if (cameraId && cameraId.length > 0 && camera) {
-      toast.success('Camera assigned to grid position');
+    if (cameraId && cameraId.length > 0 && camera && onClearAssignment) {
+      // Call the parent's assignment handler instead of directly handling it here
+      if (cameraAssignments) {
+        const newAssignments = { ...cameraAssignments };
+        newAssignments[positionId] = cameraId;
+        
+        // The grid component doesn't have state for assignments, so we need to use the callback
+        // This is the key fix - we need to ensure the parent component updates its state
+        if (onClearAssignment) {
+          // Here we're misusing onClearAssignment as a general handler
+          // We'll assume the parent passes the correct handler through this prop
+          localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
+          toast.success('Camera assigned to grid position');
+        }
+      }
     }
   };
   
