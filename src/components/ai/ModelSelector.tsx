@@ -79,7 +79,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   // Save auto-apply setting when it changes
   useEffect(() => {
     const modelSettings = SettingsService.getSettings('model');
-    SettingsService.updateSettings('model', {
+    SettingsService.saveSettings('model', {
       ...modelSettings,
       autoApplyModel: autoApply
     });

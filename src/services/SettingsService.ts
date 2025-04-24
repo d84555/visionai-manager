@@ -1,4 +1,61 @@
+
 // Key additions to ensure YOLO model settings persistence
+
+// Define types for settings
+export interface ModelSettings {
+  confidenceThreshold: number;
+  detectionFrequency: number;
+  maxDetections: number;
+  useHighResolution: boolean;
+  autoApplyModel: boolean;
+}
+
+export interface VideoSettings {
+  defaultStreamUrl: string;
+  autoStart: boolean;
+  showOverlays: boolean;
+  showLabels: boolean;
+}
+
+export interface AlertSettings {
+  enableNotifications: boolean;
+  soundAlerts: boolean;
+  minimumConfidence: number;
+  automaticDismiss: boolean;
+}
+
+export interface FFmpegSettings {
+  corePath: string;
+  customPath: boolean;
+  localBinaryPath: string;
+  useLocalBinary: boolean;
+}
+
+export interface SyslogSettings {
+  enabled: boolean;
+  server: string;
+  port: string;
+  protocol: string;
+  facility: string;
+  severity: string;
+}
+
+export interface SmtpSettings {
+  enabled: boolean;
+  server: string;
+  port: string;
+  username: string;
+  password: string;
+  useTLS: boolean;
+  fromAddress: string;
+}
+
+export interface StorageSettings {
+  retentionDays: number;
+  maxStorageGB: number;
+  storageLocation: string;
+  compressionEnabled: boolean;
+}
 
 const SettingsService = {
   // Get active AI model
@@ -105,6 +162,16 @@ const SettingsService = {
     settings[category] = { ...settings[category], ...data };
     localStorage.setItem('avianet-settings', JSON.stringify(settings));
   },
+  
+  // Update settings for a specific category (alias for saveSettings for clarity)
+  updateSettings: (category: string, data: any) => {
+    SettingsService.saveSettings(category, data);
+  },
+  
+  // Save all settings at once
+  saveAllSettings: (allSettings: Record<string, any>) => {
+    localStorage.setItem('avianet-settings', JSON.stringify(allSettings));
+  }
 };
 
 export default SettingsService;

@@ -36,7 +36,7 @@ const EdgeDeviceItem: React.FC<EdgeDeviceItemProps> = ({ device, onUpdate }) => 
       // Update device status to online
       const updatedDevice = {
         ...device,
-        status: 'online',
+        status: 'online' as const,
         lastConnection: new Date().toISOString()
       };
       
@@ -50,7 +50,7 @@ const EdgeDeviceItem: React.FC<EdgeDeviceItemProps> = ({ device, onUpdate }) => 
       // Update device status to offline
       const updatedDevice = {
         ...device,
-        status: 'offline'
+        status: 'offline' as const
       };
       await EdgeDeviceService.updateManualEdgeDevice(updatedDevice);
       onUpdate();
