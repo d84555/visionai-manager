@@ -1,35 +1,72 @@
-
 import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Cpu, VideoIcon, Camera, Layers } from 'lucide-react';
+import { VideoIcon, Camera, Layers } from 'lucide-react';
 import VideoFeed from '@/components/video/VideoFeed';
 import CameraManagement from '@/components/camera/CameraManagement';
 import CameraGrid from '@/components/camera/CameraGrid';
 import ModelSelector from '@/components/ai/ModelSelector';
 import SettingsService from '@/services/SettingsService';
+import CameraListPanel from '@/components/camera/CameraListPanel';
+import CameraControls from '@/components/video/CameraControls';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 
 const VideoPage = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeModel, setActiveModel] = useState<{ name: string; path: string } | undefined>(undefined);
+  const [gridLayout, setGridLayout] = useState<'1x1' | '2x2' | '3x3' | '4x4'>('2x2');
+  const [streamType, setStreamType] = useState<'main' | 'sub'>('main');
+  const [cameraAssignments, setCameraAssignments] = useState<Record<string, string>>({});
+  const [showCameraPanel, setShowCameraPanel] = useState(true);
 
   useEffect(() => {
-    // Load the active model from settings
     const savedModel = SettingsService.getActiveModel();
     if (savedModel) {
       setActiveModel(savedModel);
     }
+    
+    const savedLayout = SettingsService.getGridLayout();
+    if (savedLayout) {
+      setGridLayout(savedLayout.layout);
+      setStreamType(savedLayout.streamType);
+    }
+    
+    const savedAssignments = localStorage.getItem('camera-grid-assignments');
+    if (savedAssignments) {
+      setCameraAssignments(JSON.parse(savedAssignments));
+    }
   }, []);
 
+  useEffect(() => {
+    SettingsService.saveGridLayout({
+      layout: gridLayout,
+      streamType: streamType
+    });
+  }, [gridLayout, streamType]);
+
+  useEffect(() => {
+    localStorage.setItem('camera-grid-assignments', JSON.stringify(cameraAssignments));
+  }, [cameraAssignments]);
+
   const handleCamerasChanged = () => {
-    // Force refresh the camera grid when cameras are changed
     setRefreshKey(prev => prev + 1);
   };
 
   const handleModelSelected = (modelName: string, modelPath: string) => {
     setActiveModel({ name: modelName, path: modelPath });
-    // Force refresh the camera grid when the model changes
     setRefreshKey(prev => prev + 1);
+  };
+
+  const handleAssignCamera = (cameraId: string, gridPositionId: string) => {
+    const newAssignments = { ...cameraAssignments };
+    newAssignments[gridPositionId] = cameraId;
+    setCameraAssignments(newAssignments);
+  };
+
+  const handleClearAssignment = (gridPositionId: string) => {
+    const newAssignments = { ...cameraAssignments };
+    delete newAssignments[gridPositionId];
+    setCameraAssignments(newAssignments);
   };
 
   return (
@@ -67,8 +104,43 @@ const VideoPage = () => {
         </TabsContent>
         
         <TabsContent value="grid">
-          <div key={refreshKey}>
-            <CameraGrid layout="2x2" />
+          <div key={refreshKey} className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold">Camera Grid</h2>
+              <CameraControls 
+                gridLayout={gridLayout}
+                onLayoutChange={setGridLayout}
+                streamType={streamType}
+                onStreamTypeChange={setStreamType}
+              />
+            </div>
+            
+            <ResizablePanelGroup direction="horizontal" className="min-h-[400px]">
+              <ResizablePanel defaultSize={75} minSize={30}>
+                <div className="h-full">
+                  <CameraGrid 
+                    layout={gridLayout}
+                    cameraAssignments={cameraAssignments}
+                    onClearAssignment={handleClearAssignment}
+                  />
+                </div>
+              </ResizablePanel>
+              
+              {showCameraPanel && (
+                <>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel defaultSize={25} minSize={20}>
+                    <div className="h-full border-l pl-4">
+                      <CameraListPanel
+                        cameras={[]}  // This will be populated from CameraService
+                        onAssignCamera={handleAssignCamera}
+                        gridLayout={gridLayout}
+                      />
+                    </div>
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
           </div>
         </TabsContent>
         

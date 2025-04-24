@@ -178,10 +178,9 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     setDragOverPosition(null);
     
     const cameraId = e.dataTransfer.getData('text/plain');
-    if (cameraId && cameraId.length > 0) {
-      if (onClearAssignment) {
-        onClearAssignment(positionId);
-      }
+    const camera = cameras.find(c => c.id === cameraId);
+    
+    if (cameraId && cameraId.length > 0 && camera) {
       toast.success('Camera assigned to grid position');
     }
   };
