@@ -56,6 +56,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     inferenceLocation,
     inferenceTime,
     isHikvisionFormat,
+    setIsHikvisionFormat, // Added this line
     videoRef,
     containerRef,
     startStream,
