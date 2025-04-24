@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { Camera as CameraIcon, RefreshCw, Settings, Layers, X } from 'lucide-react';
+import { Camera as CameraIcon, RefreshCw, Settings, Layers, X, Play, Stop, Maximize, Minimize } from 'lucide-react';
 import { Camera } from '@/services/CameraService';
 import CameraService from '@/services/CameraService';
 import { Button } from '@/components/ui/button';
@@ -35,6 +34,9 @@ const CameraGrid: React.FC<CameraGridProps> = ({
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
   const [camerasWithCustomModel, setCamerasWithCustomModel] = useState<Record<string, { name: string; path: string }>>({});
   const [dragOverPosition, setDragOverPosition] = useState<string | null>(null);
+  const [playingStreams, setPlayingStreams] = useState<Record<string, boolean>>({});
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenCamera, setFullscreenCamera] = useState<string | null>(null);
   
   useEffect(() => {
     loadCameras();
@@ -62,7 +64,6 @@ const CameraGrid: React.FC<CameraGridProps> = ({
       { id: 'yolov11-l', name: 'YOLOv11 Large', path: '/models/yolov11-l.onnx' }
     ];
     
-    // Add custom models from settings
     const customModels = SettingsService.getCustomModels().map(model => ({
       id: model.id,
       name: model.name,
@@ -120,7 +121,6 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     const newCameraModels = { ...camerasWithCustomModel };
     
     if (modelId === null) {
-      // Remove custom model
       delete newCameraModels[cameraId];
       saveCameraModels(newCameraModels);
       toast.success("Camera will use global AI model");
@@ -137,7 +137,6 @@ const CameraGrid: React.FC<CameraGridProps> = ({
   
   const handleApplyModelToAll = (modelId: string | null) => {
     if (modelId === null) {
-      // Clear all custom models
       saveCameraModels({});
       toast.success("All cameras will use global AI model");
       return;
@@ -155,11 +154,9 @@ const CameraGrid: React.FC<CameraGridProps> = ({
   };
   
   const getCameraModel = (cameraId: string) => {
-    // First check if camera has a custom model assigned
     if (camerasWithCustomModel[cameraId]) {
       return camerasWithCustomModel[cameraId];
     }
-    // Otherwise use the global active model
     return activeModel;
   };
   
@@ -170,18 +167,15 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     return cameras.find(camera => camera.id === cameraId);
   };
   
-  // Handler for drag over events
   const handleDragOver = (e: React.DragEvent, positionId: string) => {
     e.preventDefault();
     setDragOverPosition(positionId);
   };
   
-  // Handler for drag leave events
   const handleDragLeave = () => {
     setDragOverPosition(null);
   };
   
-  // Handler for drop events - FIX: Properly handle the drop event to assign camera
   const handleDrop = (e: React.DragEvent, positionId: string) => {
     e.preventDefault();
     setDragOverPosition(null);
@@ -190,16 +184,11 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     const camera = cameras.find(c => c.id === cameraId);
     
     if (cameraId && cameraId.length > 0 && camera && onClearAssignment) {
-      // Call the parent's assignment handler instead of directly handling it here
       if (cameraAssignments) {
         const newAssignments = { ...cameraAssignments };
         newAssignments[positionId] = cameraId;
         
-        // The grid component doesn't have state for assignments, so we need to use the callback
-        // This is the key fix - we need to ensure the parent component updates its state
         if (onClearAssignment) {
-          // Here we're misusing onClearAssignment as a general handler
-          // We'll assume the parent passes the correct handler through this prop
           localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
           toast.success('Camera assigned to grid position');
         }
@@ -207,13 +196,60 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     }
   };
   
-  // Handler for context menu to clear assignment
   const handleContextMenu = (e: React.MouseEvent, positionId: string) => {
     e.preventDefault();
     
     if (onClearAssignment && cameraAssignments[positionId]) {
       onClearAssignment(positionId);
     }
+  };
+  
+  const toggleFullscreen = async (element: HTMLElement | null) => {
+    try {
+      if (!document.fullscreenElement) {
+        await element?.requestFullscreen();
+        setIsFullscreen(true);
+      } else {
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    } catch (err) {
+      console.error('Fullscreen error:', err);
+      toast.error('Fullscreen mode failed');
+    }
+  };
+  
+  const handleFullscreenGrid = () => {
+    const gridElement = document.getElementById('camera-grid');
+    toggleFullscreen(gridElement);
+  };
+  
+  const handleFullscreenCamera = (positionId: string) => {
+    if (fullscreenCamera === positionId) {
+      document.exitFullscreen();
+      setFullscreenCamera(null);
+    } else {
+      const cameraElement = document.getElementById(`camera-${positionId}`);
+      toggleFullscreen(cameraElement);
+      setFullscreenCamera(positionId);
+    }
+  };
+  
+  const toggleAllStreams = (play: boolean) => {
+    const newPlayingStreams = { ...playingStreams };
+    Object.keys(cameraAssignments).forEach(positionId => {
+      newPlayingStreams[positionId] = play;
+    });
+    setPlayingStreams(newPlayingStreams);
+    
+    toast.success(play ? 'Starting all streams' : 'Stopping all streams');
+  };
+  
+  const toggleStream = (positionId: string) => {
+    setPlayingStreams(prev => ({
+      ...prev,
+      [positionId]: !prev[positionId]
+    }));
   };
   
   const renderGridPositions = () => {
@@ -253,50 +289,67 @@ const CameraGrid: React.FC<CameraGridProps> = ({
                   >
                     {assignedCamera.isOnline ? "Online" : "Offline"}
                   </Badge>
+                  
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 w-6 p-0"
-                    onClick={() => onClearAssignment && onClearAssignment(positionId)}
+                    className="h-8 w-8 p-0"
+                    onClick={() => toggleStream(positionId)}
                   >
-                    <X className="h-3 w-3" />
+                    {playingStreams[positionId] ? 
+                      <Stop className="h-4 w-4" /> : 
+                      <Play className="h-4 w-4" />
+                    }
                   </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => handleFullscreenCamera(positionId)}
+                  >
+                    {fullscreenCamera === positionId ? 
+                      <Minimize className="h-4 w-4" /> : 
+                      <Maximize className="h-4 w-4" />
+                    }
+                  </Button>
+                  
+                  {assignedCamera && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                          <Settings className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>AI Model</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => handleApplyModelToCamera(assignedCamera.id, null)}>
+                          Use Global AI Model
+                        </DropdownMenuItem>
+                        {availableModels.map(model => (
+                          <DropdownMenuItem 
+                            key={model.id} 
+                            onClick={() => handleApplyModelToCamera(assignedCamera.id, model.id)}
+                            className={
+                              camerasWithCustomModel[assignedCamera.id]?.path === model.path ? "bg-muted" : ""
+                            }
+                          >
+                            {model.name}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </>
-              )}
-              {assignedCamera && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      <Settings className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>AI Model</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => handleApplyModelToCamera(assignedCamera.id, null)}>
-                      Use Global AI Model
-                    </DropdownMenuItem>
-                    {availableModels.map(model => (
-                      <DropdownMenuItem 
-                        key={model.id} 
-                        onClick={() => handleApplyModelToCamera(assignedCamera.id, model.id)}
-                        className={
-                          camerasWithCustomModel[assignedCamera.id]?.path === model.path ? "bg-muted" : ""
-                        }
-                      >
-                        {model.name}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
               )}
             </div>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0" id={`camera-${positionId}`}>
             {assignedCamera ? (
               <VideoFeed
                 initialVideoUrl={CameraService.getPlayableStreamUrl(assignedCamera)}
-                autoStart={assignedCamera.isOnline}
+                autoStart={playingStreams[positionId]}
                 showControls={false}
                 camera={{
                   id: assignedCamera.id,
@@ -341,6 +394,39 @@ const CameraGrid: React.FC<CameraGridProps> = ({
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-medium">Camera Feeds</h3>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => toggleAllStreams(true)}
+            className="flex items-center"
+          >
+            <Play className="mr-2 h-4 w-4" />
+            Play All
+          </Button>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => toggleAllStreams(false)}
+            className="flex items-center"
+          >
+            <Stop className="mr-2 h-4 w-4" />
+            Stop All
+          </Button>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleFullscreenGrid}
+            className="flex items-center"
+          >
+            {isFullscreen ? 
+              <Minimize className="mr-2 h-4 w-4" /> : 
+              <Maximize className="mr-2 h-4 w-4" />
+            }
+            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Grid'}
+          </Button>
+          
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm">
@@ -374,7 +460,10 @@ const CameraGrid: React.FC<CameraGridProps> = ({
         </div>
       </div>
       
-      <div className={`grid ${getGridClassName()} gap-4`}>
+      <div 
+        id="camera-grid" 
+        className={`grid ${getGridClassName()} gap-4`}
+      >
         {renderGridPositions()}
       </div>
     </div>
