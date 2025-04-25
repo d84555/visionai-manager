@@ -7,6 +7,7 @@ export interface ModelInfo {
   size?: string;
   uploadedAt: string;
   cameras?: string[];
+  localFilePath?: string; // Added this property to fix the TypeScript errors
 }
 
 export interface StorageServiceInterface {
