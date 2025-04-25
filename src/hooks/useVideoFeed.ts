@@ -39,6 +39,8 @@ export const useVideoFeed = ({
   const [isHikvisionFormat, setIsHikvisionFormat] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const detectionIntervalRef = useRef<number | null>(null);
 
   const detectObjects = async () => {
     if (!activeModel && !camera) {
@@ -49,28 +51,51 @@ export const useVideoFeed = ({
     try {
       const modelToUse = activeModel;
       
-      const request = {
-        imageData: "base64_image_data_would_go_here",
-        cameraId: camera?.id || videoUrl || "unknown",
-        modelName: modelToUse?.name || "YOLOv11",
-        modelPath: modelToUse?.path || "/models/yolov11.onnx",
-        thresholdConfidence: 0.5
-      };
+      if (!videoRef.current || videoRef.current.paused) {
+        return;
+      }
       
-      const result = await EdgeAIInference.performInference(request);
+      // Create a temporary canvas for capturing video frames if it doesn't exist
+      if (!canvasRef.current) {
+        const canvas = document.createElement('canvas');
+        canvas.width = videoRef.current.videoWidth || 640;
+        canvas.height = videoRef.current.videoHeight || 360;
+        canvasRef.current = canvas;
+      }
       
-      setDetections(result.detections);
-      setInferenceLocation(result.processedAt);
-      setInferenceTime(result.inferenceTime);
-      
-      if (!autoStart) {
-        result.detections.forEach(detection => {
-          if (detection.confidence > 0.85) {
-            toast.warning(`High confidence detection: ${detection.class}`, {
-              description: `Confidence: ${(detection.confidence * 100).toFixed(1)}%`
-            });
-          }
-        });
+      // Draw current video frame to canvas
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx && videoRef.current) {
+        canvasRef.current.width = videoRef.current.videoWidth || 640;
+        canvasRef.current.height = videoRef.current.videoHeight || 360;
+        ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
+        
+        // Convert canvas to base64 for inference
+        const imageData = canvasRef.current.toDataURL('image/jpeg', 0.8);
+        
+        const request = {
+          imageData: imageData,
+          cameraId: camera?.id || videoUrl || "unknown",
+          modelName: modelToUse?.name || "YOLOv11",
+          modelPath: modelToUse?.path || "/models/yolov11.onnx",
+          thresholdConfidence: 0.5
+        };
+        
+        const result = await EdgeAIInference.performInference(request);
+        
+        setDetections(result.detections);
+        setInferenceLocation(result.processedAt);
+        setInferenceTime(result.inferenceTime);
+        
+        if (!autoStart) {
+          result.detections.forEach(detection => {
+            if (detection.confidence > 0.85) {
+              toast.warning(`High confidence detection: ${detection.class}`, {
+                description: `Confidence: ${(detection.confidence * 100).toFixed(1)}%`
+              });
+            }
+          });
+        }
       }
     } catch (error) {
       console.error("Edge inference error:", error);
@@ -112,10 +137,18 @@ export const useVideoFeed = ({
       });
     }
     
+    // Start detection loop if a model is selected
     if (activeModel) {
+      // Clear any existing interval
+      if (detectionIntervalRef.current) {
+        clearInterval(detectionIntervalRef.current);
+      }
+      
+      // Initial detection
       await detectObjects();
-      const interval = setInterval(detectObjects, 3000);
-      return () => clearInterval(interval);
+      
+      // Set up interval for continuous detection
+      detectionIntervalRef.current = window.setInterval(detectObjects, 3000);
     }
   };
 
@@ -123,6 +156,13 @@ export const useVideoFeed = ({
     setIsStreaming(false);
     setDetections([]);
     setIsPlaying(false);
+    
+    // Clear detection interval
+    if (detectionIntervalRef.current) {
+      clearInterval(detectionIntervalRef.current);
+      detectionIntervalRef.current = null;
+    }
+    
     if (videoRef.current) {
       videoRef.current.pause();
     }
@@ -244,8 +284,13 @@ export const useVideoFeed = ({
 
   useEffect(() => {
     return () => {
+      // Cleanup resources
       if (hasUploadedFile && videoUrl.startsWith('blob:')) {
         URL.revokeObjectURL(videoUrl);
+      }
+      
+      if (detectionIntervalRef.current) {
+        clearInterval(detectionIntervalRef.current);
       }
     };
   }, [hasUploadedFile, videoUrl]);
