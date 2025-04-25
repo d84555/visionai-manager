@@ -2,7 +2,7 @@
 import { StorageServiceInterface, ModelInfo } from './StorageServiceInterface';
 
 export class APIStorageService implements StorageServiceInterface {
-  private apiBaseUrl = '/api';
+  private apiBaseUrl = 'http://localhost:8000/api';  // Update this to match your FastAPI server URL
 
   async uploadModel(file: File, name: string): Promise<ModelInfo> {
     const formData = new FormData();
@@ -12,17 +12,19 @@ export class APIStorageService implements StorageServiceInterface {
     try {
       const response = await fetch(`${this.apiBaseUrl}/models/upload`, {
         method: 'POST',
-        body: formData
+        body: formData,
+        // No Content-Type header needed - browser sets it with boundary for FormData
       });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        const error = await response.json();
+        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
       
       return await response.json();
     } catch (error) {
       console.error('Failed to upload model:', error);
-      throw new Error('Failed to upload model to backend server');
+      throw error;
     }
   }
 
@@ -31,13 +33,14 @@ export class APIStorageService implements StorageServiceInterface {
       const response = await fetch(`${this.apiBaseUrl}/models/list`);
       
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        const error = await response.json();
+        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
       
       return await response.json();
     } catch (error) {
       console.error('Failed to list models:', error);
-      throw new Error('Failed to fetch models from backend server');
+      throw error;
     }
   }
 
@@ -48,11 +51,12 @@ export class APIStorageService implements StorageServiceInterface {
       });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        const error = await response.json();
+        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
     } catch (error) {
       console.error('Failed to delete model:', error);
-      throw new Error('Failed to delete model from backend server');
+      throw error;
     }
   }
 
@@ -65,11 +69,12 @@ export class APIStorageService implements StorageServiceInterface {
       });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        const error = await response.json();
+        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
     } catch (error) {
       console.error('Failed to set active model:', error);
-      throw new Error('Failed to set active model on backend server');
+      throw error;
     }
   }
 
@@ -78,13 +83,17 @@ export class APIStorageService implements StorageServiceInterface {
       const response = await fetch(`${this.apiBaseUrl}/models/active`);
       
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        if (response.status === 404) {
+          return null;
+        }
+        const error = await response.json();
+        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
       
       return await response.json();
     } catch (error) {
       console.error('Failed to get active model:', error);
-      throw new Error('Failed to fetch active model from backend server');
+      throw error;
     }
   }
 
@@ -93,14 +102,18 @@ export class APIStorageService implements StorageServiceInterface {
       const response = await fetch(`${this.apiBaseUrl}/models/file-url?path=${encodeURIComponent(modelPath)}`);
       
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        if (response.status === 404) {
+          return null;
+        }
+        const error = await response.json();
+        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
       
       const data = await response.json();
       return data.url;
     } catch (error) {
       console.error('Failed to get model file URL:', error);
-      throw new Error('Failed to fetch model file URL from backend server');
+      throw error;
     }
   }
 }
