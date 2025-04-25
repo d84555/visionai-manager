@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import {
   Card,
@@ -101,15 +102,12 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     setSelectedModel(modelId);
     
     if (autoApply) {
-      const model = availableModels.find(m => m.id === modelId);
-      if (model) {
-        handleApplyModel(model);
-      }
+      handleApplyModelById(modelId);
     }
   };
   
-  const handleApplyModel = (event?: React.MouseEvent) => {
-    const model = availableModels.find(m => m.id === selectedModel);
+  const handleApplyModelById = (modelId: string) => {
+    const model = availableModels.find(m => m.id === modelId);
     
     if (model) {
       SettingsService.setActiveModel(model.name, model.path);
@@ -127,6 +125,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
         localStorage.removeItem('camera-models');
       }
     }
+  };
+  
+  const handleApplyModel = (event?: React.MouseEvent) => {
+    handleApplyModelById(selectedModel);
   };
   
   return (
