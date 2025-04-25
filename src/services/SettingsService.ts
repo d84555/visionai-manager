@@ -1,3 +1,4 @@
+import StorageServiceFactory from './storage/StorageServiceFactory';
 
 // Define types for settings
 export interface ModelSettings {
@@ -126,163 +127,28 @@ const SettingsService = {
   },
 
   // Get active AI model
-  getActiveModel: () => {
-    const storedModel = localStorage.getItem('active-ai-model');
-    if (storedModel) {
-      return JSON.parse(storedModel);
-    }
-    
-    // Return default model if none is stored
-    return {
-      name: 'YOLOv11 Base',
-      path: '/models/yolov11.onnx'
-    };
+  getActiveModel: async () => {
+    const storageService = StorageServiceFactory.getService();
+    return storageService.getActiveModel();
   },
   
   // Set active AI model - improved to ensure persistence
-  setActiveModel: (name: string, path: string) => {
-    const modelData = { name, path };
-    localStorage.setItem('active-ai-model', JSON.stringify(modelData));
-    
-    // Store in a secondary location for redundancy
-    const settings = SettingsService.getAllSettings();
-    settings.ai = settings.ai || {};
-    settings.ai.activeModel = modelData;
-    localStorage.setItem('avianet-settings', JSON.stringify(settings));
-    
-    // Also save to simulated local file system
-    if (SettingsService.localStorageConfig.enabled) {
-      // IMPORTANT: In a real Node.js or Electron app, this would write to actual disk
-      // For browser simulation, we just use localStorage with special prefixes
-      console.log(`Saving active model to ${SettingsService.localStorageConfig.settingsPath}active-model.json`);
-      localStorage.setItem('fs-active-model', JSON.stringify(modelData));
-    }
-    
-    console.log(`Set active model to ${name}`, modelData);
-    return modelData;
+  setActiveModel: async (name: string, path: string) => {
+    const storageService = StorageServiceFactory.getService();
+    await storageService.setActiveModel(name, path);
+    return { name, path };
   },
   
   // Upload a custom YOLO model with improved persistence
-  uploadCustomModel: (file: File, name: string): Promise<{ name: string; path: string }> => {
-    return new Promise((resolve, reject) => {
-      // Calculate file size in MB
-      const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
-      
-      // Generate a mock path that represents where it would be on disk
-      const fileName = `${name.replace(/\s+/g, '_').toLowerCase()}_${Date.now()}.onnx`;
-      const modelPath = `/custom_models/${fileName}`;
-      
-      // Generate a unique ID for the model
-      const modelId = `custom-${Date.now()}`;
-      
-      // For filesystem storage, determine the physical path
-      const localFilePath = SettingsService.localStorageConfig.modelsPath + fileName;
-      
-      // Create the model object with all necessary data
-      const modelData: CustomModel = {
-        id: modelId,
-        name,
-        path: modelPath,
-        uploadedAt: new Date().toISOString(),
-        size: fileSizeMB,
-        cameras: ['All Cameras'],
-        type: 'Object Detection',
-        localFilePath // Add the physical file path
-      };
-      
-      // IMPORTANT: Browser Sandbox Limitation
-      // In a web browser, we cannot directly write to the filesystem
-      // This would require:
-      //   1. Node.js backend with file system access
-      //   2. Electron app for desktop integration
-      //   3. Native app with file system permissions
-      // Instead, we simulate this using browser storage mechanisms
-      
-      console.log(`[BROWSER SIMULATION] Saving model file to: ${localFilePath}`);
-      console.log(`IMPORTANT: In a real Node.js or Electron app, this would save to: ${localFilePath}`);
-      console.log(`File size: ${fileSizeMB}, Model ID: ${modelId}`);
-      
-      // For a real implementation with file system access:
-      // 1. Create a blob URL to access file content
-      const fileURL = URL.createObjectURL(file);
-      
-      // Simulate processing delay
-      setTimeout(() => {
-        try {
-          // Store in custom models list
-          const customModels = SettingsService.getCustomModels();
-          customModels.push(modelData);
-          localStorage.setItem('custom-ai-models', JSON.stringify(customModels));
-          
-          // Also store in the general settings under a specific key
-          const settings = SettingsService.getAllSettings();
-          settings.customModels = settings.customModels || [];
-          settings.customModels.push(modelData);
-          localStorage.setItem('avianet-settings', JSON.stringify(settings));
-          
-          // For filesystem simulation - store file reference
-          localStorage.setItem(`fs-model-${modelId}`, JSON.stringify({
-            metadata: modelData,
-            fileUrl: fileURL, // Store the Blob URL for later access
-            fileExists: true,
-            lastModified: new Date().toISOString()
-          }));
-          
-          // Also set as active model
-          SettingsService.setActiveModel(name, modelPath);
-          
-          resolve({ name, path: modelPath });
-        } catch (error) {
-          console.error('Error uploading model:', error);
-          reject(error);
-        }
-      }, 1500);
-    });
+  uploadCustomModel: async (file: File, name: string) => {
+    const storageService = StorageServiceFactory.getService();
+    return storageService.uploadModel(file, name);
   },
   
   // Get list of custom models
-  getCustomModels: () => {
-    const storedModels = localStorage.getItem('custom-ai-models');
-    const models = storedModels ? JSON.parse(storedModels) : [];
-    
-    // Also check in general settings as a fallback and for redundancy
-    if (models.length === 0) {
-      const settings = SettingsService.getAllSettings();
-      if (settings.customModels && settings.customModels.length > 0) {
-        // Restore models from settings and update the dedicated storage
-        localStorage.setItem('custom-ai-models', JSON.stringify(settings.customModels));
-        return settings.customModels;
-      }
-    }
-    
-    // For filesystem simulation, check for any models stored with the fs- prefix
-    const fsModels: CustomModel[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith('fs-model-')) {
-        try {
-          const modelData = JSON.parse(localStorage.getItem(key) || '{}');
-          if (modelData && modelData.metadata) {
-            fsModels.push(modelData.metadata);
-          }
-        } catch (e) {
-          console.error("Failed to parse model data:", e);
-        }
-      }
-    }
-    
-    // Merge filesystem models with localStorage models, avoiding duplicates
-    if (fsModels.length > 0) {
-      const mergedModels = [...models];
-      for (const fsModel of fsModels) {
-        if (!mergedModels.some(m => m.id === fsModel.id)) {
-          mergedModels.push(fsModel);
-        }
-      }
-      return mergedModels;
-    }
-    
-    return models;
+  getCustomModels: async () => {
+    const storageService = StorageServiceFactory.getService();
+    return storageService.listModels();
   },
   
   // Save grid layout settings
@@ -369,7 +235,7 @@ const SettingsService = {
   },
   
   // Get the Blob URL for a model file (if available)
-  getModelFileUrl: (modelPath: string): string | null => {
+  getModelFileUrl: (modelPath: string) => {
     // Look through stored model data to find the Blob URL
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
