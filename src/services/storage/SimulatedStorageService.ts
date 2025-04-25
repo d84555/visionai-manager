@@ -24,8 +24,9 @@ export class SimulatedStorageService implements StorageServiceInterface {
 
     // Store in localStorage
     const customModels = this.listModels();
-    customModels.push(modelInfo);
-    localStorage.setItem('custom-ai-models', JSON.stringify(customModels));
+    const modelsArray = await customModels;
+    modelsArray.push(modelInfo);
+    localStorage.setItem('custom-ai-models', JSON.stringify(modelsArray));
     
     // Store file URL reference
     localStorage.setItem(`fs-model-${modelId}`, JSON.stringify({

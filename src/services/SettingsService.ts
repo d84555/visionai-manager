@@ -1,4 +1,6 @@
+
 import StorageServiceFactory from './storage/StorageServiceFactory';
+import { ModelInfo } from './storage/StorageServiceInterface';
 
 // Define types for settings
 export interface ModelSettings {
@@ -126,29 +128,49 @@ const SettingsService = {
     return SettingsService.localStorageConfig;
   },
 
-  // Get active AI model
-  getActiveModel: async () => {
+  // Get active AI model - now returns the model directly instead of a promise
+  getActiveModel: () => {
     const storageService = StorageServiceFactory.getService();
-    return storageService.getActiveModel();
+    try {
+      // Get from localStorage first for synchronous access
+      const storedModel = localStorage.getItem('active-ai-model');
+      if (storedModel) {
+        return JSON.parse(storedModel);
+      }
+      return null;
+    } catch (e) {
+      console.error("Error getting active model:", e);
+      return null;
+    }
   },
   
-  // Set active AI model - improved to ensure persistence
-  setActiveModel: async (name: string, path: string) => {
+  // Set active AI model - now returns void instead of a promise
+  setActiveModel: (name: string, path: string) => {
     const storageService = StorageServiceFactory.getService();
-    await storageService.setActiveModel(name, path);
+    // Store in localStorage for synchronous access
+    localStorage.setItem('active-ai-model', JSON.stringify({ name, path }));
+    // Also store via service (asynchronously)
+    storageService.setActiveModel(name, path).catch(e => {
+      console.error("Error setting active model:", e);
+    });
     return { name, path };
   },
   
-  // Upload a custom YOLO model with improved persistence
-  uploadCustomModel: async (file: File, name: string) => {
+  // Upload a custom YOLO model
+  uploadCustomModel: (file: File, name: string): Promise<ModelInfo> => {
     const storageService = StorageServiceFactory.getService();
     return storageService.uploadModel(file, name);
   },
   
-  // Get list of custom models
-  getCustomModels: async () => {
-    const storageService = StorageServiceFactory.getService();
-    return storageService.listModels();
+  // Get list of custom models - now returns array directly instead of promise
+  getCustomModels: (): ModelInfo[] => {
+    try {
+      const storedModels = localStorage.getItem('custom-ai-models');
+      return storedModels ? JSON.parse(storedModels) : [];
+    } catch (e) {
+      console.error("Error getting custom models:", e);
+      return [];
+    }
   },
   
   // Save grid layout settings

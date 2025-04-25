@@ -45,7 +45,7 @@ export const useCameraGrid = () => {
 
   const loadActiveModel = () => {
     const model = SettingsService.getActiveModel();
-    setActiveModel(model);
+    setActiveModel(model || undefined);
   };
 
   const loadModels = () => {

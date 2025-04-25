@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,7 +39,6 @@ const AIModelUpload: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [assignTarget, setAssignTarget] = useState<string | null>(null);
   
-  // Load saved models on component mount
   useEffect(() => {
     const customModels = SettingsService.getCustomModels();
     const formattedModels = customModels.map(model => ({
@@ -52,7 +50,6 @@ const AIModelUpload: React.FC = () => {
       uploaded: new Date(model.uploadedAt)
     }));
     
-    // Also load any mock models that might be in state
     const mockModels = [
       {
         id: 'model-1',
@@ -72,7 +69,6 @@ const AIModelUpload: React.FC = () => {
       }
     ];
     
-    // Combine saved models and mock models (avoiding duplicates by ID)
     const allModels = [...formattedModels];
     if (allModels.length === 0) {
       allModels.push(...mockModels);
@@ -101,10 +97,8 @@ const AIModelUpload: React.FC = () => {
     setIsUploading(true);
     
     try {
-      // Calculate file size in MB
       const fileSizeMB = (modelFile.size / (1024 * 1024)).toFixed(1);
       
-      // Upload the model using SettingsService
       const uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName);
       
       const newModel: AIModel = {
@@ -118,15 +112,12 @@ const AIModelUpload: React.FC = () => {
         uploaded: new Date()
       };
       
-      // Update state with the new model
       setUploadedModels(prev => [...prev, newModel]);
       
-      // Reset form
       setModelName('');
       setModelFile(null);
       setModelType('object-detection');
       
-      // Success notification
       toast.success('AI Model Uploaded', {
         description: `${newModel.name} has been successfully uploaded and is ready to use.`
       });
@@ -141,14 +132,11 @@ const AIModelUpload: React.FC = () => {
   };
   
   const handleDelete = (modelId: string) => {
-    // Find the model to delete
     const modelToDelete = uploadedModels.find(model => model.id === modelId);
     if (!modelToDelete) return;
     
-    // Remove from state
     setUploadedModels(uploadedModels.filter(model => model.id !== modelId));
     
-    // Remove from localStorage
     const customModels = SettingsService.getCustomModels().filter(model => model.id !== modelId);
     localStorage.setItem('custom-ai-models', JSON.stringify(customModels));
     
@@ -160,22 +148,18 @@ const AIModelUpload: React.FC = () => {
   const handleAssignCamera = (modelId: string, camera: string) => {
     setUploadedModels(uploadedModels.map(model => {
       if (model.id === modelId) {
-        // If "All Cameras" is selected, clear other selections
         if (camera === 'All Cameras') {
           return { ...model, cameras: ['All Cameras'] };
         }
         
-        // If this model already has "All Cameras", remove it when selecting a specific camera
         let updatedCameras = model.cameras.includes('All Cameras') 
           ? [camera] 
           : [...model.cameras];
         
-        // Toggle camera: add if not already in the list, remove if it is
         if (!updatedCameras.includes(camera)) {
           updatedCameras.push(camera);
         } else {
           updatedCameras = updatedCameras.filter(c => c !== camera);
-          // If no cameras left, assign to all cameras
           if (updatedCameras.length === 0) {
             updatedCameras = ['All Cameras'];
           }
@@ -183,7 +167,6 @@ const AIModelUpload: React.FC = () => {
         
         const updatedModel = { ...model, cameras: updatedCameras };
         
-        // Update camera assignments in localStorage
         const customModels = SettingsService.getCustomModels();
         const modelIndex = customModels.findIndex(m => m.id === modelId);
         if (modelIndex >= 0) {
