@@ -108,20 +108,24 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     }
   };
   
-  const handleApplyModel = (model: { name: string; path: string }) => {
-    SettingsService.setActiveModel(model.name, model.path);
-    setActiveModel({ name: model.name, path: model.path });
+  const handleApplyModel = (event?: React.MouseEvent) => {
+    const model = availableModels.find(m => m.id === selectedModel);
     
-    if (onModelSelected) {
-      onModelSelected(model.name, model.path);
-    }
-    
-    toast.success(`Applied model: ${model.name}`, {
-      description: autoApply ? "This model will be applied to all cameras" : "This model will be used as the default"
-    });
-    
-    if (autoApply) {
-      localStorage.removeItem('camera-models');
+    if (model) {
+      SettingsService.setActiveModel(model.name, model.path);
+      setActiveModel({ name: model.name, path: model.path });
+      
+      if (onModelSelected) {
+        onModelSelected(model.name, model.path);
+      }
+      
+      toast.success(`Applied model: ${model.name}`, {
+        description: autoApply ? "This model will be applied to all cameras" : "This model will be used as the default"
+      });
+      
+      if (autoApply) {
+        localStorage.removeItem('camera-models');
+      }
     }
   };
   
@@ -192,7 +196,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
         <div className="text-sm text-muted-foreground">
           {activeModel ? `Currently active: ${activeModel.name}` : "No model is currently active"}
         </div>
-        <Button onClick={handleApplyModel}>
+        <Button 
+          onClick={handleApplyModel} 
+          disabled={!selectedModel}
+        >
           {activeModel?.path === availableModels.find(m => m.id === selectedModel)?.path
             ? "Reapply Model"
             : "Apply Model"
