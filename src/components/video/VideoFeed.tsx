@@ -56,7 +56,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     inferenceLocation,
     inferenceTime,
     isHikvisionFormat,
-    setIsHikvisionFormat, // Added this line
+    setIsHikvisionFormat,
+    isModelLoading,
     videoRef,
     containerRef,
     startStream,
@@ -126,9 +127,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   if (!showControls) {
     return (
       <div className="video-feed relative" ref={containerRef}>
-        {isProcessing ? (
+        {isProcessing || isModelLoading ? (
           <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '160px' }}>
             <Loader className="text-avianet-red animate-spin" size={24} />
+            <p className="text-sm mt-2 text-gray-500">
+              {isModelLoading ? 'Loading AI model...' : 'Processing video...'}
+            </p>
           </div>
         ) : isStreaming ? (
           <div className="relative">
@@ -202,7 +206,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                   variant={isStreaming ? "destructive" : "default"}
                   onClick={isStreaming ? stopStream : startStream}
                   className="rounded-l-none"
-                  disabled={isProcessing || (!videoUrl && !hasUploadedFile)}
+                  disabled={isProcessing || isModelLoading || (!videoUrl && !hasUploadedFile)}
                 >
                   {isStreaming ? "Stop" : "Start"}
                 </Button>
@@ -226,7 +230,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 accept="video/*,.dav"
                 onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
                 className="mt-1"
-                disabled={isProcessing}
+                disabled={isProcessing || isModelLoading}
               />
               <p className="text-xs text-muted-foreground mt-1">
                 Supports MP4, WebM, Hikvision DAV, and other NVR export formats
@@ -236,7 +240,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
 
           <DemoVideoButtons
             onSelectDemo={handleDemoVideo}
-            isProcessing={isProcessing}
+            isProcessing={isProcessing || isModelLoading}
           />
 
           <ModelSelector
@@ -251,6 +255,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 <Loader className="text-avianet-red animate-spin mb-2" size={48} />
                 <p className="text-gray-700 dark:text-gray-300">Processing video...</p>
                 <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">This may take a moment depending on the file size</p>
+              </div>
+            ) : isModelLoading ? (
+              <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
+                <Loader className="text-avianet-red animate-spin mb-2" size={48} />
+                <p className="text-gray-700 dark:text-gray-300">Loading AI model...</p>
+                <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">This may take a moment for custom models</p>
               </div>
             ) : isStreaming ? (
               <div className="relative">
@@ -328,6 +338,16 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               )}
             </div>
           )}
+          
+          <div className="text-xs text-gray-500 mt-2 p-3 border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50 dark:bg-gray-800/30">
+            <p className="font-medium mb-1">Storage Directory Information:</p>
+            <ul className="list-disc pl-5">
+              <li>Models directory: {SettingsService.localStorageConfig.modelsPath}</li>
+              <li>Settings directory: {SettingsService.localStorageConfig.settingsPath}</li>
+              <li>Note: In browser environment, these paths are simulated</li>
+              <li>For true filesystem persistence, an Electron or Node.js implementation is required</li>
+            </ul>
+          </div>
         </div>
       </CardContent>
     </Card>

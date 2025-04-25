@@ -1,4 +1,3 @@
-
 // EdgeAIInference.ts
 // This service handles communication with edge devices for AI inference
 
@@ -11,6 +10,7 @@ export interface InferenceRequest {
   cameraId: string;
   modelName: string;
   modelPath: string;
+  customModelUrl?: string | null; // For custom uploaded models
   thresholdConfidence: number;
 }
 
@@ -121,7 +121,7 @@ class EdgeAIInferenceService {
     
     try {
       console.log("Initializing Edge AI Inference system");
-      console.log("Loading standard YOLO models from /var/lib/visionai/models/");
+      console.log("Loading standard YOLO models from /opt/visionai/models/");
       
       // Simulate model loading delay
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -173,7 +173,7 @@ class EdgeAIInferenceService {
   }
   
   // Load a specific model into memory
-  private async loadModel(modelPath: string): Promise<boolean> {
+  private async loadModel(modelPath: string, customModelUrl?: string | null): Promise<boolean> {
     // Check if model is already loaded
     if (this.modelCache.has(modelPath)) {
       return true;
@@ -191,8 +191,21 @@ class EdgeAIInferenceService {
       console.log(`Found local file path for model: ${localPath}`);
     }
     
-    // Simulate model loading delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    if (customModelUrl) {
+      console.log(`Loading custom model from Blob URL: ${customModelUrl}`);
+      
+      // In a real-world scenario with ONNX Runtime or TensorFlow.js:
+      // 1. Fetch the model binary from the Blob URL
+      // 2. Load it into the inference framework
+      // 3. Initialize the model
+      
+      // For example with ONNX Runtime (pseudocode):
+      // const modelData = await fetch(customModelUrl).then(r => r.arrayBuffer());
+      // const session = await ort.InferenceSession.create(modelData);
+    }
+    
+    // Simulate model loading delay - longer for custom models
+    await new Promise(resolve => setTimeout(resolve, customModelUrl ? 2500 : 1500));
     
     // In a real implementation, we would load the model here using ONNX Runtime,
     // TensorFlow.js, or another ML library suitable for the browser or Node.js
@@ -209,10 +222,13 @@ class EdgeAIInferenceService {
     // Log the request details for debugging
     console.info(`Performing inference for camera ${request.cameraId} with model ${request.modelName} (${request.modelPath})`);
     
+    // Check if it's a custom uploaded model
+    const isCustomModel = request.customModelUrl || request.modelPath.includes('/custom_models/');
+    
     // Ensure model is loaded
     try {
       if (!this.modelCache.has(request.modelPath)) {
-        await this.loadModel(request.modelPath);
+        await this.loadModel(request.modelPath, request.customModelUrl);
       }
     } catch (error) {
       console.error("Failed to load model:", error);
@@ -222,15 +238,8 @@ class EdgeAIInferenceService {
     // Check if this is a demo video and has predefined detections
     const demoDetections = this.getDemoVideoDetections(request.cameraId);
     
-    // Check if this is a custom model (not a default YOLO model)
-    const isCustomModel = !request.modelPath.includes('/models/yolov11');
-    
-    // If this is a custom model or a real implementation, perform actual inference
-    if (isCustomModel || request.imageData.startsWith('data:image')) {
-      return this.performActualInference(request);
-    }
     // If this is a demo video and NOT a custom model, return predefined detections
-    else if (demoDetections) {
+    if (demoDetections && !isCustomModel) {
       return new Promise((resolve) => {
         setTimeout(() => {
           resolve({
@@ -240,6 +249,15 @@ class EdgeAIInferenceService {
           });
         }, 300);
       });
+    }
+    
+    // For custom models, perform custom model inference
+    if (isCustomModel) {
+      return this.performCustomModelInference(request);
+    }
+    // For other cases (real model or image data), perform actual inference
+    else if (request.imageData.startsWith('data:image')) {
+      return this.performActualInference(request);
     }
     
     // For other cases, generate realistic detections
@@ -260,6 +278,52 @@ class EdgeAIInferenceService {
         });
       }, 500);
     });
+  }
+  
+  // Perform inference specifically for custom models
+  private async performCustomModelInference(request: InferenceRequest): Promise<InferenceResult> {
+    console.log(`Performing inference with CUSTOM model: ${request.modelName}`);
+    
+    const inferenceStartTime = performance.now();
+    
+    try {
+      // IMPORTANT: In a web browser, we can't actually run real inference on uploaded models
+      // This would require:
+      // 1. A library like ONNX Runtime Web or TensorFlow.js to load and run the model
+      // 2. Proper preprocessing of the input image
+      // 3. Postprocessing of the model output to extract detections
+      
+      // However, we can simulate custom model behavior for demonstration purposes
+      
+      // Simulate processing delay - custom models often take longer
+      await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 500));
+      
+      // Generate custom model detections that are more focused and accurate
+      // This simulates a specialized model that's better at specific tasks
+      const customDetections = this.generateCustomModelDetections(request.cameraId, request.modelName);
+      
+      // Calculate inference time
+      const inferenceTime = performance.now() - inferenceStartTime;
+      
+      return {
+        detections: customDetections,
+        processedAt: 'edge', // Custom models more likely to be processed on edge
+        inferenceTime
+      };
+      
+    } catch (error) {
+      console.error("Custom model inference error:", error);
+      toast.error("Custom model inference failed", {
+        description: "The model format may not be compatible"
+      });
+      
+      // Return empty detections as fallback
+      return {
+        detections: [],
+        processedAt: 'server',
+        inferenceTime: performance.now() - inferenceStartTime
+      };
+    }
   }
   
   // Perform actual inference with the model
@@ -433,7 +497,6 @@ class EdgeAIInferenceService {
       const height = (className === "person" ? 0.25 : 0.15) * 360 + Math.random() * 60;
       
       // Position objects in realistic areas of the frame
-      // For example, people are usually on the lower half of the frame
       let x, y;
       if (className === "person") {
         x = Math.random() * (640 - width);

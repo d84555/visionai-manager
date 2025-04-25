@@ -53,7 +53,7 @@ export interface StorageSettings {
   maxStorageGB: number;
   storageLocation: string;
   compressionEnabled: boolean;
-  modelStoragePath: string; // Added this field for custom model storage path
+  modelStoragePath: string;
 }
 
 export interface CustomModel {
@@ -78,21 +78,20 @@ interface LocalStorageConfig {
 const SettingsService = {
   // Local storage configuration
   localStorageConfig: {
-    basePath: '/var/lib/visionai/',
-    modelsPath: '/var/lib/visionai/models/',
-    settingsPath: '/var/lib/visionai/settings/',
+    basePath: '/opt/visionai/',  // Changed from /var/lib/visionai/ to /opt/visionai/
+    modelsPath: '/opt/visionai/models/',  // Changed path
+    settingsPath: '/opt/visionai/settings/',  // Changed path
     enabled: true // Whether local storage is enabled
   } as LocalStorageConfig,
   
   // Initialize local storage paths
   initLocalStorage: () => {
     try {
-      // In a browser environment, we can't directly access the file system
-      // This would need to be implemented with Node.js, Electron, or server-side integration
+      // IMPORTANT NOTE: Browser Security Sandbox
+      // In a web browser environment, we cannot directly access the file system
+      // This would require server-side code (Node.js) or Electron for filesystem access
       console.log("Local storage initialized with base path:", SettingsService.localStorageConfig.basePath);
-      
-      // For now, we'll use localStorage with a fallback mechanism for persistence
-      // We'll add proper filesystem support when running in an Electron or Node.js environment
+      console.log("NOTE: In browser environment, this is simulated storage only.");
       
       // Store the config in localStorage for simulated persistence
       localStorage.setItem('local-storage-config', JSON.stringify(SettingsService.localStorageConfig));
@@ -151,11 +150,11 @@ const SettingsService = {
     settings.ai.activeModel = modelData;
     localStorage.setItem('avianet-settings', JSON.stringify(settings));
     
-    // Also save to local file system if enabled
+    // Also save to simulated local file system
     if (SettingsService.localStorageConfig.enabled) {
-      // In a real implementation, this would write to a file
+      // IMPORTANT: In a real Node.js or Electron app, this would write to actual disk
+      // For browser simulation, we just use localStorage with special prefixes
       console.log(`Saving active model to ${SettingsService.localStorageConfig.settingsPath}active-model.json`);
-      // For now, we'll use localStorage as a simulation of file system persistence
       localStorage.setItem('fs-active-model', JSON.stringify(modelData));
     }
     
@@ -169,7 +168,7 @@ const SettingsService = {
       // Calculate file size in MB
       const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
       
-      // Generate a mock path that looks like a local file URL
+      // Generate a mock path that represents where it would be on disk
       const fileName = `${name.replace(/\s+/g, '_').toLowerCase()}_${Date.now()}.onnx`;
       const modelPath = `/custom_models/${fileName}`;
       
@@ -191,22 +190,25 @@ const SettingsService = {
         localFilePath // Add the physical file path
       };
       
-      // In a real implementation with file system access:
-      // 1. We would save the file to the localFilePath
-      // 2. Create any necessary directories
-      // 3. Handle file system permissions
+      // IMPORTANT: Browser Sandbox Limitation
+      // In a web browser, we cannot directly write to the filesystem
+      // This would require:
+      //   1. Node.js backend with file system access
+      //   2. Electron app for desktop integration
+      //   3. Native app with file system permissions
+      // Instead, we simulate this using browser storage mechanisms
       
-      // For browser simulation purposes, we'll:
-      // 1. Create a blob URL to simulate file access
-      // 2. Store the file content in IndexedDB (not implemented here)
-      // 3. Use localStorage for metadata
+      console.log(`[BROWSER SIMULATION] Saving model file to: ${localFilePath}`);
+      console.log(`IMPORTANT: In a real Node.js or Electron app, this would save to: ${localFilePath}`);
+      console.log(`File size: ${fileSizeMB}, Model ID: ${modelId}`);
+      
+      // For a real implementation with file system access:
+      // 1. Create a blob URL to access file content
+      const fileURL = URL.createObjectURL(file);
       
       // Simulate processing delay
       setTimeout(() => {
         try {
-          console.log(`[FILESYSTEM] Saving model file to: ${localFilePath}`);
-          console.log(`File size: ${fileSizeMB}, Model ID: ${modelId}`);
-          
           // Store in custom models list
           const customModels = SettingsService.getCustomModels();
           customModels.push(modelData);
@@ -218,10 +220,10 @@ const SettingsService = {
           settings.customModels.push(modelData);
           localStorage.setItem('avianet-settings', JSON.stringify(settings));
           
-          // For filesystem simulation
+          // For filesystem simulation - store file reference
           localStorage.setItem(`fs-model-${modelId}`, JSON.stringify({
             metadata: modelData,
-            // In a real implementation, we would save the file content or a reference to it
+            fileUrl: fileURL, // Store the Blob URL for later access
             fileExists: true,
             lastModified: new Date().toISOString()
           }));
@@ -287,9 +289,8 @@ const SettingsService = {
   saveGridLayout: (settings: { layout: '1x1' | '2x2' | '3x3' | '4x4'; streamType: 'main' | 'sub' }) => {
     localStorage.setItem('grid-layout', JSON.stringify(settings));
     
-    // Also save to local file system if enabled
+    // Also save to simulated local file system
     if (SettingsService.localStorageConfig.enabled) {
-      // In a real implementation, this would write to a file
       console.log(`Saving grid layout to ${SettingsService.localStorageConfig.settingsPath}grid-layout.json`);
       localStorage.setItem('fs-grid-layout', JSON.stringify(settings));
     }
@@ -343,9 +344,8 @@ const SettingsService = {
     settings[category] = { ...settings[category], ...data };
     localStorage.setItem('avianet-settings', JSON.stringify(settings));
     
-    // Also save to local file system if enabled
+    // Also save to simulated local file system
     if (SettingsService.localStorageConfig.enabled) {
-      // In a real implementation, this would write to a file
       console.log(`Saving ${category} settings to ${SettingsService.localStorageConfig.settingsPath}${category}.json`);
       localStorage.setItem(`fs-settings-${category}`, JSON.stringify(settings[category]));
       localStorage.setItem('fs-all-settings', JSON.stringify(settings));
@@ -361,12 +361,30 @@ const SettingsService = {
   saveAllSettings: (allSettings: Record<string, any>) => {
     localStorage.setItem('avianet-settings', JSON.stringify(allSettings));
     
-    // Also save to local file system if enabled
+    // Also save to simulated local file system
     if (SettingsService.localStorageConfig.enabled) {
-      // In a real implementation, this would write to a file
       console.log(`Saving all settings to ${SettingsService.localStorageConfig.settingsPath}all-settings.json`);
       localStorage.setItem('fs-all-settings', JSON.stringify(allSettings));
     }
+  },
+  
+  // Get the Blob URL for a model file (if available)
+  getModelFileUrl: (modelPath: string): string | null => {
+    // Look through stored model data to find the Blob URL
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('fs-model-')) {
+        try {
+          const modelData = JSON.parse(localStorage.getItem(key) || '{}');
+          if (modelData?.metadata?.path === modelPath && modelData.fileUrl) {
+            return modelData.fileUrl;
+          }
+        } catch (e) {
+          console.error("Failed to parse model data:", e);
+        }
+      }
+    }
+    return null;
   }
 };
 

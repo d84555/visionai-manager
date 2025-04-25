@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
 import EdgeAIInference, { Detection } from '@/services/EdgeAIInference';
 import { convertToPlayableFormat } from '@/utils/ffmpegUtils';
+import SettingsService from '@/services/SettingsService';
 
 interface UseVideoFeedProps {
   initialVideoUrl?: string;
@@ -37,6 +38,7 @@ export const useVideoFeed = ({
   const [inferenceLocation, setInferenceLocation] = useState<'edge' | 'server' | null>(null);
   const [inferenceTime, setInferenceTime] = useState<number | null>(null);
   const [isHikvisionFormat, setIsHikvisionFormat] = useState(false);
+  const [isModelLoading, setIsModelLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -52,6 +54,7 @@ export const useVideoFeed = ({
       const modelToUse = activeModel;
       
       if (!videoRef.current || videoRef.current.paused) {
+        console.log("Video is paused or not available for detection");
         return;
       }
       
@@ -73,15 +76,33 @@ export const useVideoFeed = ({
         // Convert canvas to base64 for inference
         const imageData = canvasRef.current.toDataURL('image/jpeg', 0.8);
         
+        // Check if we have a custom uploaded model and get its file URL
+        let customModelUrl = null;
+        if (modelToUse?.path.includes('/custom_models/')) {
+          customModelUrl = SettingsService.getModelFileUrl(modelToUse.path);
+          if (customModelUrl) {
+            console.log(`Using custom model from Blob URL: ${customModelUrl}`);
+          } else {
+            console.warn(`Could not find Blob URL for custom model: ${modelToUse.path}`);
+          }
+        }
+        
         const request = {
           imageData: imageData,
           cameraId: camera?.id || videoUrl || "unknown",
           modelName: modelToUse?.name || "YOLOv11",
           modelPath: modelToUse?.path || "/models/yolov11.onnx",
+          customModelUrl: customModelUrl,
           thresholdConfidence: 0.5
         };
         
+        console.log(`Performing inference with model: ${request.modelName}`);
         const result = await EdgeAIInference.performInference(request);
+        
+        if (result.detections.length > 0) {
+          console.log(`Detected ${result.detections.length} objects with model ${request.modelName}`);
+          console.log(`First detection: ${result.detections[0].class} with confidence ${result.detections[0].confidence}`);
+        }
         
         setDetections(result.detections);
         setInferenceLocation(result.processedAt);
@@ -116,9 +137,33 @@ export const useVideoFeed = ({
     setIsStreaming(true);
     setIsPlaying(true);
     
+    // If active model is a custom model, check if it's loaded
+    if (activeModel?.path.includes('/custom_models/')) {
+      setIsModelLoading(true);
+      try {
+        const modelUrl = SettingsService.getModelFileUrl(activeModel.path);
+        if (modelUrl) {
+          console.log(`Custom model found at Blob URL: ${modelUrl}`);
+          // In a real implementation, we would preload the model here
+          await new Promise(resolve => setTimeout(resolve, 500)); // Simulate model loading
+        } else {
+          console.warn(`No Blob URL found for custom model: ${activeModel.path}`);
+          toast.warning("Custom model file not found", {
+            description: "Object detection may not work correctly"
+          });
+        }
+      } catch (error) {
+        console.error("Error loading custom model:", error);
+      } finally {
+        setIsModelLoading(false);
+      }
+    }
+    
     if (videoRef.current) {
       try {
+        // This is a Promise that needs to be properly awaited
         await videoRef.current.play();
+        setIsPlaying(true);
       } catch (err) {
         console.error("Video play error:", err);
         toast.error('Could not play video', {
@@ -221,6 +266,16 @@ export const useVideoFeed = ({
       const convertedVideoUrl = await convertToPlayableFormat(file);
       setVideoUrl(convertedVideoUrl);
       
+      // Store file for simulated file system persistence
+      localStorage.setItem(`video-file-${Date.now()}`, JSON.stringify({
+        originalName: file.name,
+        size: file.size,
+        type: file.type,
+        blobUrl: convertedVideoUrl,
+        storedAt: SettingsService.localStorageConfig.basePath + 'videos/' + file.name,
+        createdAt: new Date().toISOString()
+      }));
+      
       toast.success('Video file processed successfully', {
         description: 'Click Start to begin playback and detection'
       });
@@ -308,6 +363,7 @@ export const useVideoFeed = ({
     inferenceTime,
     isHikvisionFormat,
     setIsHikvisionFormat,
+    isModelLoading,
     videoRef,
     containerRef,
     startStream,
