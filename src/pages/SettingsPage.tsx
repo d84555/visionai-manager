@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Mail, Database, Logs, Server } from 'lucide-react';
+import { Settings, Save, Mail, Database, Logs, Server, Layers } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -113,6 +113,18 @@ const SettingsPage = () => {
       <Card className="w-full">
         <CardHeader className="border-b">
           <CardTitle className="flex items-center">
+            <Layers className="mr-2 text-avianet-red" size={20} />
+            AI Models Configuration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          <ModelSelector />
+        </CardContent>
+      </Card>
+      
+      <Card className="w-full">
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center">
             <Settings className="mr-2 text-avianet-red" size={20} />
             Application Settings
           </CardTitle>
@@ -127,9 +139,6 @@ const SettingsPage = () => {
             
             <TabsContent value="model" className="space-y-6 pt-4">
               <div className="space-y-4">
-                <div className="mb-6">
-                  <ModelSelector />
-                </div>
                 
                 <div className="space-y-2">
                   <Label htmlFor="confidence-threshold">

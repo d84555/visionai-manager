@@ -5,7 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import CameraGrid from '@/components/camera/CameraGrid';
 import CameraControls from '@/components/video/CameraControls';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import AIModelUpload from '@/components/ai/AIModelUpload';
 import SettingsService from '@/services/SettingsService';
 import CameraService from '@/services/CameraService';
 import { Camera } from '@/services/CameraService';
@@ -153,7 +152,6 @@ const Home = () => {
           <div className="flex items-center justify-between border-b px-4 py-2">
             <TabsList>
               <TabsTrigger value="multicamera">Multi-Camera View</TabsTrigger>
-              <TabsTrigger value="aimodels">AI Models</TabsTrigger>
             </TabsList>
             
             <div className="flex items-center space-x-2">
@@ -210,10 +208,6 @@ const Home = () => {
                 </>
               )}
             </ResizablePanelGroup>
-          </TabsContent>
-          
-          <TabsContent value="aimodels" className="p-4">
-            <AIModelUpload />
           </TabsContent>
         </Tabs>
       </div>

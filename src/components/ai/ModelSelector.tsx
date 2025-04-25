@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import {
   Card,
@@ -26,7 +25,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   const [activeModel, setActiveModel] = useState<{name: string; path: string} | undefined>(undefined);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string, description: string}[]>([]);
   
-  // Load saved model on mount
   useEffect(() => {
     loadModels();
     loadActiveModel();
@@ -34,7 +32,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   }, []);
   
   const loadModels = () => {
-    // Load default models
     const defaultModels = [
       { 
         id: 'yolov11-n', 
@@ -68,7 +65,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
       }
     ];
     
-    // Load custom uploaded models
     const customModels = SettingsService.getCustomModels().map(model => ({
       id: model.id,
       name: model.name,
@@ -76,7 +72,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
       description: `Custom uploaded model (${model.size || 'unknown size'})`
     }));
     
-    // Combine both sets of models
     setAvailableModels([...defaultModels, ...customModels]);
   };
   
@@ -84,7 +79,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     const model = SettingsService.getActiveModel();
     if (model) {
       setActiveModel(model);
-      // Find the model ID based on the path
       const modelId = availableModels.find(m => m.path === model.path)?.id || 'yolov11';
       setSelectedModel(modelId);
     }
@@ -95,7 +89,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     setAutoApply(modelSettings.autoApplyModel !== false);
   };
   
-  // Save auto-apply setting when it changes
   useEffect(() => {
     const modelSettings = SettingsService.getSettings('model');
     SettingsService.saveSettings('model', {
@@ -106,28 +99,29 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   
   const handleModelChange = (modelId: string) => {
     setSelectedModel(modelId);
+    
+    if (autoApply) {
+      const model = availableModels.find(m => m.id === modelId);
+      if (model) {
+        handleApplyModel(model);
+      }
+    }
   };
   
-  const handleApplyModel = () => {
-    const model = availableModels.find(m => m.id === selectedModel);
-    if (model) {
-      // Save to settings
-      SettingsService.setActiveModel(model.name, model.path);
-      setActiveModel({ name: model.name, path: model.path });
-      
-      // Notify parent component if callback provided
-      if (onModelSelected) {
-        onModelSelected(model.name, model.path);
-      }
-      
-      toast.success(`Applied model: ${model.name}`, {
-        description: autoApply ? "This model will be applied to all cameras" : "This model will be used as the default"
-      });
-      
-      // If auto-apply is enabled, clear any per-camera model assignments
-      if (autoApply) {
-        localStorage.removeItem('camera-models');
-      }
+  const handleApplyModel = (model: { name: string; path: string }) => {
+    SettingsService.setActiveModel(model.name, model.path);
+    setActiveModel({ name: model.name, path: model.path });
+    
+    if (onModelSelected) {
+      onModelSelected(model.name, model.path);
+    }
+    
+    toast.success(`Applied model: ${model.name}`, {
+      description: autoApply ? "This model will be applied to all cameras" : "This model will be used as the default"
+    });
+    
+    if (autoApply) {
+      localStorage.removeItem('camera-models');
     }
   };
   
