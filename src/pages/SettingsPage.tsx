@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Mail, Database, Logs, Server, Layers } from 'lucide-react';
+import { Settings, Save, Mail, Database, Logs, Server, Layers, Info } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,11 +10,13 @@ import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from '@/components/ui/form';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import SyslogConfig from '@/components/config/SyslogConfig';
 import SmtpConfig from '@/components/config/SmtpConfig';
 import StorageConfig from '@/components/config/StorageConfig';
 import ModelSelector from '@/components/ai/ModelSelector';
+import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import SettingsService, { 
   ModelSettings, 
   VideoSettings, 
@@ -51,6 +54,10 @@ const SettingsPage = () => {
     useLocalBinary: false
   });
 
+  const [storageMode, setStorageMode] = useState<'simulated' | 'api'>(
+    StorageServiceFactory.getMode()
+  );
+
   useEffect(() => {
     const loadedModelSettings = SettingsService.getSettings('model');
     const loadedVideoSettings = SettingsService.getSettings('video');
@@ -78,6 +85,12 @@ const SettingsPage = () => {
   useEffect(() => {
     SettingsService.updateSettings('ffmpeg', ffmpegSettings);
   }, [ffmpegSettings]);
+
+  const handleStorageModeChange = (mode: 'simulated' | 'api') => {
+    StorageServiceFactory.setMode(mode);
+    setStorageMode(mode);
+    toast.success(`Storage mode changed to ${mode === 'api' ? 'Edge Computing Node' : 'Browser Simulation'}`);
+  };
   
   const handleSaveSettings = () => {
     SettingsService.saveAllSettings({
@@ -112,9 +125,36 @@ const SettingsPage = () => {
       
       <Card className="w-full">
         <CardHeader className="border-b">
-          <CardTitle className="flex items-center">
-            <Layers className="mr-2 text-avianet-red" size={20} />
-            AI Models Configuration
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center">
+              <Layers className="mr-2 text-avianet-red" size={20} />
+              AI Models Configuration 
+            </div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center text-xs bg-gray-100 px-3 py-1 rounded">
+                    <Info className="mr-1 h-3 w-3" />
+                    Mode: {storageMode === 'api' ? 'Edge Computing Node' : 'Browser Simulation'}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <div className="w-64 p-2 space-y-2">
+                    <p className="text-sm">Current storage mode for AI models</p>
+                    <div className="flex space-x-2">
+                      <Button size="sm" variant={storageMode === 'api' ? "default" : "outline"} 
+                              onClick={() => handleStorageModeChange('api')}>
+                        Edge Computing
+                      </Button>
+                      <Button size="sm" variant={storageMode === 'simulated' ? "default" : "outline"}
+                              onClick={() => handleStorageModeChange('simulated')}>
+                        Simulation
+                      </Button>
+                    </div>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-6">
@@ -126,84 +166,90 @@ const SettingsPage = () => {
         <CardHeader className="border-b">
           <CardTitle className="flex items-center">
             <Settings className="mr-2 text-avianet-red" size={20} />
+            AI Model Parameters
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div className="space-y-4">                
+            <div className="space-y-2">
+              <Label htmlFor="confidence-threshold">
+                Confidence Threshold ({modelSettings.confidenceThreshold}%)
+              </Label>
+              <Slider
+                id="confidence-threshold"
+                min={50}
+                max={95}
+                step={5}
+                value={[modelSettings.confidenceThreshold]}
+                onValueChange={(value) => setModelSettings({...modelSettings, confidenceThreshold: value[0]})}
+              />
+              <p className="text-xs text-muted-foreground">
+                Minimum confidence required for detection to be displayed (50-95%)
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="detection-frequency">
+                Detection Frequency ({modelSettings.detectionFrequency}s)
+              </Label>
+              <Slider
+                id="detection-frequency"
+                min={1}
+                max={10}
+                step={1}
+                value={[modelSettings.detectionFrequency]}
+                onValueChange={(value) => setModelSettings({...modelSettings, detectionFrequency: value[0]})}
+              />
+              <p className="text-xs text-muted-foreground">
+                How often to run detection on video frames (1-10 seconds)
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="max-detections">
+                Maximum Detections ({modelSettings.maxDetections})
+              </Label>
+              <Slider
+                id="max-detections"
+                min={5}
+                max={30}
+                step={5}
+                value={[modelSettings.maxDetections]}
+                onValueChange={(value) => setModelSettings({...modelSettings, maxDetections: value[0]})}
+              />
+              <p className="text-xs text-muted-foreground">
+                Maximum number of detections to display in a single frame
+              </p>
+            </div>
+            
+            <div className="flex items-center space-x-2 pt-2">
+              <Switch
+                id="high-resolution"
+                checked={modelSettings.useHighResolution}
+                onCheckedChange={(checked) => setModelSettings({...modelSettings, useHighResolution: checked})}
+              />
+              <Label htmlFor="high-resolution">Use high resolution processing</Label>
+            </div>
+            <p className="text-xs text-muted-foreground pl-8">
+              Increases accuracy but requires more processing power
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+      
+      <Card className="w-full">
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center">
+            <Settings className="mr-2 text-avianet-red" size={20} />
             Application Settings
           </CardTitle>
         </CardHeader>
         <CardContent className="p-6">
-          <Tabs defaultValue="model">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="model">Model Settings</TabsTrigger>
+          <Tabs defaultValue="video">
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="video">Video Settings</TabsTrigger>
               <TabsTrigger value="alerts">Alert Settings</TabsTrigger>
             </TabsList>
-            
-            <TabsContent value="model" className="space-y-6 pt-4">
-              <div className="space-y-4">
-                
-                <div className="space-y-2">
-                  <Label htmlFor="confidence-threshold">
-                    Confidence Threshold ({modelSettings.confidenceThreshold}%)
-                  </Label>
-                  <Slider
-                    id="confidence-threshold"
-                    min={50}
-                    max={95}
-                    step={5}
-                    value={[modelSettings.confidenceThreshold]}
-                    onValueChange={(value) => setModelSettings({...modelSettings, confidenceThreshold: value[0]})}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Minimum confidence required for detection to be displayed (50-95%)
-                  </p>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="detection-frequency">
-                    Detection Frequency ({modelSettings.detectionFrequency}s)
-                  </Label>
-                  <Slider
-                    id="detection-frequency"
-                    min={1}
-                    max={10}
-                    step={1}
-                    value={[modelSettings.detectionFrequency]}
-                    onValueChange={(value) => setModelSettings({...modelSettings, detectionFrequency: value[0]})}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    How often to run detection on video frames (1-10 seconds)
-                  </p>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="max-detections">
-                    Maximum Detections ({modelSettings.maxDetections})
-                  </Label>
-                  <Slider
-                    id="max-detections"
-                    min={5}
-                    max={30}
-                    step={5}
-                    value={[modelSettings.maxDetections]}
-                    onValueChange={(value) => setModelSettings({...modelSettings, maxDetections: value[0]})}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Maximum number of detections to display in a single frame
-                  </p>
-                </div>
-                
-                <div className="flex items-center space-x-2 pt-2">
-                  <Switch
-                    id="high-resolution"
-                    checked={modelSettings.useHighResolution}
-                    onCheckedChange={(checked) => setModelSettings({...modelSettings, useHighResolution: checked})}
-                  />
-                  <Label htmlFor="high-resolution">Use high resolution processing</Label>
-                </div>
-                <p className="text-xs text-muted-foreground pl-8">
-                  Increases accuracy but requires more processing power
-                </p>
-              </div>
-            </TabsContent>
             
             <TabsContent value="video" className="space-y-6 pt-4">
               <div className="space-y-4">

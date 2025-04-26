@@ -11,10 +11,15 @@ import {
 import { Button } from '@/components/ui/button';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import SettingsService from '@/services/SettingsService';
+import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Info, Check, Layers } from 'lucide-react';
+import { Info, Check, Layers, Upload } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface ModelSelectorProps {
   onModelSelected?: (modelName: string, modelPath: string) => void;
@@ -25,6 +30,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   const [autoApply, setAutoApply] = useState<boolean>(true);
   const [activeModel, setActiveModel] = useState<{name: string; path: string} | undefined>(undefined);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string, description: string}[]>([]);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [modelName, setModelName] = useState<string>('');
+  const [modelType, setModelType] = useState<string>('object-detection');
+  const [modelFile, setModelFile] = useState<File | null>(null);
+  const [storageMode, setStorageMode] = useState<string>(StorageServiceFactory.getMode());
   
   useEffect(() => {
     loadModels();
@@ -32,7 +42,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     loadAutoApplySetting();
   }, []);
   
-  const loadModels = () => {
+  const loadModels = async () => {
     const defaultModels = [
       { 
         id: 'yolov11-n', 
@@ -66,22 +76,37 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
       }
     ];
     
-    const customModels = SettingsService.getCustomModels().map(model => ({
-      id: model.id,
-      name: model.name,
-      path: model.path,
-      description: `Custom uploaded model (${model.size || 'unknown size'})`
-    }));
-    
-    setAvailableModels([...defaultModels, ...customModels]);
+    try {
+      const storageService = StorageServiceFactory.getService();
+      const customModels = await storageService.listModels();
+      
+      const formattedCustomModels = customModels.map(model => ({
+        id: model.id,
+        name: model.name,
+        path: model.path,
+        description: `Custom uploaded model (${model.size || 'unknown size'})`
+      }));
+      
+      setAvailableModels([...defaultModels, ...formattedCustomModels]);
+    } catch (error) {
+      console.error('Failed to load custom models:', error);
+      setAvailableModels(defaultModels);
+      toast.error('Failed to load custom models from the Edge Computing node');
+    }
   };
   
-  const loadActiveModel = () => {
-    const model = SettingsService.getActiveModel();
-    if (model) {
-      setActiveModel(model);
-      const modelId = availableModels.find(m => m.path === model.path)?.id || 'yolov11';
-      setSelectedModel(modelId);
+  const loadActiveModel = async () => {
+    try {
+      const storageService = StorageServiceFactory.getService();
+      const model = await storageService.getActiveModel();
+      
+      if (model) {
+        setActiveModel(model);
+        const modelId = availableModels.find(m => m.path === model.path)?.id || 'yolov11';
+        setSelectedModel(modelId);
+      }
+    } catch (error) {
+      console.error('Failed to load active model:', error);
     }
   };
   
@@ -110,20 +135,27 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     const model = availableModels.find(m => m.id === modelId);
     
     if (model) {
-      SettingsService.setActiveModel(model.name, model.path);
-      setActiveModel({ name: model.name, path: model.path });
-      
-      if (onModelSelected) {
-        onModelSelected(model.name, model.path);
-      }
-      
-      toast.success(`Applied model: ${model.name}`, {
-        description: autoApply ? "This model will be applied to all cameras" : "This model will be used as the default"
-      });
-      
-      if (autoApply) {
-        localStorage.removeItem('camera-models');
-      }
+      const storageService = StorageServiceFactory.getService();
+      storageService.setActiveModel(model.name, model.path)
+        .then(() => {
+          setActiveModel({ name: model.name, path: model.path });
+          
+          if (onModelSelected) {
+            onModelSelected(model.name, model.path);
+          }
+          
+          toast.success(`Applied model: ${model.name}`, {
+            description: autoApply ? "This model will be applied to all cameras" : "This model will be used as the default"
+          });
+          
+          if (autoApply) {
+            localStorage.removeItem('camera-models');
+          }
+        })
+        .catch(error => {
+          console.error('Failed to set active model:', error);
+          toast.error('Failed to apply model to Edge Computing node');
+        });
     }
   };
   
@@ -131,84 +163,246 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     handleApplyModelById(selectedModel);
   };
   
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setModelFile(e.target.files[0]);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!modelFile) {
+      toast.error('Please select a model file to upload');
+      return;
+    }
+    
+    if (!modelName.trim()) {
+      toast.error('Please enter a name for the model');
+      return;
+    }
+    
+    setIsUploading(true);
+    
+    try {
+      const storageService = StorageServiceFactory.getService();
+      const uploadResult = await storageService.uploadModel(modelFile, modelName);
+      
+      toast.success('AI Model Uploaded', {
+        description: `${modelName} has been successfully uploaded to the Edge Computing node and is ready to use.`
+      });
+      
+      setModelName('');
+      setModelFile(null);
+      setModelType('object-detection');
+      
+      // Reload the models list to include the newly uploaded model
+      loadModels();
+    } catch (error) {
+      console.error('Error uploading model:', error);
+      toast.error('Failed to upload model to Edge Computing node', {
+        description: 'Please try again or check the Edge node connection.'
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+  
+  const handleDeleteModel = async (modelId: string) => {
+    try {
+      const modelToDelete = availableModels.find(model => model.id === modelId);
+      if (!modelToDelete || !modelToDelete.id.startsWith('custom-')) {
+        toast.error('Only custom models can be deleted');
+        return;
+      }
+      
+      const storageService = StorageServiceFactory.getService();
+      await storageService.deleteModel(modelId);
+      
+      toast.success('Model Removed', {
+        description: `${modelToDelete.name} has been successfully removed from the Edge Computing node.`
+      });
+      
+      // Reload models to update the list
+      loadModels();
+      
+      // If the active model was deleted, reset it
+      if (activeModel && availableModels.find(m => m.id === modelId)?.path === activeModel.path) {
+        setActiveModel(undefined);
+      }
+    } catch (error) {
+      console.error('Error deleting model:', error);
+      toast.error('Failed to delete model from Edge Computing node');
+    }
+  };
+  
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center">
-          <Layers className="mr-2 text-avianet-red" size={20} />
-          Object Detection Model
-        </CardTitle>
-        <CardDescription>
-          Select the YOLO model to use for object detection
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <RadioGroup
-          value={selectedModel}
-          onValueChange={handleModelChange}
-          className="space-y-2"
-        >
-          {availableModels.map((model) => (
-            <div 
-              key={model.id} 
-              className={`flex items-center space-x-2 border p-3 rounded-lg transition-colors ${
-                activeModel?.path === model.path ? 'border-avianet-red bg-avianet-red/5' : ''
-              }`}
+    <Tabs defaultValue="select" className="w-full">
+      <TabsList className="grid w-full grid-cols-2">
+        <TabsTrigger value="select">Select AI Model</TabsTrigger>
+        <TabsTrigger value="upload">Upload New Model</TabsTrigger>
+      </TabsList>
+      
+      <TabsContent value="select">
+        <Card className="border-none shadow-none pt-0">
+          <CardContent className="p-0 pt-6">
+            <RadioGroup
+              value={selectedModel}
+              onValueChange={handleModelChange}
+              className="space-y-2"
             >
-              <RadioGroupItem value={model.id} id={`model-${model.id}`} />
-              <div className="grid gap-1.5 flex-1">
-                <Label htmlFor={`model-${model.id}`} className="font-medium">
-                  {model.name}
-                  {activeModel?.path === model.path && (
-                    <span className="ml-2 inline-flex items-center text-xs font-medium text-green-600">
-                      <Check className="w-3 h-3 mr-1" /> Active
-                    </span>
+              {availableModels.map((model) => (
+                <div 
+                  key={model.id} 
+                  className={`flex items-center space-x-2 border p-3 rounded-lg transition-colors ${
+                    activeModel?.path === model.path ? 'border-avianet-red bg-avianet-red/5' : ''
+                  }`}
+                >
+                  <RadioGroupItem value={model.id} id={`model-${model.id}`} />
+                  <div className="grid gap-1.5 flex-1">
+                    <Label htmlFor={`model-${model.id}`} className="font-medium">
+                      {model.name}
+                      {activeModel?.path === model.path && (
+                        <span className="ml-2 inline-flex items-center text-xs font-medium text-green-600">
+                          <Check className="w-3 h-3 mr-1" /> Active
+                        </span>
+                      )}
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      {model.description}
+                    </p>
+                  </div>
+                  {model.id.startsWith('custom-') && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => handleDeleteModel(model.id)}
+                    >
+                      Delete
+                    </Button>
                   )}
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  {model.description}
+                </div>
+              ))}
+            </RadioGroup>
+            
+            <div className="flex items-center space-x-2 mt-6">
+              <input
+                type="checkbox"
+                id="auto-apply"
+                checked={autoApply}
+                onChange={(e) => setAutoApply(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <Label htmlFor="auto-apply">Automatically apply to all video streams</Label>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>When enabled, this model will be applied to all video streams automatically</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          </CardContent>
+          <CardFooter className="flex justify-between p-0 pt-6">
+            <div className="text-sm text-muted-foreground">
+              {activeModel ? `Currently active: ${activeModel.name}` : "No model is currently active"}
+            </div>
+            <Button 
+              onClick={handleApplyModel} 
+              disabled={!selectedModel}
+            >
+              {activeModel?.path === availableModels.find(m => m.id === selectedModel)?.path
+                ? "Reapply Model"
+                : "Apply Model"
+              }
+            </Button>
+          </CardFooter>
+        </Card>
+      </TabsContent>
+      
+      <TabsContent value="upload">
+        <Card className="border-none shadow-none pt-0">
+          <CardContent className="p-0 pt-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="model-file">Select Model File</Label>
+                <Input 
+                  id="model-file" 
+                  type="file" 
+                  accept=".pt,.onnx,.tflite,.pb" 
+                  onChange={handleFileChange}
+                  disabled={isUploading}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Supported formats: ONNX, TFLite, PyTorch, TensorFlow
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="model-name">Model Name</Label>
+                  <Input 
+                    id="model-name" 
+                    placeholder="e.g., YOLOv11 Custom" 
+                    value={modelName}
+                    onChange={(e) => setModelName(e.target.value)}
+                    disabled={isUploading}
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="model-type">Model Type</Label>
+                  <Select 
+                    defaultValue="object-detection"
+                    value={modelType}
+                    onValueChange={setModelType}
+                    disabled={isUploading}
+                  >
+                    <SelectTrigger id="model-type">
+                      <SelectValue placeholder="Select model type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="object-detection">Object Detection</SelectItem>
+                      <SelectItem value="face-recognition">Face Recognition</SelectItem>
+                      <SelectItem value="anomaly-detection">Anomaly Detection</SelectItem>
+                      <SelectItem value="behavior-analysis">Behavior Analysis</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              <div className="bg-yellow-50 p-4 rounded-md border border-yellow-100">
+                <p className="text-sm text-yellow-800">
+                  <strong>Note:</strong> Models are uploaded to the Edge Computing node for GPU-accelerated inferencing. 
+                  Make sure your Edge node is properly configured and has sufficient disk space.
                 </p>
               </div>
             </div>
-          ))}
-        </RadioGroup>
-        
-        <div className="flex items-center space-x-2 mt-6">
-          <input
-            type="checkbox"
-            id="auto-apply"
-            checked={autoApply}
-            onChange={(e) => setAutoApply(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-300"
-          />
-          <Label htmlFor="auto-apply">Automatically apply to all video streams</Label>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-4 w-4 text-muted-foreground" />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>When enabled, this model will be applied to all video streams automatically</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-      </CardContent>
-      <CardFooter className="flex justify-between">
-        <div className="text-sm text-muted-foreground">
-          {activeModel ? `Currently active: ${activeModel.name}` : "No model is currently active"}
-        </div>
-        <Button 
-          onClick={handleApplyModel} 
-          disabled={!selectedModel}
-        >
-          {activeModel?.path === availableModels.find(m => m.id === selectedModel)?.path
-            ? "Reapply Model"
-            : "Apply Model"
-          }
-        </Button>
-      </CardFooter>
-    </Card>
+          </CardContent>
+          <CardFooter className="flex justify-end p-0 pt-6">
+            <Button 
+              variant="default" 
+              onClick={handleUpload} 
+              disabled={isUploading || !modelFile || !modelName.trim()}
+            >
+              {isUploading ? (
+                <>
+                  <Upload className="mr-2 h-4 w-4 animate-pulse" />
+                  Uploading to Edge Node...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload Model to Edge Node
+                </>
+              )}
+            </Button>
+          </CardFooter>
+        </Card>
+      </TabsContent>
+    </Tabs>
   );
 };
 
