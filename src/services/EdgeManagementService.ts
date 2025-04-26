@@ -2,6 +2,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
 import { ManualEdgeDevice } from '@/services/EdgeDeviceService';
+import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 
 // Storage key for localStorage
 const EDGE_DEVICES_STORAGE_KEY = 'avianet-vision-edge-devices';
@@ -12,8 +13,19 @@ const EDGE_DEVICES_STORAGE_KEY = 'avianet-vision-edge-devices';
  */
 export const getAllEdgeDevices = (): ManualEdgeDevice[] => {
   try {
-    const storedDevices = localStorage.getItem(EDGE_DEVICES_STORAGE_KEY);
-    return storedDevices ? JSON.parse(storedDevices) : [];
+    // Check if we're using API mode or simulated mode
+    const storageMode = StorageServiceFactory.getMode();
+    
+    if (storageMode === 'api') {
+      // In API mode, we'll fetch from localStorage temporarily
+      // In a real implementation, this would come from the API
+      const storedDevices = localStorage.getItem(EDGE_DEVICES_STORAGE_KEY);
+      return storedDevices ? JSON.parse(storedDevices) : [];
+    } else {
+      // In simulated mode, use localStorage
+      const storedDevices = localStorage.getItem(EDGE_DEVICES_STORAGE_KEY);
+      return storedDevices ? JSON.parse(storedDevices) : [];
+    }
   } catch (error) {
     console.error('Failed to load edge devices from storage:', error);
     return [];
@@ -26,7 +38,17 @@ export const getAllEdgeDevices = (): ManualEdgeDevice[] => {
  */
 export const saveAllEdgeDevices = (devices: ManualEdgeDevice[]): void => {
   try {
-    localStorage.setItem(EDGE_DEVICES_STORAGE_KEY, JSON.stringify(devices));
+    // Check if we're using API mode or simulated mode
+    const storageMode = StorageServiceFactory.getMode();
+    
+    if (storageMode === 'api') {
+      // In API mode, we'll save to localStorage temporarily
+      // In a real implementation, this would be sent to the API
+      localStorage.setItem(EDGE_DEVICES_STORAGE_KEY, JSON.stringify(devices));
+    } else {
+      // In simulated mode, use localStorage
+      localStorage.setItem(EDGE_DEVICES_STORAGE_KEY, JSON.stringify(devices));
+    }
   } catch (error) {
     console.error('Failed to save edge devices to storage:', error);
     toast.error('Failed to save edge devices');

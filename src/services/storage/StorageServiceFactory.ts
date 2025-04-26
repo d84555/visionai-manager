@@ -20,10 +20,20 @@ class StorageServiceFactory {
     if (mode !== this.currentMode) {
       this.currentMode = mode;
       this.instance = this.createService(mode);
+      
+      // Store the selected mode in localStorage for persistence
+      localStorage.setItem('avianet-storage-mode', mode);
+      
+      console.log(`Storage mode switched to: ${mode}`);
     }
   }
 
   static getMode(): StorageMode {
+    // Try to load from localStorage if available
+    const savedMode = localStorage.getItem('avianet-storage-mode') as StorageMode | null;
+    if (savedMode && (savedMode === 'api' || savedMode === 'simulated')) {
+      this.currentMode = savedMode;
+    }
     return this.currentMode;
   }
 
