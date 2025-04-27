@@ -154,9 +154,43 @@ class EdgeAIInferenceService {
       const result = await response.json();
       
       // Handle case where detections field is null or missing
-      if (!result.detections || typeof result.detections !== 'object') {
+      if (!result.detections || !Array.isArray(result.detections)) {
         console.warn("API returned null or invalid detections field. Using empty array instead.");
         result.detections = [];
+        
+        // Show warning to user about response format issues
+        toast.warning("Detection format issue", {
+          description: "The model output format may not match what's expected. Check model compatibility."
+        });
+      }
+      
+      // Validate each detection's format
+      if (result.detections.length > 0) {
+        const validDetections = result.detections.filter(detection => {
+          // Check if detection has valid format
+          const isValid = detection && 
+                         typeof detection === 'object' && 
+                         typeof detection.label === 'string' && 
+                         typeof detection.confidence === 'number' && 
+                         Array.isArray(detection.bbox) &&
+                         detection.bbox.length === 4;
+          
+          if (!isValid) {
+            console.warn("Invalid detection format received:", detection);
+          }
+          
+          return isValid;
+        });
+        
+        // If we filtered out any invalid detections, show a warning
+        if (validDetections.length < result.detections.length) {
+          console.warn(`Filtered out ${result.detections.length - validDetections.length} invalid detections`);
+          toast.warning("Some detections had invalid format and were filtered out", {
+            description: "Check model compatibility with the system"
+          });
+          
+          result.detections = validDetections;
+        }
       }
       
       return {

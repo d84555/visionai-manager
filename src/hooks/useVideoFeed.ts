@@ -44,7 +44,7 @@ export const useVideoFeed = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const detectionIntervalRef = useRef<number | null>(null);
   const lastDetectionTimeRef = useRef<number>(0);
-  const detectionFrequencyMs = 1000; // Increase detection frequency to 1 per second for better tracking
+  const detectionFrequencyMs = 1000; // Process every second
 
   const detectObjects = useCallback(async () => {
     if (!activeModel && !camera) {
@@ -108,37 +108,45 @@ export const useVideoFeed = ({
           console.log(`First detection: ${result.detections[0].label} with confidence ${result.detections[0].confidence}`);
         }
         
-        // Calculate actual video display dimensions for accurate scaling
+        // Get actual video display dimensions for accurate coordinate mapping
         const videoElement = videoRef.current;
+        const videoWidth = videoElement.videoWidth;
+        const videoHeight = videoElement.videoHeight;
         const videoBounds = videoElement.getBoundingClientRect();
-        const canvasWidth = canvasRef.current.width;
-        const canvasHeight = canvasRef.current.height;
         
-        // Scale factor to convert from normalized coordinates to actual pixel values
-        const scaleX = videoBounds.width / canvasWidth;
-        const scaleY = videoBounds.height / canvasHeight;
+        // Calculate scale factors between actual video dimensions and displayed size
+        const scaleX = videoBounds.width / videoWidth;
+        const scaleY = videoBounds.height / videoHeight;
         
         // Create normalized detections with unique IDs and accurate dimensions
         const normalizedDetections = result.detections.map((detection: BackendDetection, index) => {
-          // Get bounding box coordinates
+          // Get normalized bounding box coordinates [x1, y1, x2, y2]
           const [x1, y1, x2, y2] = detection.bbox;
           
-          // Calculate detection dimensions in actual pixels
-          const x = x1 * canvasWidth;
-          const y = y1 * canvasHeight;
-          const width = (x2 - x1) * canvasWidth;
-          const height = (y2 - y1) * canvasHeight;
+          // Convert normalized coordinates (0-1) to actual pixel values in original video resolution
+          const x = x1 * videoWidth;
+          const y = y1 * videoHeight;
+          const width = (x2 - x1) * videoWidth;
+          const height = (y2 - y1) * videoHeight;
+          
+          // Scale to display dimensions
+          const displayX = x * scaleX;
+          const displayY = y * scaleY;
+          const displayWidth = width * scaleX;
+          const displayHeight = height * scaleY;
           
           return {
             id: `${index}-${Date.now()}`, // Ensure unique IDs for React
             class: detection.label,
             confidence: detection.confidence,
-            x: x,
-            y: y,
-            width: width,
-            height: height
+            x: displayX,
+            y: displayY,
+            width: displayWidth,
+            height: displayHeight
           };
         });
+        
+        console.log("Normalized detections:", normalizedDetections);
         
         setDetections(normalizedDetections);
         setInferenceLocation(result.processedAt);
@@ -315,9 +323,12 @@ export const useVideoFeed = ({
 
   const handleVideoMetadata = () => {
     if (videoRef.current) {
+      const width = videoRef.current.videoWidth;
+      const height = videoRef.current.videoHeight;
+      console.log(`Video metadata loaded: ${width}x${height}`);
       setResolution({
-        width: videoRef.current.videoWidth,
-        height: videoRef.current.videoHeight
+        width: width,
+        height: height
       });
     }
   };
