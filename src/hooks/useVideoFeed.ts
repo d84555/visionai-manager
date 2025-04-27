@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import EdgeAIInference, { Detection, BackendDetection } from '@/services/EdgeAIInference';
@@ -105,7 +104,16 @@ export const useVideoFeed = ({
         
         if (result.detections.length > 0) {
           console.log(`Detected ${result.detections.length} objects with model ${request.modelName}`);
-          console.log(`First detection: ${result.detections[0].label} with confidence ${result.detections[0].confidence}`);
+          
+          // Dispatch detection event for other components
+          window.dispatchEvent(new CustomEvent('ai-detection', { 
+            detail: { 
+              detections: result.detections, 
+              modelName: request.modelName,
+              timestamp: new Date(),
+              source: camera?.id || "video-feed" 
+            } 
+          }));
         }
         
         // Get actual video display dimensions for accurate coordinate mapping
@@ -142,13 +150,21 @@ export const useVideoFeed = ({
             x: displayX,
             y: displayY,
             width: displayWidth,
-            height: displayHeight
+            height: displayHeight,
+            bbox: detection.bbox // Keep original bbox for reference
           };
         });
         
-        console.log("Normalized detections:", normalizedDetections);
+        // Filter out potentially problematic detections (tiny or zero size)
+        const filteredDetections = normalizedDetections.filter(d => 
+          d.width > 1 && d.height > 1
+        );
         
-        setDetections(normalizedDetections);
+        if (filteredDetections.length < normalizedDetections.length) {
+          console.log(`Filtered out ${normalizedDetections.length - filteredDetections.length} invalid detections`);
+        }
+        
+        setDetections(filteredDetections);
         setInferenceLocation(result.processedAt);
         setInferenceTime(result.inferenceTime);
         
