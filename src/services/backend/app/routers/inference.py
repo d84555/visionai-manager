@@ -168,26 +168,38 @@ def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
             if hasattr(predictions, 'device') and predictions.device.type != 'cpu':
                 predictions = predictions.to('cpu')
             
-            # CRITICAL FIX: Proper reshaping for YOLO outputs
-            # Handle 3D tensors like [batch, channels, predictions]
-            if predictions.dim() == 3:  # (1, 6, 8400) or similar
+            # CRITICAL FIX: Handle tensor reshaping for YOLO outputs
+            if predictions.dim() == 3:  # (1, 6, 8400) or similar format
                 print(f"Reshaping 3D tensor of shape {predictions.shape}")
                 predictions = predictions.squeeze(0)  # Remove batch dimension -> (6, 8400)
                 print(f"After squeezing: {predictions.shape}")
             
-            # Ensure predictions are in format (num_predictions, features)
-            # YOLO models typically output in (features, num_predictions) format
+            # Transpose tensor if needed (from channels-first to predictions-first)
             if predictions.dim() == 2 and predictions.size(0) < predictions.size(1):
-                # Needs transposing from (6, 8400) -> (8400, 6)
+                # Transpose from (6, 8400) -> (8400, 6)
                 print(f"Transposing tensor from shape {predictions.shape}")
-                predictions = predictions.transpose(1, 0)  # Transpose to (8400, 6)
+                predictions = predictions.transpose(0, 1)  # Transpose to (8400, 6)
                 print(f"After transpose: {predictions.shape}")
             
             print(f"Final tensor shape for NMS: {predictions.shape}")
-                    
+            
+            # Format tensor for non_max_suppression which expects [batch_size, num_boxes, (xywh + conf + classes)]
+            # Reshape to add batch dimension if needed
+            if predictions.dim() == 2:
+                predictions = predictions.unsqueeze(0)  # Add batch dimension -> (1, 8400, 6)
+                print(f"Added batch dimension: {predictions.shape}")
+            
             # Use built-in NMS from ultralytics
             try:
-                nms_results = non_max_suppression(predictions, conf_threshold, iou_threshold)
+                nms_results = non_max_suppression(
+                    predictions, 
+                    conf_thres=conf_threshold,
+                    iou_thres=iou_threshold,
+                    classes=None,  # Filter by specific classes if needed
+                    agnostic=False,  # Class-agnostic NMS
+                    multi_label=True,  # Multiple labels per box
+                    max_det=300  # Maximum detections
+                )
                 print(f"NMS completed successfully. Got {len(nms_results)} batch results")
                 return nms_results
             except Exception as e:
@@ -196,7 +208,7 @@ def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
                 # Fall back to basic implementation
                 return None
         else:
-            # Basic NMS implementation
+            # Basic NMS implementation for when Ultralytics is not available
             print("NMS: Using custom NMS implementation (Ultralytics not available)")
             conf_sort_index = np.argsort(-predictions[:, 4])
             predictions = predictions[conf_sort_index]
