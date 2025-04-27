@@ -88,6 +88,9 @@ class EdgeAIInferenceService {
         // Create simulated detections after a short delay
         await new Promise(resolve => setTimeout(resolve, 200));
         
+        // Generate timestamp to ensure unique detection IDs
+        const timestamp = Date.now();
+        
         return {
           detections: [
             {

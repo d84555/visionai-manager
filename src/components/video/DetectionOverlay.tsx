@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Detection } from '@/services/EdgeAIInference';
 
 interface DetectionOverlayProps {
@@ -8,6 +8,7 @@ interface DetectionOverlayProps {
 }
 
 export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, minimal = false }) => {
+  // Calculate the correct position and size for each detection
   return (
     <>
       {detections.map((detection) => (
@@ -18,13 +19,16 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
             left: `${detection.x * (minimal ? 0.5 : 1)}px`,
             top: `${detection.y * (minimal ? 0.5 : 1)}px`,
             width: `${detection.width * (minimal ? 0.5 : 1)}px`,
-            height: `${detection.height * (minimal ? 0.5 : 1)}px`
+            height: `${detection.height * (minimal ? 0.5 : 1)}px`,
+            pointerEvents: 'none',
+            transition: 'none' // Remove any transition that might cause lag
           }}
         >
           <span 
             className={`absolute top-0 left-0 bg-avianet-red text-white ${
               minimal ? 'text-[8px] px-1' : 'text-xs px-1 py-0.5'
-            } max-w-full overflow-hidden text-ellipsis`}
+            } max-w-full overflow-hidden text-ellipsis whitespace-nowrap`}
+            style={{ pointerEvents: 'none' }}
           >
             {minimal ? 
               detection.class :

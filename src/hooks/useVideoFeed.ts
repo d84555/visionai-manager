@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import EdgeAIInference, { Detection, BackendDetection } from '@/services/EdgeAIInference';
 import { convertToPlayableFormat } from '@/utils/ffmpegUtils';
@@ -42,8 +43,10 @@ export const useVideoFeed = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const detectionIntervalRef = useRef<number | null>(null);
+  const lastDetectionTimeRef = useRef<number>(0);
+  const detectionFrequencyMs = 1000; // Increase detection frequency to 1 per second for better tracking
 
-  const detectObjects = async () => {
+  const detectObjects = useCallback(async () => {
     if (!activeModel && !camera) {
       setDetections([]);
       return;
@@ -57,6 +60,13 @@ export const useVideoFeed = ({
         return;
       }
       
+      // Rate limiting to avoid too frequent detection calls
+      const now = Date.now();
+      if (now - lastDetectionTimeRef.current < detectionFrequencyMs) {
+        return;
+      }
+      lastDetectionTimeRef.current = now;
+      
       if (!canvasRef.current) {
         const canvas = document.createElement('canvas');
         canvas.width = videoRef.current.videoWidth || 640;
@@ -66,8 +76,11 @@ export const useVideoFeed = ({
       
       const ctx = canvasRef.current.getContext('2d');
       if (ctx && videoRef.current) {
+        // Ensure canvas matches video dimensions exactly
         canvasRef.current.width = videoRef.current.videoWidth || 640;
         canvasRef.current.height = videoRef.current.videoHeight || 360;
+        
+        // Draw the current video frame to the canvas
         ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
         
         const imageData = canvasRef.current.toDataURL('image/jpeg', 0.8);
@@ -95,15 +108,37 @@ export const useVideoFeed = ({
           console.log(`First detection: ${result.detections[0].label} with confidence ${result.detections[0].confidence}`);
         }
         
-        const normalizedDetections = result.detections.map((detection: BackendDetection, index) => ({
-          id: `${index}-${Date.now()}`,
-          class: detection.label,
-          confidence: detection.confidence,
-          x: detection.bbox[0] * canvasRef.current!.width,
-          y: detection.bbox[1] * canvasRef.current!.height,
-          width: (detection.bbox[2] - detection.bbox[0]) * canvasRef.current!.width,
-          height: (detection.bbox[3] - detection.bbox[1]) * canvasRef.current!.height
-        }));
+        // Calculate actual video display dimensions for accurate scaling
+        const videoElement = videoRef.current;
+        const videoBounds = videoElement.getBoundingClientRect();
+        const canvasWidth = canvasRef.current.width;
+        const canvasHeight = canvasRef.current.height;
+        
+        // Scale factor to convert from normalized coordinates to actual pixel values
+        const scaleX = videoBounds.width / canvasWidth;
+        const scaleY = videoBounds.height / canvasHeight;
+        
+        // Create normalized detections with unique IDs and accurate dimensions
+        const normalizedDetections = result.detections.map((detection: BackendDetection, index) => {
+          // Get bounding box coordinates
+          const [x1, y1, x2, y2] = detection.bbox;
+          
+          // Calculate detection dimensions in actual pixels
+          const x = x1 * canvasWidth;
+          const y = y1 * canvasHeight;
+          const width = (x2 - x1) * canvasWidth;
+          const height = (y2 - y1) * canvasHeight;
+          
+          return {
+            id: `${index}-${Date.now()}`, // Ensure unique IDs for React
+            class: detection.label,
+            confidence: detection.confidence,
+            x: x,
+            y: y,
+            width: width,
+            height: height
+          };
+        });
         
         setDetections(normalizedDetections);
         setInferenceLocation(result.processedAt);
@@ -126,7 +161,7 @@ export const useVideoFeed = ({
       setInferenceLocation("server");
       setDetections([]);
     }
-  };
+  }, [activeModel, camera, videoUrl, autoStart]);
 
   const startStream = async () => {
     if (!videoUrl && !originalFile) {
@@ -300,6 +335,28 @@ export const useVideoFeed = ({
       stopStream();
     }
   };
+
+  useEffect(() => {
+    // Update detection interval when detection frequency or activeModel changes
+    if (isStreaming && activeModel) {
+      if (detectionIntervalRef.current) {
+        clearInterval(detectionIntervalRef.current);
+      }
+      
+      // Initial detection
+      detectObjects();
+      
+      // Set frequent interval for more responsive object tracking
+      detectionIntervalRef.current = window.setInterval(detectObjects, detectionFrequencyMs);
+    }
+    
+    return () => {
+      if (detectionIntervalRef.current) {
+        clearInterval(detectionIntervalRef.current);
+        detectionIntervalRef.current = null;
+      }
+    };
+  }, [isStreaming, activeModel, detectObjects, detectionFrequencyMs]);
 
   useEffect(() => {
     const updateSize = () => {
