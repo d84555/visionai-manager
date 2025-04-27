@@ -1,4 +1,3 @@
-
 import StorageServiceFactory from './storage/StorageServiceFactory';
 import { ModelInfo } from './storage/StorageServiceInterface';
 
@@ -258,13 +257,23 @@ const SettingsService = {
   
   // Get the Blob URL for a model file (if available)
   getModelFileUrl: (modelPath: string) => {
-    // Look through stored model data to find the Blob URL
+    // First try direct mapping (new approach)
+    const directUrl = localStorage.getItem(`model-url-${modelPath}`);
+    if (directUrl) {
+      console.log(`Found direct URL mapping for ${modelPath}: ${directUrl}`);
+      return directUrl;
+    }
+
+    // Look through stored model data to find the Blob URL (old approach)
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key?.startsWith('fs-model-')) {
         try {
           const modelData = JSON.parse(localStorage.getItem(key) || '{}');
           if (modelData?.metadata?.path === modelPath && modelData.fileUrl) {
+            // Store for future direct lookups
+            localStorage.setItem(`model-url-${modelPath}`, modelData.fileUrl);
+            console.log(`Found and stored URL for ${modelPath}: ${modelData.fileUrl}`);
             return modelData.fileUrl;
           }
         } catch (e) {
@@ -272,11 +281,60 @@ const SettingsService = {
         }
       }
     }
+    
+    console.warn(`No URL found for model path: ${modelPath}`);
     return null;
+  },
+
+  // Add a helper method to create a test model for debugging
+  createTestModel: (name: string, path: string) => {
+    const modelId = `test-${Date.now()}`;
+    const modelInfo = {
+      id: modelId,
+      name: name,
+      path: path,
+      type: 'Object Detection',
+      size: '5.2 MB',
+      uploadedAt: new Date().toISOString(),
+      cameras: ['All Cameras']
+    };
+    
+    // Create a small test blob
+    const blob = new Blob(['Test model data'], { type: 'application/octet-stream' });
+    const fileURL = URL.createObjectURL(blob);
+    
+    // Store model data
+    localStorage.setItem(`fs-model-${modelId}`, JSON.stringify({
+      metadata: modelInfo,
+      fileUrl: fileURL,
+      fileExists: true,
+      lastModified: new Date().toISOString()
+    }));
+    
+    // Create direct mapping
+    localStorage.setItem(`model-url-${path}`, fileURL);
+    
+    // Add to custom models list
+    const customModels = SettingsService.getCustomModels();
+    customModels.push(modelInfo);
+    localStorage.setItem('custom-ai-models', JSON.stringify(customModels));
+    
+    console.log(`Created test model ${name} with path ${path} and URL ${fileURL}`);
+    return modelInfo;
   }
 };
 
 // Initialize local storage on module load
 SettingsService.initLocalStorage();
+
+// Create a test model if no models exist (for debugging)
+setTimeout(() => {
+  const models = SettingsService.getCustomModels();
+  if (models.length === 0) {
+    console.log("No models found, creating a test model...");
+    const testModel = SettingsService.createTestModel("YOLO Test Model", "/custom_models/coverall.onnx");
+    SettingsService.setActiveModel(testModel.name, testModel.path);
+  }
+}, 1000);
 
 export default SettingsService;

@@ -72,29 +72,37 @@ export const useVideoFeed = ({
         
         const imageData = canvasRef.current.toDataURL('image/jpeg', 0.8);
         
+        if (!modelToUse) {
+          console.warn("No model specified for inference");
+          return;
+        }
+        
+        console.log(`Using model: ${modelToUse.name}, path: ${modelToUse.path}`);
+        
         let customModelUrl = null;
-        if (modelToUse?.path.includes('/custom_models/')) {
+        if (modelToUse.path.includes('/custom_models/')) {
           customModelUrl = SettingsService.getModelFileUrl(modelToUse.path);
           if (customModelUrl) {
             console.log(`Using custom model from Blob URL: ${customModelUrl}`);
           } else {
             console.warn(`Could not find Blob URL for custom model: ${modelToUse.path}`);
+            
+            if (modelToUse.path.includes('coverall.onnx')) {
+              const testModel = SettingsService.createTestModel(modelToUse.name, modelToUse.path);
+              customModelUrl = SettingsService.getModelFileUrl(testModel.path);
+              console.log(`Created test model with URL: ${customModelUrl}`);
+            }
           }
         }
         
         const request = {
           imageData: imageData,
           cameraId: camera?.id || videoUrl || "unknown",
-          modelName: modelToUse?.name || "custom_model",
-          modelPath: modelToUse?.path || "",
+          modelName: modelToUse.name || "custom_model",
+          modelPath: modelToUse.path || "",
           customModelUrl: customModelUrl,
           thresholdConfidence: 0.5
         };
-        
-        if (!request.modelPath) {
-          console.warn("No model path specified for inference");
-          return;
-        }
         
         console.log(`Performing inference with model: ${request.modelName}`);
         const result = await EdgeAIInference.performInference(request);
@@ -155,8 +163,15 @@ export const useVideoFeed = ({
           await new Promise(resolve => setTimeout(resolve, 500));
         } else {
           console.warn(`No Blob URL found for custom model: ${activeModel.path}`);
+          
+          if (activeModel.path.includes('coverall.onnx')) {
+            const testModel = SettingsService.createTestModel(activeModel.name, activeModel.path);
+            const newUrl = SettingsService.getModelFileUrl(testModel.path);
+            console.log(`Created test model with URL: ${newUrl}`);
+          }
+          
           toast.warning("Custom model file not found", {
-            description: "Object detection may not work correctly"
+            description: "Creating a test model for demonstration purposes"
           });
         }
       } catch (error) {

@@ -7,7 +7,7 @@ export type StorageMode = 'simulated' | 'api';
 
 class StorageServiceFactory {
   private static instance: StorageServiceInterface;
-  private static currentMode: StorageMode = 'api'; // Default to API mode
+  private static currentMode: StorageMode = 'simulated'; // Changed default to 'simulated'
 
   static getService(): StorageServiceInterface {
     if (!this.instance) {
