@@ -150,10 +150,16 @@ class EdgeAIInferenceService {
       
       const result = await response.json();
       
+      // Handle case where detections field is null or missing
+      if (!result.detections || typeof result.detections !== 'object') {
+        console.warn("API returned null or invalid detections field. Using empty array instead.");
+        result.detections = [];
+      }
+      
       return {
-        detections: result.detections,
-        processedAt: 'edge', // Always from edge/server
-        inferenceTime: result.inferenceTime
+        detections: result.detections || [],  // Ensure we always have an array, even if empty
+        processedAt: result.processedAt || 'edge',
+        inferenceTime: result.inferenceTime || 0
       };
     } catch (error) {
       console.error("Inference API error:", error);

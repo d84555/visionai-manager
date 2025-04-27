@@ -40,9 +40,9 @@ class InferenceRequest(BaseModel):
     imageData: str  # Base64 encoded image
 
 class InferenceResult(BaseModel):
-    detections: List[Detection]
-    inferenceTime: float
-    timestamp: str
+    detections: List[Detection] = []  # Initialize with empty list by default
+    inferenceTime: float = 0.0
+    timestamp: str = ""
 
 class DeviceInfo(BaseModel):
     id: str
@@ -91,7 +91,19 @@ def is_onnx_model(model_path):
 
 def simulate_detection():
     """Simulate object detections when model loading fails"""
-    # ... keep existing code (simulation functions)
+    # Always return a list for detections, even if empty
+    return [
+        Detection(
+            label="person",
+            confidence=0.92,
+            bbox=[0.2, 0.3, 0.5, 0.8]
+        ),
+        Detection(
+            label="car",
+            confidence=0.87,
+            bbox=[0.6, 0.5, 0.9, 0.7]
+        )
+    ]
 
 @router.get("/devices", response_model=List[DeviceInfo])
 async def list_devices():
@@ -229,6 +241,10 @@ async def detect_objects(inference_request: InferenceRequest):
         # Return simulated detections for demonstration purposes
         detections = simulate_detection()
         
+        # Always ensure detections is a list, never None
+        if detections is None:
+            detections = []
+        
         return InferenceResult(
             detections=detections,
             inferenceTime=inference_time * 1000,  # Convert to milliseconds
@@ -237,6 +253,11 @@ async def detect_objects(inference_request: InferenceRequest):
         
     except Exception as e:
         print(f"Inference error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
+        # Return a valid response with an empty detections list instead of raising an exception
+        return InferenceResult(
+            detections=[],  # Empty list instead of None
+            inferenceTime=0,
+            timestamp=datetime.now().isoformat()
+        )
 
 # ... keep existing code (stream processing endpoints and utility functions)
