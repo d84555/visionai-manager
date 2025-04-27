@@ -15,6 +15,10 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
     if (detections?.length > 0) {
       console.log(`DetectionOverlay received ${detections.length} detections`);
       
+      // Log first few detections to debug bbox format
+      const sampleDetections = detections.slice(0, 3);
+      console.log("Sample detections:", sampleDetections);
+      
       // Limit number of detections to prevent performance issues
       // Sort by confidence before limiting
       const sortedDetections = [...detections].sort((a, b) => 
@@ -36,11 +40,18 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
 
   // Get the video element to determine actual dimensions
   const videoElement = document.querySelector('video');
-  const videoWidth = videoElement?.videoWidth || 640;
-  const videoHeight = videoElement?.videoHeight || 360;
-  const videoBounds = videoElement?.getBoundingClientRect();
-  const displayWidth = videoBounds?.width || videoWidth;
-  const displayHeight = videoBounds?.height || videoHeight;
+  if (!videoElement) {
+    console.log("No video element found for overlay");
+    return null;
+  }
+  
+  const videoWidth = videoElement.videoWidth;
+  const videoHeight = videoElement.videoHeight;
+  const videoBounds = videoElement.getBoundingClientRect();
+  const displayWidth = videoBounds.width;
+  const displayHeight = videoBounds.height;
+  
+  console.log(`Video dimensions: ${videoWidth}x${videoHeight}, Display: ${displayWidth}x${displayHeight}`);
   
   return (
     <>
@@ -53,14 +64,16 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           // Get normalized coordinates [x1, y1, x2, y2]
           const [x1, y1, x2, y2] = detection.bbox;
           
-          // Calculate dimensions based on normalized coordinates
-          const x = x1 * displayWidth;
-          const y = y1 * displayHeight;
-          const width = (x2 - x1) * displayWidth;
-          const height = (y2 - y1) * displayHeight;
+          // Calculate dimensions in display pixels
+          const boxX = x1 * displayWidth;
+          const boxY = y1 * displayHeight;
+          const boxWidth = (x2 - x1) * displayWidth;
+          const boxHeight = (y2 - y1) * displayHeight;
+          
+          console.log(`Detection ${index}: [${x1.toFixed(3)}, ${y1.toFixed(3)}, ${x2.toFixed(3)}, ${y2.toFixed(3)}] → ${boxX.toFixed(1)}x${boxY.toFixed(1)} ${boxWidth.toFixed(1)}x${boxHeight.toFixed(1)}`);
           
           // Skip invalid or tiny bounding boxes
-          if (width < 1 || height < 1) {
+          if (boxWidth < 1 || boxHeight < 1) {
             return null;
           }
           
@@ -69,10 +82,10 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
               key={`detection-${detection.id || index}`}
               className="absolute border-2 border-avianet-red"
               style={{
-                left: `${x * scaleFactor}px`,
-                top: `${y * scaleFactor}px`,
-                width: `${width * scaleFactor}px`,
-                height: `${height * scaleFactor}px`,
+                left: `${boxX * scaleFactor}px`,
+                top: `${boxY * scaleFactor}px`,
+                width: `${boxWidth * scaleFactor}px`,
+                height: `${boxHeight * scaleFactor}px`,
                 pointerEvents: 'none',
                 transition: 'none' // Remove any transition that might cause lag
               }}
@@ -85,7 +98,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
               >
                 {minimal ? 
                   detection.label || detection.class || 'Object' : 
-                  `${detection.label || detection.class || 'Object'} (${(detection.confidence * 100).toFixed(0)}%)`
+                  `${detection.label || detection.class || 'Object'} (${Math.round(detection.confidence * 100)}%)`
                 }
               </span>
             </div>
@@ -94,15 +107,24 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         // Handle the explicit x,y,width,height format
         else if (detection.x !== undefined && detection.y !== undefined && 
                 detection.width !== undefined && detection.height !== undefined) {
+          
+          // Scale to video display size
+          const boxX = detection.x * displayWidth / videoWidth;
+          const boxY = detection.y * displayHeight / videoHeight;
+          const boxWidth = detection.width * displayWidth / videoWidth;
+          const boxHeight = detection.height * displayHeight / videoHeight;
+          
+          console.log(`Detection ${index} (x,y,w,h): ${detection.x}x${detection.y} ${detection.width}x${detection.height} → ${boxX.toFixed(1)}x${boxY.toFixed(1)} ${boxWidth.toFixed(1)}x${boxHeight.toFixed(1)}`);
+          
           return (
             <div
               key={`detection-${detection.id || index}`}
               className="absolute border-2 border-avianet-red"
               style={{
-                left: `${detection.x * scaleFactor}px`,
-                top: `${detection.y * scaleFactor}px`,
-                width: `${detection.width * scaleFactor}px`,
-                height: `${detection.height * scaleFactor}px`,
+                left: `${boxX * scaleFactor}px`,
+                top: `${boxY * scaleFactor}px`,
+                width: `${boxWidth * scaleFactor}px`,
+                height: `${boxHeight * scaleFactor}px`,
                 pointerEvents: 'none',
                 transition: 'none' // Remove any transition that might cause lag
               }}
@@ -115,7 +137,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
               >
                 {minimal ? 
                   detection.class || detection.label || 'Object' : 
-                  `${detection.class || detection.label || 'Object'} (${(detection.confidence * 100).toFixed(0)}%)`
+                  `${detection.class || detection.label || 'Object'} (${Math.round(detection.confidence * 100)}%)`
                 }
               </span>
             </div>

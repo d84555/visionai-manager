@@ -1,3 +1,4 @@
+
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import EdgeAIInference, { Detection, BackendDetection } from '@/services/EdgeAIInference';
@@ -79,6 +80,8 @@ export const useVideoFeed = ({
         canvasRef.current.width = videoRef.current.videoWidth || 640;
         canvasRef.current.height = videoRef.current.videoHeight || 360;
         
+        console.log(`Canvas dimensions set to: ${canvasRef.current.width}x${canvasRef.current.height}`);
+        
         // Draw the current video frame to the canvas
         ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
         
@@ -102,21 +105,53 @@ export const useVideoFeed = ({
         console.log(`Performing inference with model: ${request.modelName}`);
         const result = await EdgeAIInference.performInference(request);
         
-        if (result.detections.length > 0) {
+        if (result.detections && result.detections.length > 0) {
           console.log(`Detected ${result.detections.length} objects with model ${request.modelName}`);
           console.log(`Sample detection:`, result.detections[0]);
           
-          // Create normalized detections with unique IDs
+          // Create normalized detections with unique IDs and proper coordinates
           const normalizedDetections = result.detections.map((detection: BackendDetection, index) => {
             // Create a unique ID for React
             const uniqueId = `${index}-${Date.now()}`;
             
-            // Return the detection with the original bbox data preserved
+            // Ensure proper bounding box format
+            let normalizedBbox;
+            
+            // Check if we have bbox array format [x1, y1, x2, y2] (normalized 0-1)
+            if (Array.isArray(detection.bbox) && detection.bbox.length === 4) {
+              // Already normalized, use as is
+              normalizedBbox = [...detection.bbox];
+              console.log(`Detection ${index}: Using normalized bbox [${normalizedBbox.join(', ')}]`);
+            } 
+            // Check if we have x,y,width,height format (in absolute pixels)
+            else if (detection.x !== undefined && detection.y !== undefined && 
+                     detection.width !== undefined && detection.height !== undefined) {
+              
+              // Convert to normalized format
+              const imgWidth = canvasRef.current?.width || 640;
+              const imgHeight = canvasRef.current?.height || 360;
+              
+              const x1 = detection.x / imgWidth;
+              const y1 = detection.y / imgHeight;
+              const x2 = (detection.x + detection.width) / imgWidth;
+              const y2 = (detection.y + detection.height) / imgHeight;
+              
+              normalizedBbox = [x1, y1, x2, y2];
+              console.log(`Detection ${index}: Converted pixel coords to normalized [${normalizedBbox.join(', ')}]`);
+            } 
+            // If we only have class/score (no location)
+            else {
+              // Use default values (full frame)
+              normalizedBbox = [0, 0, 1, 1];
+              console.log(`Detection ${index}: No valid bbox, using default [${normalizedBbox.join(', ')}]`);
+            }
+            
             return {
               id: uniqueId,
-              label: detection.label || 'Object',
+              label: detection.label || detection.class || 'Object',
+              class: detection.class || detection.label || 'Object',
               confidence: detection.confidence || 0,
-              bbox: detection.bbox // Keep the original bbox array [x1, y1, x2, y2]
+              bbox: normalizedBbox
             };
           });
           
@@ -126,6 +161,8 @@ export const useVideoFeed = ({
           );
           
           console.log(`Filtered to ${filteredDetections.length} detections above threshold`);
+          console.log("First detection:", filteredDetections[0]);
+          
           setDetections(filteredDetections);
           setInferenceLocation(result.processedAt);
           setInferenceTime(result.inferenceTime);
@@ -133,15 +170,15 @@ export const useVideoFeed = ({
           // Dispatch detection event for other components
           window.dispatchEvent(new CustomEvent('ai-detection', { 
             detail: { 
-              detections: result.detections,
+              detections: filteredDetections,
               modelName: request.modelName,
               timestamp: new Date(),
               source: camera?.id || "video-feed" 
             } 
           }));
           
-          if (!autoStart && result.detections.length > 0) {
-            const highConfDetection = result.detections.find(d => d.confidence > 0.85);
+          if (!autoStart && filteredDetections.length > 0) {
+            const highConfDetection = filteredDetections.find(d => d.confidence > 0.85);
             if (highConfDetection) {
               toast.warning(`High confidence detection: ${highConfDetection.label}`, {
                 description: `Confidence: ${(highConfDetection.confidence * 100).toFixed(1)}%`
@@ -149,6 +186,7 @@ export const useVideoFeed = ({
             }
           }
         } else {
+          console.log("No detections from inference API");
           setDetections([]);
         }
       }
