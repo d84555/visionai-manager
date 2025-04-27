@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import List, Optional
 import os
@@ -51,11 +50,11 @@ async def upload_model(file: UploadFile = File(...), name: str = Form(...)):
     # Get file size in MB
     file_size = os.path.getsize(model_path) / (1024 * 1024)
     
-    # Create model info
+    # Create model info - store just the filename for consistent path handling
     model_info = ModelInfo(
         id=model_id,
         name=name,
-        path=f"/custom_models/{file_name}",
+        path=file_name,  # Store just the filename, not the full path
         type="Object Detection",
         size=f"{file_size:.1f} MB",
         uploadedAt=datetime.now().isoformat(),
@@ -103,8 +102,14 @@ async def delete_model(model_id: str):
 @router.post("/select")
 async def set_active_model(active_model: ActiveModel):
     """Set the active model"""
+    # Normalize the path to just the filename for consistency
+    model_filename = os.path.basename(active_model.path)
+    
     with open(ACTIVE_MODEL_PATH, "w") as f:
-        json.dump(active_model.dict(), f, indent=2)
+        json.dump({
+            "name": active_model.name,
+            "path": model_filename
+        }, f, indent=2)
     return {"message": f"Model {active_model.name} set as active"}
 
 @router.get("/active", response_model=Optional[ActiveModel])

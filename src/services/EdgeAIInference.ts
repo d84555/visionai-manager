@@ -56,13 +56,17 @@ class EdgeAIInferenceService {
         console.warn(`Model ${request.modelPath} is not an ONNX model. The backend will fallback to simulation.`);
       }
       
+      // Fix the model path handling - use the basename only for API call
+      // The backend expects model files to be in its model directory
+      const modelPath = request.modelPath;
+      
       const response = await fetch(`${this.apiBaseUrl}/inference/detect`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          modelPath: request.modelPath,
+          modelPath: modelPath,
           threshold: request.thresholdConfidence,
           imageData: request.imageData
         })
@@ -77,6 +81,10 @@ class EdgeAIInferenceService {
         if (errorDetail.includes("Protobuf parsing failed") || errorDetail.includes("not in ONNX format")) {
           toast.error("Incompatible model format", {
             description: "The model must be in ONNX format for inference. Please convert your model to ONNX format."
+          });
+        } else if (errorDetail.includes("Model not found")) {
+          toast.error("Model file not found", {
+            description: "The selected model file was not found on the server. Please upload the model again."
           });
         } else {
           throw new Error(errorDetail);

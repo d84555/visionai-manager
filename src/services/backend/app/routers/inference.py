@@ -74,7 +74,6 @@ YOLO_CLASSES = [
     "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
 ]
 
-# Add the missing function to get available providers
 def get_available_providers():
     """Get available ONNX Runtime providers"""
     if ONNX_AVAILABLE:
@@ -168,10 +167,26 @@ async def detect_objects(inference_request: InferenceRequest):
     start_time = time.time()
     
     try:
-        # Get model path
-        model_path = os.path.join(MODELS_DIR, os.path.basename(inference_request.modelPath))
+        # Process the model path - check if it's a relative path or a full path
+        model_file = inference_request.modelPath
+        
+        # If it starts with /, it's an absolute path
+        if model_file.startswith('/'):
+            # Get just the filename
+            model_file = os.path.basename(model_file)
+        
+        # Construct the full path to the model file
+        model_path = os.path.join(MODELS_DIR, model_file)
+        
         if not os.path.exists(model_path):
-            raise HTTPException(status_code=404, detail=f"Model not found: {model_path}")
+            # Check if the model exists in the models directory without modifications
+            additional_model_path = os.path.join(MODELS_DIR, os.path.basename(inference_request.modelPath))
+            if os.path.exists(additional_model_path):
+                model_path = additional_model_path
+            else:
+                raise HTTPException(status_code=404, detail=f"Model not found: {model_path}")
+        
+        print(f"Using model path: {model_path}")
         
         # Check if model is ONNX format
         if not is_onnx_model(model_path):
