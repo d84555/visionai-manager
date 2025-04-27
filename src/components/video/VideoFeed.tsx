@@ -140,7 +140,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             </p>
           </div>
         ) : isStreaming ? (
-          <div className="relative">
+          <div className="relative w-full h-full">
             <video
               ref={videoRef}
               src={camera?.streamUrl ? camera.streamUrl[streamType] : videoUrl}
@@ -155,7 +155,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               className="w-full max-h-[200px] object-cover"
             />
             
-            <div className="absolute top-0 left-0 w-full h-full">
+            <div className="absolute inset-0 pointer-events-none">
               <DetectionOverlay detections={detections} minimal />
             </div>
             
@@ -285,7 +285,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                   className="w-full"
                 />
                 
-                <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
+                <div className="absolute inset-0 pointer-events-none">
                   <DetectionOverlay detections={detections} />
                 </div>
                 

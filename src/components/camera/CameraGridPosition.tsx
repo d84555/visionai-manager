@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { VideoIcon, Square, Loader, Camera, PlayCircle, Pin, PinOff, Play, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -53,21 +54,23 @@ const CameraGridPosition: React.FC<CameraGridPositionProps> = ({
         className={`relative border rounded-md overflow-hidden ${isFullscreen ? 'fixed inset-0 z-50 bg-black' : ''}`}
         onContextMenu={onContextMenu}
       >
-        <div className="absolute top-2 left-2 z-10 bg-black/70 text-white text-xs px-2 py-1 rounded">
+        <div className="absolute top-2 left-2 z-20 bg-black/70 text-white text-xs px-2 py-1 rounded">
           {camera.name}
         </div>
         
-        <VideoFeed
-          showControls={false}
-          camera={camera}
-          autoStart={isPlaying}
-          isPinned={isFullscreen}
-          onPinToggle={() => onFullscreen(positionId)}
-          activeModel={activeModel}
-          streamType={streamType}
-        />
+        <div className="relative w-full h-full">
+          <VideoFeed
+            showControls={false}
+            camera={camera}
+            autoStart={isPlaying}
+            isPinned={isFullscreen}
+            onPinToggle={() => onFullscreen(positionId)}
+            activeModel={activeModel}
+            streamType={streamType}
+          />
+        </div>
         
-        <div className="absolute bottom-2 right-2 z-10 flex gap-1">
+        <div className="absolute bottom-2 right-2 z-20 flex gap-1">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>

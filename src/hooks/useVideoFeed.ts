@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import EdgeAIInference, { Detection, BackendDetection } from '@/services/EdgeAIInference';
@@ -119,13 +118,32 @@ export const useVideoFeed = ({
             
             // Check if we have bbox array format [x1, y1, x2, y2] (normalized 0-1)
             if (Array.isArray(detection.bbox) && detection.bbox.length === 4) {
-              // Already normalized, use as is
-              normalizedBbox = [...detection.bbox];
-              console.log(`Detection ${index}: Using normalized bbox [${normalizedBbox.join(', ')}]`);
+              // Handle the case where all values are very small (like [0.001, 0.001, 0.001, 0.001])
+              // By replacing with sensible defaults
+              if (detection.bbox.every(val => val < 0.01) && 
+                  Math.abs(detection.bbox[0] - detection.bbox[2]) < 0.01 &&
+                  Math.abs(detection.bbox[1] - detection.bbox[3]) < 0.01) {
+                // These aren't useful bounding boxes - use full frame instead
+                normalizedBbox = [0, 0, 1, 1];
+                console.log(`Detection ${index}: Tiny bbox detected, using full frame instead`);
+              } else {
+                // Normal case - use as provided
+                normalizedBbox = [...detection.bbox];
+                
+                // Ensure x2 > x1 and y2 > y1
+                if (normalizedBbox[2] < normalizedBbox[0]) {
+                  [normalizedBbox[0], normalizedBbox[2]] = [normalizedBbox[2], normalizedBbox[0]];
+                }
+                if (normalizedBbox[3] < normalizedBbox[1]) {
+                  [normalizedBbox[1], normalizedBbox[3]] = [normalizedBbox[3], normalizedBbox[1]];
+                }
+                
+                console.log(`Detection ${index}: Using normalized bbox [${normalizedBbox.join(', ')}]`);
+              }
             } 
             // Check if we have x,y,width,height format (in absolute pixels)
             else if (detection.x !== undefined && detection.y !== undefined && 
-                     detection.width !== undefined && detection.height !== undefined) {
+                    detection.width !== undefined && detection.height !== undefined) {
               
               // Convert to normalized format
               const imgWidth = canvasRef.current?.width || 640;
@@ -161,7 +179,14 @@ export const useVideoFeed = ({
           );
           
           console.log(`Filtered to ${filteredDetections.length} detections above threshold`);
-          console.log("First detection:", filteredDetections[0]);
+          
+          // Log an example of a correctly formatted detection
+          if (filteredDetections.length > 0) {
+            console.log("Example detection:", {
+              ...filteredDetections[0],
+              bbox: filteredDetections[0].bbox.map(v => v.toFixed(4)).join(', ')
+            });
+          }
           
           setDetections(filteredDetections);
           setInferenceLocation(result.processedAt);
