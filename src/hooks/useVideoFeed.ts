@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
 import EdgeAIInference, { Detection } from '@/services/EdgeAIInference';
@@ -90,38 +89,53 @@ export const useVideoFeed = ({
         const request = {
           imageData: imageData,
           cameraId: camera?.id || videoUrl || "unknown",
-          modelName: modelToUse?.name || "YOLOv11",
-          modelPath: modelToUse?.path || "/models/yolov11.onnx",
+          modelName: modelToUse?.name || "custom_model",
+          modelPath: modelToUse?.path || "",
           customModelUrl: customModelUrl,
           thresholdConfidence: 0.5
         };
+        
+        if (!request.modelPath) {
+          console.warn("No model path specified for inference");
+          return;
+        }
         
         console.log(`Performing inference with model: ${request.modelName}`);
         const result = await EdgeAIInference.performInference(request);
         
         if (result.detections.length > 0) {
           console.log(`Detected ${result.detections.length} objects with model ${request.modelName}`);
-          console.log(`First detection: ${result.detections[0].class} with confidence ${result.detections[0].confidence}`);
+          console.log(`First detection: ${result.detections[0].label} with confidence ${result.detections[0].confidence}`);
         }
         
-        setDetections(result.detections);
+        // Convert backend detections to frontend format
+        const normalizedDetections = result.detections.map((detection, index) => ({
+          id: `${index}-${Date.now()}`,
+          class: detection.label,
+          confidence: detection.confidence,
+          x: detection.bbox[0] * canvasRef.current!.width,
+          y: detection.bbox[1] * canvasRef.current!.height,
+          width: (detection.bbox[2] - detection.bbox[0]) * canvasRef.current!.width,
+          height: (detection.bbox[3] - detection.bbox[1]) * canvasRef.current!.height
+        }));
+        
+        setDetections(normalizedDetections);
         setInferenceLocation(result.processedAt);
         setInferenceTime(result.inferenceTime);
         
-        if (!autoStart) {
-          result.detections.forEach(detection => {
-            if (detection.confidence > 0.85) {
-              toast.warning(`High confidence detection: ${detection.class}`, {
-                description: `Confidence: ${(detection.confidence * 100).toFixed(1)}%`
-              });
-            }
-          });
+        if (!autoStart && result.detections.length > 0) {
+          const highConfDetection = result.detections.find(d => d.confidence > 0.85);
+          if (highConfDetection) {
+            toast.warning(`High confidence detection: ${highConfDetection.label}`, {
+              description: `Confidence: ${(highConfDetection.confidence * 100).toFixed(1)}%`
+            });
+          }
         }
       }
     } catch (error) {
       console.error("Edge inference error:", error);
       toast.error("AI inference failed", {
-        description: "Falling back to server processing"
+        description: "Check if the Edge Computing node is running and the model is valid"
       });
       setInferenceLocation("server");
       setDetections([]);
