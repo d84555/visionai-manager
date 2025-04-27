@@ -41,11 +41,19 @@ async def upload_model(file: UploadFile = File(...), name: str = Form(...)):
     if not file_name:
         file_name = f"{name.lower().replace(' ', '_')}.onnx"
     
-    # Ensure we preserve the original file extension
+    # Preserve the original file extension
     original_extension = os.path.splitext(file_name)[1].lower()
     if not original_extension:
         # Default to ONNX if no extension
         file_name = f"{file_name}.onnx"
+    
+    # Ensure unique filename to prevent overwriting
+    base_name = os.path.splitext(file_name)[0]
+    extension = os.path.splitext(file_name)[1]
+    counter = 1
+    while os.path.exists(os.path.join(MODELS_DIR, file_name)):
+        file_name = f"{base_name}_{counter}{extension}"
+        counter += 1
     
     model_path = os.path.join(MODELS_DIR, file_name)
     
@@ -55,6 +63,9 @@ async def upload_model(file: UploadFile = File(...), name: str = Form(...)):
     
     # Get file size in MB
     file_size = os.path.getsize(model_path) / (1024 * 1024)
+    
+    # Check if it's an ONNX model based on actual file content/extension
+    is_onnx = file_name.lower().endswith('.onnx')
     
     # Create model info - store just the filename for consistent path handling
     model_info = ModelInfo(

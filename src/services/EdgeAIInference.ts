@@ -50,7 +50,7 @@ class EdgeAIInferenceService {
     console.info(`Performing inference for camera ${request.cameraId} with model ${request.modelName} (${request.modelPath})`);
     
     try {
-      // Check model file extension
+      // Check model file extension for proper format detection
       const isOnnxModel = request.modelPath.toLowerCase().endsWith('.onnx');
       if (!isOnnxModel) {
         console.warn(`Model ${request.modelPath} is not an ONNX model. The backend will fallback to simulation.`);
@@ -81,7 +81,7 @@ class EdgeAIInferenceService {
         // Handle specific model format errors
         if (errorDetail.includes("Protobuf parsing failed") || errorDetail.includes("not in ONNX format")) {
           toast.error("Incompatible model format", {
-            description: "The model must be in ONNX format for inference. Please convert your model to ONNX format."
+            description: "The model must be in ONNX format for inference. Please upload an ONNX model."
           });
         } else if (errorDetail.includes("Model not found")) {
           toast.error("Model file not found", {

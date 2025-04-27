@@ -49,6 +49,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   // Use the fetched models if available, otherwise fall back to the provided availableModels
   const displayModels = models.length > 0 ? models : availableModels;
 
+  // Function to check if a model is in ONNX format based on file extension
+  const isOnnxFormat = (path: string): boolean => {
+    return path.toLowerCase().endsWith('.onnx');
+  };
+
   return (
     <div className="flex flex-col gap-2">
       <Label htmlFor="model-selector">AI Model for Object Detection</Label>
@@ -67,7 +72,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             displayModels.map(model => (
               <SelectItem key={model.id} value={model.id}>
                 {model.name}
-                {!model.path.toLowerCase().endsWith('.onnx') && (
+                {!isOnnxFormat(model.path) && (
                   <Badge variant="outline" className="ml-2 bg-yellow-100 text-yellow-800 text-xs">
                     Non-ONNX
                   </Badge>

@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
@@ -83,7 +84,7 @@ def get_available_providers():
 
 def preprocess_image(image: Image.Image, target_size=(640, 640)):
     """Preprocess image for YOLO model inference"""
-    # Resize with padding to maintain aspect ratio
+    # ... keep existing code (image preprocessing functions)
     width, height = image.size
     scale = min(target_size[0] / width, target_size[1] / height)
     new_width = int(width * scale)
@@ -107,14 +108,12 @@ def preprocess_image(image: Image.Image, target_size=(640, 640)):
 
 def is_onnx_model(model_path):
     """Check if the model is in ONNX format"""
-    # More robust check than just file extension
-    if model_path.lower().endswith('.onnx'):
-        return True
-    return False
+    # Check file extension - more reliable method
+    return model_path.lower().endswith('.onnx')
 
 def simulate_detection():
     """Simulate object detections when model loading fails"""
-    # Generate some random detections
+    # ... keep existing code (simulation functions)
     num_detections = np.random.randint(1, 5)
     detections = []
     
@@ -142,6 +141,7 @@ def simulate_detection():
 @router.get("/devices", response_model=List[DeviceInfo])
 async def list_devices():
     """List available inference devices"""
+    # ... keep existing code (device listing function)
     providers = get_available_providers()
     devices = []
     
@@ -185,7 +185,7 @@ async def detect_objects(inference_request: InferenceRequest):
         if not os.path.exists(model_path):
             raise HTTPException(status_code=404, detail=f"Model not found: {model_path}")
         
-        # Check if model is ONNX format
+        # Check if model is ONNX format based on file extension
         if not is_onnx_model(model_path):
             print(f"Warning: Non-ONNX model format detected: {model_path}. Using simulated detections.")
             detections = simulate_detection()
