@@ -1,4 +1,3 @@
-
 // EdgeAIInference.ts
 // This service handles communication with edge devices for AI inference
 
@@ -31,12 +30,14 @@ export interface BackendDetection {
 // Frontend detection format (used by the UI components)
 export interface Detection {
   id: string;
-  class: string;
+  class?: string;
+  label?: string;
   confidence: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  bbox?: number[]; // [x1, y1, x2, y2] normalized coordinates
 }
 
 class EdgeAIInferenceService {

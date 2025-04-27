@@ -42,8 +42,8 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
                 style={{ pointerEvents: 'none' }}
               >
                 {minimal ? 
-                  detection.class || detection.label : 
-                  `${detection.class || detection.label} (${(detection.confidence * 100).toFixed(0)}%)`
+                  detection.class || detection.label || 'Object' : 
+                  `${detection.class || detection.label || 'Object'} (${(detection.confidence * 100).toFixed(0)}%)`
                 }
               </span>
             </div>
@@ -88,8 +88,8 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
                 style={{ pointerEvents: 'none' }}
               >
                 {minimal ? 
-                  detection.label : 
-                  `${detection.label} (${(detection.confidence * 100).toFixed(0)}%)`
+                  detection.label || detection.class || 'Object' : 
+                  `${detection.label || detection.class || 'Object'} (${(detection.confidence * 100).toFixed(0)}%)`
                 }
               </span>
             </div>
