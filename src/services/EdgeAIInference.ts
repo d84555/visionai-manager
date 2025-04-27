@@ -15,11 +15,19 @@ export interface InferenceRequest {
 }
 
 export interface InferenceResult {
-  detections: Detection[];
+  detections: BackendDetection[];
   processedAt: 'edge' | 'server';
   inferenceTime: number;
 }
 
+// Interface for backend detection format (coming from YOLO model)
+export interface BackendDetection {
+  label: string;
+  confidence: number;
+  bbox: number[]; // [x1, y1, x2, y2] normalized coordinates
+}
+
+// Frontend detection format (used by the UI components)
 export interface Detection {
   id: string;
   class: string;

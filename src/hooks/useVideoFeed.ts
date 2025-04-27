@@ -1,6 +1,7 @@
+
 import { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
-import EdgeAIInference, { Detection } from '@/services/EdgeAIInference';
+import EdgeAIInference, { Detection, BackendDetection } from '@/services/EdgeAIInference';
 import { convertToPlayableFormat } from '@/utils/ffmpegUtils';
 import SettingsService from '@/services/SettingsService';
 
@@ -105,11 +106,11 @@ export const useVideoFeed = ({
         
         if (result.detections.length > 0) {
           console.log(`Detected ${result.detections.length} objects with model ${request.modelName}`);
-          console.log(`First detection: ${result.detections[0].label} with confidence ${result.detections[0].confidence}`);
+          console.log(`First detection: ${result.detections[0].class} with confidence ${result.detections[0].confidence}`);
         }
         
         // Convert backend detections to frontend format
-        const normalizedDetections = result.detections.map((detection, index) => ({
+        const normalizedDetections = result.detections.map((detection: BackendDetection, index) => ({
           id: `${index}-${Date.now()}`,
           class: detection.label,
           confidence: detection.confidence,
