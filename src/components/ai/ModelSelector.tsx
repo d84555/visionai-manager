@@ -101,6 +101,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     const model = availableModels.find(m => m.id === modelId);
     
     if (model) {
+      const isOnnxFormat = model.path.toLowerCase().endsWith('.onnx');
+      if (!isOnnxFormat) {
+        toast.warning(`Model format warning: ${model.name}`, {
+          description: "For optimal performance, models should be in ONNX format. Non-ONNX models will use simulation mode."
+        });
+      }
+    
       const storageService = StorageServiceFactory.getService();
       storageService.setActiveModel(model.name, model.path)
         .then(() => {
@@ -131,7 +138,16 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setModelFile(e.target.files[0]);
+      const file = e.target.files[0];
+      const isOnnxFormat = file.name.toLowerCase().endsWith('.onnx');
+      
+      if (!isOnnxFormat) {
+        toast.warning("Non-ONNX model detected", {
+          description: "For best results, upload models in ONNX format. Other formats may not work with GPU acceleration."
+        });
+      }
+      
+      setModelFile(file);
     }
   };
 
@@ -229,6 +245,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
                             <Check className="w-3 h-3 mr-1" /> Active
                           </span>
                         )}
+                        {!model.path.toLowerCase().endsWith('.onnx') && (
+                          <Badge variant="outline" className="ml-2 bg-yellow-100 text-yellow-800 text-xs">
+                            Non-ONNX
+                          </Badge>
+                        )}
                       </Label>
                       <p className="text-sm text-muted-foreground">
                         {model.description}
@@ -304,12 +325,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
                 <Input 
                   id="model-file" 
                   type="file" 
-                  accept=".pt,.onnx,.tflite,.pb" 
+                  accept=".onnx,.pt,.pth,.tflite,.pb" 
                   onChange={handleFileChange}
                   disabled={isUploading}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Supported formats: ONNX, TFLite, PyTorch, TensorFlow
+                  <strong className="text-green-600">Recommended:</strong> .onnx (ONNX format)<br />
+                  <strong className="text-yellow-600">Limited support:</strong> .pt, .pth, .tflite, .pb
                 </p>
               </div>
               
@@ -348,8 +370,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
               
               <div className="bg-yellow-50 p-4 rounded-md border border-yellow-100">
                 <p className="text-sm text-yellow-800">
-                  <strong>Note:</strong> Models are uploaded to the Edge Computing node for GPU-accelerated inferencing. 
-                  Make sure your Edge node is properly configured and has sufficient disk space.
+                  <strong>Important:</strong> For GPU acceleration and best performance, please use ONNX format models.
+                  PyTorch (.pt/.pth) and other formats will fall back to simulated detections.
                 </p>
               </div>
             </div>

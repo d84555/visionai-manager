@@ -50,6 +50,12 @@ class EdgeAIInferenceService {
     console.info(`Performing inference for camera ${request.cameraId} with model ${request.modelName} (${request.modelPath})`);
     
     try {
+      // Check model file extension
+      const isOnnxModel = request.modelPath.toLowerCase().endsWith('.onnx');
+      if (!isOnnxModel) {
+        console.warn(`Model ${request.modelPath} is not an ONNX model. The backend will fallback to simulation.`);
+      }
+      
       const response = await fetch(`${this.apiBaseUrl}/inference/detect`, {
         method: 'POST',
         headers: {
@@ -64,7 +70,24 @@ class EdgeAIInferenceService {
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || `API error: ${response.status}`);
+        console.error("API error response:", errorData);
+        const errorDetail = errorData.detail || `API error: ${response.status}`;
+        
+        // Handle specific model format errors
+        if (errorDetail.includes("Protobuf parsing failed") || errorDetail.includes("not in ONNX format")) {
+          toast.error("Incompatible model format", {
+            description: "The model must be in ONNX format for inference. Please convert your model to ONNX format."
+          });
+        } else {
+          throw new Error(errorDetail);
+        }
+        
+        // Return empty result for error cases
+        return {
+          detections: [],
+          processedAt: 'server',
+          inferenceTime: 0
+        };
       }
       
       const result = await response.json();
@@ -77,7 +100,7 @@ class EdgeAIInferenceService {
     } catch (error) {
       console.error("Inference API error:", error);
       toast.error("API inference failed", {
-        description: "Check if the API server is running"
+        description: error instanceof Error ? error.message : "Check if the API server is running"
       });
       
       // Return empty detections as fallback
