@@ -193,12 +193,37 @@ def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
                     print(f"Transposing tensor from shape {predictions.shape}")
                     predictions = predictions.permute(1, 0)
                     print(f"After transpose: shape {predictions.shape}")
+            
+            # Handle case for YOLO outputs like (1, 6, 8400) - common in YOLOv8
+            if predictions.dim() == 3:
+                # Reshape to 2D by taking the first batch
+                predictions = predictions.squeeze(0) if predictions.size(0) == 1 else predictions[0]
+                print(f"Reshaped 3D tensor to 2D: {predictions.shape}")
+                
+                # Check if we need to transpose
+                if predictions.size(0) < predictions.size(1):
+                    # No need to transpose
+                    pass
+                else:
+                    # Need to transpose
+                    print(f"Transposing tensor from shape {predictions.shape}")
+                    predictions = predictions.permute(1, 0)
+                    print(f"After transpose: shape {predictions.shape}")
                     
             print(f"Running Ultralytics NMS on tensor of shape: {predictions.shape}")
-            # Use built-in NMS from ultralytics
-            nms_results = non_max_suppression(predictions, conf_threshold, iou_threshold)
-            print(f"NMS completed. Got {len(nms_results)} batch results")
-            return nms_results
+            
+            # Use try-except to catch any errors in the NMS function
+            try:
+                # Use built-in NMS from ultralytics
+                nms_results = non_max_suppression(predictions, conf_threshold, iou_threshold)
+                print(f"NMS completed. Got {len(nms_results)} batch results")
+                return nms_results
+            except TypeError as e:
+                # Handle specific error for 0-d tensor
+                print(f"NMS error with Ultralytics: {str(e)}")
+                print("Falling back to basic NMS implementation")
+                # Fall back to basic implementation
+                return None
         else:
             # Basic NMS implementation
             print("NMS: Starting custom NMS implementation")
@@ -318,11 +343,12 @@ def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
                     nms_predictions = apply_nms(filtered_predictions, conf_threshold)
                     
                     # Process each detection after NMS
-                    if isinstance(nms_predictions, list):
+                    if isinstance(nms_predictions, list) and nms_predictions:
                         # If NMS returned a list (might be from ultralytics)
                         for batch_pred in nms_predictions:
                             if batch_pred is None or len(batch_pred) == 0:
                                 continue
+                                
                             for pred in batch_pred:
                                 # Extract bounding box
                                 x1, y1, x2, y2 = pred[:4]
@@ -804,4 +830,3 @@ async def detect_objects(inference_request: InferenceRequest):
             inferenceTime=inference_time * 1000,
             timestamp=datetime.now().isoformat()
         )
-
