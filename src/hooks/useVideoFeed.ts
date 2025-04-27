@@ -104,61 +104,33 @@ export const useVideoFeed = ({
         
         if (result.detections.length > 0) {
           console.log(`Detected ${result.detections.length} objects with model ${request.modelName}`);
+          console.log(`Sample detection:`, result.detections[0]);
           
-          // Get actual video display dimensions for accurate coordinate mapping
-          const videoElement = videoRef.current;
-          const videoWidth = videoElement.videoWidth;
-          const videoHeight = videoElement.videoHeight;
-          const videoBounds = videoElement.getBoundingClientRect();
-          
-          // Calculate scale factors between actual video dimensions and displayed size
-          const scaleX = videoBounds.width / videoWidth;
-          const scaleY = videoBounds.height / videoHeight;
-          
-          // Create normalized detections with unique IDs and accurate dimensions
+          // Create normalized detections with unique IDs
           const normalizedDetections = result.detections.map((detection: BackendDetection, index) => {
-            // Get normalized bounding box coordinates [x1, y1, x2, y2]
-            const [x1, y1, x2, y2] = detection.bbox;
+            // Create a unique ID for React
+            const uniqueId = `${index}-${Date.now()}`;
             
-            // Convert normalized coordinates (0-1) to actual pixel values in original video resolution
-            const x = x1 * videoWidth;
-            const y = y1 * videoHeight;
-            const width = (x2 - x1) * videoWidth;
-            const height = (y2 - y1) * videoHeight;
-            
-            // Scale to display dimensions
-            const displayX = x * scaleX;
-            const displayY = y * scaleY;
-            const displayWidth = width * scaleX;
-            const displayHeight = height * scaleY;
-            
+            // Return the detection with the original bbox data preserved
             return {
-              id: `${index}-${Date.now()}`, // Ensure unique IDs for React
-              class: detection.label,
-              confidence: detection.confidence,
-              x: displayX,
-              y: displayY,
-              width: displayWidth,
-              height: displayHeight,
-              bbox: detection.bbox // Keep original bbox for reference
+              id: uniqueId,
+              label: detection.label || 'Object',
+              confidence: detection.confidence || 0,
+              bbox: detection.bbox // Keep the original bbox array [x1, y1, x2, y2]
             };
           });
           
-          // Filter out potentially problematic detections (tiny or zero size)
+          // Filter out detections with very low confidence
           const filteredDetections = normalizedDetections.filter(d => 
-            d.width > 1 && d.height > 1
+            d.confidence > 0.25 // Only show detections with confidence > 25%
           );
           
-          if (filteredDetections.length < normalizedDetections.length) {
-            console.log(`Filtered out ${normalizedDetections.length - filteredDetections.length} invalid detections`);
-          }
-          
+          console.log(`Filtered to ${filteredDetections.length} detections above threshold`);
           setDetections(filteredDetections);
           setInferenceLocation(result.processedAt);
           setInferenceTime(result.inferenceTime);
           
-          // Dispatch detection event for other components with the original detections
-          // This ensures that the EventsPage gets the correct data
+          // Dispatch detection event for other components
           window.dispatchEvent(new CustomEvent('ai-detection', { 
             detail: { 
               detections: result.detections,

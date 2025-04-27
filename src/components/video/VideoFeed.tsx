@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Camera, VideoIcon, Loader, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -156,6 +155,10 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               className="w-full max-h-[200px] object-cover"
             />
             
+            <div className="absolute top-0 left-0 w-full h-full">
+              <DetectionOverlay detections={detections} minimal />
+            </div>
+            
             <VideoControls
               isPlaying={isPlaying}
               isPinned={isPinned}
@@ -165,8 +168,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               isHikvisionFormat={isHikvisionFormat}
               showMinimalControls
             />
-            
-            <DetectionOverlay detections={detections} minimal />
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '160px' }}>
@@ -284,6 +285,10 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                   className="w-full"
                 />
                 
+                <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
+                  <DetectionOverlay detections={detections} />
+                </div>
+                
                 <VideoControls
                   isPlaying={isPlaying}
                   onPlayPause={togglePlayPause}
@@ -291,8 +296,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                   inferenceTime={inferenceTime}
                   isHikvisionFormat={isHikvisionFormat}
                 />
-                
-                <DetectionOverlay detections={detections} />
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>

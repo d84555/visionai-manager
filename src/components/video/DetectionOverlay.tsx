@@ -33,69 +33,34 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
   if (!visibleDetections || visibleDetections.length === 0) {
     return null;
   }
+
+  // Get the video element to determine actual dimensions
+  const videoElement = document.querySelector('video');
+  const videoWidth = videoElement?.videoWidth || 640;
+  const videoHeight = videoElement?.videoHeight || 360;
+  const videoBounds = videoElement?.getBoundingClientRect();
+  const displayWidth = videoBounds?.width || videoWidth;
+  const displayHeight = videoBounds?.height || videoHeight;
   
   return (
     <>
       {visibleDetections.map((detection, index) => {
-        // Handle both formats - either explicit x,y,width,height or bbox array
-        if (detection.x !== undefined && detection.y !== undefined && 
-            detection.width !== undefined && detection.height !== undefined) {
-          // Apply scaling factor for minimal view if needed
-          const scaleFactor = minimal ? 0.5 : 1;
-          
-          return (
-            <div
-              key={`detection-${detection.id || index}`}
-              className="absolute border-2 border-avianet-red"
-              style={{
-                left: `${detection.x * scaleFactor}px`,
-                top: `${detection.y * scaleFactor}px`,
-                width: `${detection.width * scaleFactor}px`,
-                height: `${detection.height * scaleFactor}px`,
-                pointerEvents: 'none',
-                transition: 'none' // Remove any transition that might cause lag
-              }}
-            >
-              <span 
-                className={`absolute top-0 left-0 bg-avianet-red text-white ${
-                  minimal ? 'text-[8px] px-1' : 'text-xs px-1 py-0.5'
-                } max-w-full overflow-hidden text-ellipsis whitespace-nowrap`}
-                style={{ pointerEvents: 'none' }}
-              >
-                {minimal ? 
-                  detection.class || detection.label || 'Object' : 
-                  `${detection.class || detection.label || 'Object'} (${(detection.confidence * 100).toFixed(0)}%)`
-                }
-              </span>
-            </div>
-          );
-        } 
+        // Apply scaling factor for minimal view if needed
+        const scaleFactor = minimal ? 0.5 : 1;
+        
         // Use bbox format from inference API
-        else if (detection.bbox && detection.bbox.length === 4) {
-          // Apply scaling factor for minimal view if needed
-          const scaleFactor = minimal ? 0.5 : 1;
-          
+        if (detection.bbox && detection.bbox.length === 4) {
           // Get normalized coordinates [x1, y1, x2, y2]
           const [x1, y1, x2, y2] = detection.bbox;
           
-          // Calculate dimensions for video display
-          const videoElement = document.querySelector('video');
-          const videoWidth = videoElement?.videoWidth || 640;
-          const videoHeight = videoElement?.videoHeight || 360;
+          // Calculate dimensions based on normalized coordinates
+          const x = x1 * displayWidth;
+          const y = y1 * displayHeight;
+          const width = (x2 - x1) * displayWidth;
+          const height = (y2 - y1) * displayHeight;
           
-          // Get the actual video display size
-          const videoBounds = videoElement?.getBoundingClientRect();
-          const containerWidth = videoBounds?.width || videoWidth;
-          const containerHeight = videoBounds?.height || videoHeight;
-          
-          // Convert normalized coordinates to pixel values
-          const x = x1 * containerWidth;
-          const y = y1 * containerHeight;
-          const width = (x2 - x1) * containerWidth;
-          const height = (y2 - y1) * containerHeight;
-          
-          // Skip invalid bounding boxes with zero width/height
-          if (width <= 1 || height <= 1) {
+          // Skip invalid or tiny bounding boxes
+          if (width < 1 || height < 1) {
             return null;
           }
           
@@ -125,7 +90,37 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
               </span>
             </div>
           );
-        }
+        } 
+        // Handle the explicit x,y,width,height format
+        else if (detection.x !== undefined && detection.y !== undefined && 
+                detection.width !== undefined && detection.height !== undefined) {
+          return (
+            <div
+              key={`detection-${detection.id || index}`}
+              className="absolute border-2 border-avianet-red"
+              style={{
+                left: `${detection.x * scaleFactor}px`,
+                top: `${detection.y * scaleFactor}px`,
+                width: `${detection.width * scaleFactor}px`,
+                height: `${detection.height * scaleFactor}px`,
+                pointerEvents: 'none',
+                transition: 'none' // Remove any transition that might cause lag
+              }}
+            >
+              <span 
+                className={`absolute top-0 left-0 bg-avianet-red text-white ${
+                  minimal ? 'text-[8px] px-1' : 'text-xs px-1 py-0.5'
+                } max-w-full overflow-hidden text-ellipsis whitespace-nowrap`}
+                style={{ pointerEvents: 'none' }}
+              >
+                {minimal ? 
+                  detection.class || detection.label || 'Object' : 
+                  `${detection.class || detection.label || 'Object'} (${(detection.confidence * 100).toFixed(0)}%)`
+                }
+              </span>
+            </div>
+          );
+        } 
         
         // Log invalid detection format
         console.warn("Invalid detection format received:", detection);
