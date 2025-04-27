@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, WebSocket
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, field_validator, model_validator
@@ -19,6 +18,14 @@ try:
 except ImportError:
     ONNX_AVAILABLE = False
     print("WARNING: onnxruntime not available. Inference will be simulated.")
+
+# Import torch
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("WARNING: PyTorch not available. NMS will use fallback implementation.")
 
 # Import YOLOv8 preprocessing utils
 try:
@@ -150,13 +157,24 @@ def log_output_shapes(outputs):
 def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
     """Apply Non-Maximum Suppression to filter overlapping detections"""
     try:
-        if ULTRALYTICS_AVAILABLE:
-            # Use built-in NMS from ultralytics if available
-            return non_max_suppression(predictions, conf_threshold, iou_threshold)
+        if ULTRALYTICS_AVAILABLE and TORCH_AVAILABLE:
+            # Convert NumPy array to PyTorch tensor if needed
+            print("NMS: Using Ultralytics NMS with PyTorch")
+            if isinstance(predictions, np.ndarray):
+                print(f"Converting predictions from NumPy array (shape: {predictions.shape}) to PyTorch tensor")
+                predictions = torch.from_numpy(predictions).to('cpu')
+            
+            # Ensure tensor is on CPU
+            if hasattr(predictions, 'device') and predictions.device.type != 'cpu':
+                predictions = predictions.to('cpu')
+                
+            print(f"Running Ultralytics NMS on tensor of shape: {predictions.shape}")
+            # Use built-in NMS from ultralytics
+            nms_results = non_max_suppression(predictions, conf_threshold, iou_threshold)
+            print(f"NMS completed. Got {len(nms_results)} batch results")
+            return nms_results
         else:
             # Basic NMS implementation
-            final_boxes = []
-            # Sort by confidence
             print("NMS: Starting custom NMS implementation")
             conf_sort_index = np.argsort(-predictions[:, 4])
             predictions = predictions[conf_sort_index]
@@ -829,4 +847,3 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         print(f"WebSocket error: {str(e)}")
         # WebSocket closed or other error
-
