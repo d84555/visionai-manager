@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
 import EdgeAIInference, { Detection, BackendDetection } from '@/services/EdgeAIInference';
@@ -58,7 +57,6 @@ export const useVideoFeed = ({
         return;
       }
       
-      // Create a temporary canvas for capturing video frames if it doesn't exist
       if (!canvasRef.current) {
         const canvas = document.createElement('canvas');
         canvas.width = videoRef.current.videoWidth || 640;
@@ -66,17 +64,14 @@ export const useVideoFeed = ({
         canvasRef.current = canvas;
       }
       
-      // Draw current video frame to canvas
       const ctx = canvasRef.current.getContext('2d');
       if (ctx && videoRef.current) {
         canvasRef.current.width = videoRef.current.videoWidth || 640;
         canvasRef.current.height = videoRef.current.videoHeight || 360;
         ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
         
-        // Convert canvas to base64 for inference
         const imageData = canvasRef.current.toDataURL('image/jpeg', 0.8);
         
-        // Check if we have a custom uploaded model and get its file URL
         let customModelUrl = null;
         if (modelToUse?.path.includes('/custom_models/')) {
           customModelUrl = SettingsService.getModelFileUrl(modelToUse.path);
@@ -106,10 +101,9 @@ export const useVideoFeed = ({
         
         if (result.detections.length > 0) {
           console.log(`Detected ${result.detections.length} objects with model ${request.modelName}`);
-          console.log(`First detection: ${result.detections[0].class} with confidence ${result.detections[0].confidence}`);
+          console.log(`First detection: ${result.detections[0].label} with confidence ${result.detections[0].confidence}`);
         }
         
-        // Convert backend detections to frontend format
         const normalizedDetections = result.detections.map((detection: BackendDetection, index) => ({
           id: `${index}-${Date.now()}`,
           class: detection.label,
@@ -152,15 +146,13 @@ export const useVideoFeed = ({
     setIsStreaming(true);
     setIsPlaying(true);
     
-    // If active model is a custom model, check if it's loaded
     if (activeModel?.path.includes('/custom_models/')) {
       setIsModelLoading(true);
       try {
         const modelUrl = SettingsService.getModelFileUrl(activeModel.path);
         if (modelUrl) {
           console.log(`Custom model found at Blob URL: ${modelUrl}`);
-          // In a real implementation, we would preload the model here
-          await new Promise(resolve => setTimeout(resolve, 500)); // Simulate model loading
+          await new Promise(resolve => setTimeout(resolve, 500));
         } else {
           console.warn(`No Blob URL found for custom model: ${activeModel.path}`);
           toast.warning("Custom model file not found", {
@@ -176,7 +168,6 @@ export const useVideoFeed = ({
     
     if (videoRef.current) {
       try {
-        // This is a Promise that needs to be properly awaited
         await videoRef.current.play();
         setIsPlaying(true);
       } catch (err) {
@@ -197,17 +188,13 @@ export const useVideoFeed = ({
       });
     }
     
-    // Start detection loop if a model is selected
     if (activeModel) {
-      // Clear any existing interval
       if (detectionIntervalRef.current) {
         clearInterval(detectionIntervalRef.current);
       }
       
-      // Initial detection
       await detectObjects();
       
-      // Set up interval for continuous detection
       detectionIntervalRef.current = window.setInterval(detectObjects, 3000);
     }
   };
@@ -217,7 +204,6 @@ export const useVideoFeed = ({
     setDetections([]);
     setIsPlaying(false);
     
-    // Clear detection interval
     if (detectionIntervalRef.current) {
       clearInterval(detectionIntervalRef.current);
       detectionIntervalRef.current = null;
@@ -239,7 +225,6 @@ export const useVideoFeed = ({
         setIsPlaying(false);
       } else {
         try {
-          // Fix: Ensure we actually wait for the play() promise to resolve
           await videoRef.current.play();
           setIsPlaying(true);
         } catch (err) {
@@ -281,7 +266,6 @@ export const useVideoFeed = ({
       const convertedVideoUrl = await convertToPlayableFormat(file);
       setVideoUrl(convertedVideoUrl);
       
-      // Store file for simulated file system persistence
       localStorage.setItem(`video-file-${Date.now()}`, JSON.stringify({
         originalName: file.name,
         size: file.size,
@@ -354,7 +338,6 @@ export const useVideoFeed = ({
 
   useEffect(() => {
     return () => {
-      // Cleanup resources
       if (hasUploadedFile && videoUrl.startsWith('blob:')) {
         URL.revokeObjectURL(videoUrl);
       }

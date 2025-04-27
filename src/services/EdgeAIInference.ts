@@ -56,56 +56,36 @@ const yoloClassLabels = [
 
 // Special detection regions with predetermined labels and confidence
 // These simulate consistent detections for demo videos
-const predefinedDetections: Record<string, Detection[]> = {
+const predefinedDetections: Record<string, BackendDetection[]> = {
   "BigBuckBunny": [
     {
-      id: "det-1",
-      class: "person",
+      label: "person",
       confidence: 0.89,
-      x: 100,
-      y: 80,
-      width: 120,
-      height: 240
+      bbox: [0.15, 0.2, 0.35, 0.8] // normalized coordinates [x1, y1, x2, y2]
     }
   ],
   "ElephantsDream": [
     {
-      id: "det-2",
-      class: "car",
+      label: "car",
       confidence: 0.78,
-      x: 400,
-      y: 100,
-      width: 180,
-      height: 100
+      bbox: [0.6, 0.3, 0.9, 0.6]
     },
     {
-      id: "det-3",
-      class: "truck",
+      label: "truck",
       confidence: 0.84,
-      x: 100,
-      y: 200,
-      width: 220,
-      height: 120
+      bbox: [0.15, 0.55, 0.5, 0.9]
     }
   ],
   "ForBiggerBlazes": [
     {
-      id: "det-4",
-      class: "person",
+      label: "person",
       confidence: 0.92,
-      x: 150,
-      y: 50,
-      width: 100,
-      height: 200
+      bbox: [0.2, 0.15, 0.35, 0.75]
     },
     {
-      id: "det-5",
-      class: "chair",
+      label: "chair",
       confidence: 0.76,
-      x: 350,
-      y: 150,
-      width: 80,
-      height: 120
+      bbox: [0.55, 0.4, 0.7, 0.75]
     }
   ]
 };
@@ -364,7 +344,7 @@ class EdgeAIInferenceService {
       
       // Generate 1-4 detections with higher confidence for custom models
       const numDetections = 1 + Math.floor(Math.random() * (modelInfo ? 2 : 4));
-      const detections: Detection[] = [];
+      const detections: BackendDetection[] = [];
       
       for (let i = 0; i < numDetections; i++) {
         // For custom models, use more specific and fewer classes
@@ -385,20 +365,15 @@ class EdgeAIInferenceService {
         }
         
         // Generate reasonable object sizes and positions
-        const width = (className === "person" ? 0.15 : 0.2) * 640 + Math.random() * 60;
-        const height = (className === "person" ? 0.3 : 0.15) * 360 + Math.random() * 40;
-        
-        const x = Math.random() * (640 - width);
-        const y = Math.random() * (360 - height);
+        const width = (className === "person" ? 0.15 : 0.2);
+        const height = (className === "person" ? 0.3 : 0.15);
+        const x = Math.random() * (1.0 - width);
+        const y = Math.random() * (1.0 - height);
         
         detections.push({
-          id: `det-${Date.now()}-${i}`,
-          class: className,
+          label: className,
           confidence,
-          x,
-          y,
-          width,
-          height
+          bbox: [x, y, x + width, y + height]
         });
       }
       
@@ -424,11 +399,11 @@ class EdgeAIInferenceService {
   }
   
   // Generate custom model detections
-  private generateCustomModelDetections(cameraId: string, modelName: string): Detection[] {
+  private generateCustomModelDetections(cameraId: string, modelName: string): BackendDetection[] {
     // For custom models, generate more specific and fewer detections
     // to give the impression of a model trained for specific use cases
     
-    const detections: Detection[] = [];
+    const detections: BackendDetection[] = [];
     const specificClasses = ["person", "car", "truck"]; // Focus on common classes
     
     // Determine if we should detect anything based on camera and model
@@ -451,30 +426,26 @@ class EdgeAIInferenceService {
       const confidence = 0.75 + Math.random() * 0.2; // 0.75-0.95
       
       // Reasonable object sizes relative to frame
-      const width = (className === "person" ? 0.1 : 0.15) * 640 + Math.random() * 60;
-      const height = (className === "person" ? 0.25 : 0.15) * 360 + Math.random() * 40;
+      const width = (className === "person" ? 0.1 : 0.15);
+      const height = (className === "person" ? 0.25 : 0.15);
       
       // Position objects in realistic areas of the frame
       let x, y;
       if (className === "person") {
-        x = Math.random() * (640 - width);
-        y = 120 + Math.random() * (240 - height); // Lower half
+        x = Math.random() * (1.0 - width);
+        y = 0.3 + Math.random() * (0.7 - height); // Lower half
       } else if (className === "car" || className === "truck") {
-        x = Math.random() * (640 - width);
-        y = 180 + Math.random() * (180 - height); // Road level
+        x = Math.random() * (1.0 - width);
+        y = 0.5 + Math.random() * (0.5 - height); // Road level
       } else {
-        x = Math.random() * (640 - width);
-        y = Math.random() * (360 - height);
+        x = Math.random() * (1.0 - width);
+        y = Math.random() * (1.0 - height);
       }
       
       detections.push({
-        id: `det-${Date.now()}-${i}`,
-        class: className,
+        label: className,
         confidence,
-        x,
-        y,
-        width,
-        height
+        bbox: [x, y, x + width, y + height]
       });
     }
     
@@ -482,8 +453,8 @@ class EdgeAIInferenceService {
   }
   
   // Generate realistic detections based on the model
-  private generateRealisticDetections(modelName: string): Detection[] {
-    const detections: Detection[] = [];
+  private generateRealisticDetections(modelName: string): BackendDetection[] {
+    const detections: BackendDetection[] = [];
     
     // Determine how many objects to detect (1-3 for realism)
     const numDetections = 1 + Math.floor(Math.random() * 3);
@@ -500,31 +471,27 @@ class EdgeAIInferenceService {
         confidence = Math.min(confidence + 0.1, 0.95); // Boost common objects
       }
       
-      // Reasonable object sizes relative to frame
-      const width = (className === "person" ? 0.1 : 0.15) * 640 + Math.random() * 80;
-      const height = (className === "person" ? 0.25 : 0.15) * 360 + Math.random() * 60;
+      // Reasonable object sizes relative to frame (normalized values)
+      const width = (className === "person" ? 0.1 : 0.15);
+      const height = (className === "person" ? 0.25 : 0.15);
       
-      // Position objects in realistic areas of the frame
+      // Position objects in realistic areas of the frame (normalized values)
       let x, y;
       if (className === "person") {
-        x = Math.random() * (640 - width);
-        y = 120 + Math.random() * (240 - height); // Lower half
+        x = Math.random() * (1.0 - width);
+        y = 0.3 + Math.random() * (0.7 - height); // Lower half
       } else if (className === "car" || className === "truck") {
-        x = Math.random() * (640 - width);
-        y = 180 + Math.random() * (180 - height); // Road level
+        x = Math.random() * (1.0 - width);
+        y = 0.5 + Math.random() * (0.5 - height); // Road level
       } else {
-        x = Math.random() * (640 - width);
-        y = Math.random() * (360 - height);
+        x = Math.random() * (1.0 - width);
+        y = Math.random() * (1.0 - height);
       }
       
       detections.push({
-        id: `det-${Date.now()}-${i}`,
-        class: className,
+        label: className,
         confidence,
-        x,
-        y,
-        width,
-        height
+        bbox: [x, y, x + width, y + height]
       });
     }
     
@@ -532,23 +499,14 @@ class EdgeAIInferenceService {
   }
   
   // Get predefined detections for demo videos
-  private getDemoVideoDetections(cameraId: string): Detection[] | null {
+  private getDemoVideoDetections(cameraId: string): BackendDetection[] | null {
     // Check if this is one of our demo videos
     if (cameraId.includes('Demo Camera 1') || cameraId.includes('BigBuckBunny')) {
-      return predefinedDetections.BigBuckBunny.map(detection => ({
-        ...detection,
-        id: `det-${Date.now()}-${detection.id}`
-      }));
+      return predefinedDetections.BigBuckBunny;
     } else if (cameraId.includes('Demo Camera 2') || cameraId.includes('ElephantsDream')) {
-      return predefinedDetections.ElephantsDream.map(detection => ({
-        ...detection,
-        id: `det-${Date.now()}-${detection.id}`
-      }));
+      return predefinedDetections.ElephantsDream;
     } else if (cameraId.includes('Demo Camera 3') || cameraId.includes('ForBiggerBlazes')) {
-      return predefinedDetections.ForBiggerBlazes.map(detection => ({
-        ...detection,
-        id: `det-${Date.now()}-${detection.id}`
-      }));
+      return predefinedDetections.ForBiggerBlazes;
     }
     
     return null;
