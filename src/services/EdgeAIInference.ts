@@ -1,3 +1,4 @@
+
 // EdgeAIInference.ts
 // This service handles communication with edge devices for AI inference
 
@@ -23,8 +24,13 @@ export interface InferenceResult {
 // Interface for backend detection format (coming from YOLO model)
 export interface BackendDetection {
   label: string;
+  class?: string;   // Added optional class property
   confidence: number;
-  bbox: number[]; // [x1, y1, x2, y2] normalized coordinates
+  bbox: number[];   // [x1, y1, x2, y2] normalized coordinates
+  x?: number;       // Added optional x, y, width, height properties for compatibility
+  y?: number;
+  width?: number;
+  height?: number;
 }
 
 // Frontend detection format (used by the UI components)

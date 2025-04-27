@@ -148,7 +148,7 @@ export const useVideoFeed = ({
             
             return {
               id: uniqueId,
-              label: detection.label || detection.class || 'Object',
+              label: detection.label || (detection.class || 'Object'),
               class: detection.class || detection.label || 'Object',
               confidence: detection.confidence || 0,
               bbox: normalizedBbox
