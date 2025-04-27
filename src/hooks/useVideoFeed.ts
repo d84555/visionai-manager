@@ -79,28 +79,11 @@ export const useVideoFeed = ({
         
         console.log(`Using model: ${modelToUse.name}, path: ${modelToUse.path}`);
         
-        let customModelUrl = null;
-        if (modelToUse.path.includes('/custom_models/')) {
-          customModelUrl = SettingsService.getModelFileUrl(modelToUse.path);
-          if (customModelUrl) {
-            console.log(`Using custom model from Blob URL: ${customModelUrl}`);
-          } else {
-            console.warn(`Could not find Blob URL for custom model: ${modelToUse.path}`);
-            
-            if (modelToUse.path.includes('coverall.onnx')) {
-              const testModel = SettingsService.createTestModel(modelToUse.name, modelToUse.path);
-              customModelUrl = SettingsService.getModelFileUrl(testModel.path);
-              console.log(`Created test model with URL: ${customModelUrl}`);
-            }
-          }
-        }
-        
         const request = {
           imageData: imageData,
           cameraId: camera?.id || videoUrl || "unknown",
           modelName: modelToUse.name || "custom_model",
           modelPath: modelToUse.path || "",
-          customModelUrl: customModelUrl,
           thresholdConfidence: 0.5
         };
         
@@ -157,23 +140,8 @@ export const useVideoFeed = ({
     if (activeModel?.path.includes('/custom_models/')) {
       setIsModelLoading(true);
       try {
-        const modelUrl = SettingsService.getModelFileUrl(activeModel.path);
-        if (modelUrl) {
-          console.log(`Custom model found at Blob URL: ${modelUrl}`);
-          await new Promise(resolve => setTimeout(resolve, 500));
-        } else {
-          console.warn(`No Blob URL found for custom model: ${activeModel.path}`);
-          
-          if (activeModel.path.includes('coverall.onnx')) {
-            const testModel = SettingsService.createTestModel(activeModel.name, activeModel.path);
-            const newUrl = SettingsService.getModelFileUrl(testModel.path);
-            console.log(`Created test model with URL: ${newUrl}`);
-          }
-          
-          toast.warning("Custom model file not found", {
-            description: "Creating a test model for demonstration purposes"
-          });
-        }
+        console.log(`Using custom model from API server: ${activeModel.path}`);
+        await new Promise(resolve => setTimeout(resolve, 500));
       } catch (error) {
         console.error("Error loading custom model:", error);
       } finally {
