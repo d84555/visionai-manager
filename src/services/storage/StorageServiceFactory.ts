@@ -7,7 +7,7 @@ export type StorageMode = 'simulated' | 'api';
 
 class StorageServiceFactory {
   private static instance: StorageServiceInterface;
-  private static currentMode: StorageMode = 'api'; // Changed default to 'api'
+  private static currentMode: StorageMode = 'api'; // Always default to API mode
 
   static getService(): StorageServiceInterface {
     if (!this.instance) {
@@ -29,22 +29,13 @@ class StorageServiceFactory {
   }
 
   static getMode(): StorageMode {
-    // Try to load from localStorage if available
-    const savedMode = localStorage.getItem('avianet-storage-mode') as StorageMode | null;
-    if (savedMode && (savedMode === 'api' || savedMode === 'simulated')) {
-      this.currentMode = savedMode;
-    }
-    return this.currentMode;
+    // Always return 'api' to ensure we're using the API backend
+    return 'api';
   }
 
   private static createService(mode: StorageMode): StorageServiceInterface {
-    switch (mode) {
-      case 'api':
-        return new APIStorageService();
-      case 'simulated':
-      default:
-        return new SimulatedStorageService();
-    }
+    // Always use API service regardless of mode
+    return new APIStorageService();
   }
 }
 

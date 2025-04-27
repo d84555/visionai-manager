@@ -1,4 +1,3 @@
-
 // EdgeAIInference.ts
 // This service handles communication with edge devices for AI inference
 
@@ -47,19 +46,21 @@ class EdgeAIInferenceService {
   
   // Process an inference request
   async performInference(request: InferenceRequest): Promise<InferenceResult> {
-    console.info(`Performing inference for camera ${request.cameraId} with model ${request.modelName} (${request.modelPath})`);
+    console.info(`Performing inference for camera ${request.cameraId} with model ${request.modelName}`);
     
     try {
       // Check model file extension for proper format detection
       const isOnnxModel = request.modelPath.toLowerCase().endsWith('.onnx');
+      
+      // Log the model path to help with debugging
+      console.log(`Using model path: ${request.modelPath}, ONNX: ${isOnnxModel}`);
+      
       if (!isOnnxModel) {
         console.warn(`Model ${request.modelPath} is not an ONNX model. The backend will fallback to simulation.`);
       }
       
-      // Extract just the filename from the path to ensure consistent handling
-      const modelPath = request.modelPath.split('/').pop() || request.modelPath;
-      
-      console.log(`Using model filename: ${modelPath}`);
+      // Keep the original path without modification to avoid breaking extensions
+      const modelPath = request.modelPath;
       
       const response = await fetch(`${this.apiBaseUrl}/inference/detect`, {
         method: 'POST',

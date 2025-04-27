@@ -82,29 +82,7 @@ def get_available_providers():
         # Return simulated providers if ONNX is not available
         return ["SimulatedCPU"]
 
-def preprocess_image(image: Image.Image, target_size=(640, 640)):
-    """Preprocess image for YOLO model inference"""
-    # ... keep existing code (image preprocessing functions)
-    width, height = image.size
-    scale = min(target_size[0] / width, target_size[1] / height)
-    new_width = int(width * scale)
-    new_height = int(height * scale)
-    
-    resized = image.resize((new_width, new_height), Image.Resampling.BILINEAR)
-    
-    # Create new image with padding
-    new_image = Image.new("RGB", target_size, (114, 114, 114))
-    new_image.paste(resized, ((target_size[0] - new_width) // 2,
-                             (target_size[1] - new_height) // 2))
-    
-    # Convert to numpy array and normalize
-    img_array = np.array(new_image, dtype=np.float32) / 255.0
-    
-    # HWC to NCHW
-    img_array = np.transpose(img_array, (2, 0, 1))
-    img_array = np.expand_dims(img_array, axis=0)
-    
-    return img_array, scale, (new_width, new_height)
+# ... keep existing code (image preprocessing functions)
 
 def is_onnx_model(model_path):
     """Check if the model is in ONNX format"""
@@ -114,54 +92,11 @@ def is_onnx_model(model_path):
 def simulate_detection():
     """Simulate object detections when model loading fails"""
     # ... keep existing code (simulation functions)
-    num_detections = np.random.randint(1, 5)
-    detections = []
-    
-    for _ in range(num_detections):
-        # Generate random normalized coordinates
-        x1 = np.random.random() * 0.8
-        y1 = np.random.random() * 0.8
-        width = np.random.random() * 0.3 + 0.1
-        height = np.random.random() * 0.3 + 0.1
-        x2 = min(x1 + width, 1.0)
-        y2 = min(y1 + height, 1.0)
-        
-        # Random class from YOLO classes
-        class_id = np.random.randint(0, len(YOLO_CLASSES))
-        confidence = np.random.random() * 0.5 + 0.5  # 0.5-1.0 confidence
-        
-        detections.append(Detection(
-            label=YOLO_CLASSES[class_id],
-            confidence=float(confidence),
-            bbox=[float(x1), float(y1), float(x2), float(y2)]
-        ))
-    
-    return detections
 
 @router.get("/devices", response_model=List[DeviceInfo])
 async def list_devices():
     """List available inference devices"""
     # ... keep existing code (device listing function)
-    providers = get_available_providers()
-    devices = []
-    
-    if "CUDAExecutionProvider" in providers:
-        devices.append(DeviceInfo(
-            id="cuda-0",
-            name="NVIDIA GPU",
-            type="CUDA",
-            status="available"
-        ))
-    
-    if "CPUExecutionProvider" in providers or "SimulatedCPU" in providers:
-        devices.append(DeviceInfo(
-            id="cpu-0",
-            name="CPU",
-            type="CPU",
-            status="available"
-        ))
-        
-    return devices
 
 @router.post("/detect", response_model=InferenceResult)
 async def detect_objects(inference_request: InferenceRequest):
@@ -169,25 +104,30 @@ async def detect_objects(inference_request: InferenceRequest):
     start_time = time.time()
     
     try:
-        # Process the model path - handle both filename and full path formats
-        model_file = inference_request.modelPath
+        # Get the model path exactly as provided, ensuring we keep the file extension
+        model_path_input = inference_request.modelPath
         
-        # Extract just the filename if it's a full path
-        if '/' in model_file:
-            model_file = os.path.basename(model_file)
+        # Debug print to check what model path we're receiving
+        print(f"Received model path: {model_path_input}")
         
-        # Construct the full path to the model file
-        model_path = os.path.join(MODELS_DIR, model_file)
-        
-        print(f"Looking for model at: {model_path}")
+        # Handle both full paths and just filenames
+        if os.path.isabs(model_path_input):
+            # If it's an absolute path, use it directly
+            model_path = model_path_input
+        else:
+            # Otherwise join with the models directory
+            model_path = os.path.join(MODELS_DIR, model_path_input)
         
         # Check if model file exists
         if not os.path.exists(model_path):
+            print(f"Model not found at: {model_path}")
             raise HTTPException(status_code=404, detail=f"Model not found: {model_path}")
+        
+        print(f"Using model at path: {model_path}")
         
         # Check if model is ONNX format based on file extension
         if not is_onnx_model(model_path):
-            print(f"Warning: Non-ONNX model format detected: {model_path}. Using simulated detections.")
+            print(f"Non-ONNX model format detected: {model_path}. Using simulated detections.")
             detections = simulate_detection()
             inference_time = time.time() - start_time
             return InferenceResult(

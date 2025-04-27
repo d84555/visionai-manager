@@ -34,6 +34,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           path: model.path,
         }));
         
+        console.log('Loaded models:', formattedCustomModels);
         setModels(formattedCustomModels);
       } catch (error) {
         console.error('Failed to load custom models:', error);

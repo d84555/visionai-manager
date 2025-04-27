@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import List, Optional
 import os
@@ -36,7 +37,7 @@ async def upload_model(file: UploadFile = File(...), name: str = Form(...)):
     """Upload a model file"""
     model_id = f"custom-{uuid.uuid4()}"
     
-    # Create model file path
+    # Get original file name and extension
     file_name = file.filename
     if not file_name:
         file_name = f"{name.lower().replace(' ', '_')}.onnx"
@@ -64,14 +65,16 @@ async def upload_model(file: UploadFile = File(...), name: str = Form(...)):
     # Get file size in MB
     file_size = os.path.getsize(model_path) / (1024 * 1024)
     
-    # Check if it's an ONNX model based on actual file content/extension
+    # Check if it's an ONNX model based on extension
     is_onnx = file_name.lower().endswith('.onnx')
     
-    # Create model info - store just the filename for consistent path handling
+    print(f"Uploaded model: {file_name}, Is ONNX: {is_onnx}")
+    
+    # Create model info - store the filename with extension for consistent path handling
     model_info = ModelInfo(
         id=model_id,
         name=name,
-        path=file_name,  # Store just the filename, not the full path
+        path=file_name,  # Store just the filename with extension
         type="Object Detection",
         size=f"{file_size:.1f} MB",
         uploadedAt=datetime.now().isoformat(),
@@ -89,7 +92,11 @@ async def upload_model(file: UploadFile = File(...), name: str = Form(...)):
 @router.get("/list", response_model=List[ModelInfo])
 async def list_models():
     """List all available models"""
-    return load_models_db()
+    models = load_models_db()
+    # Log model paths to help diagnose issues
+    for model in models:
+        print(f"Available model: name={model.name}, path={model.path}")
+    return models
 
 @router.delete("/{model_id}")
 async def delete_model(model_id: str):
@@ -119,13 +126,13 @@ async def delete_model(model_id: str):
 @router.post("/select")
 async def set_active_model(active_model: ActiveModel):
     """Set the active model"""
-    # Normalize the path to just the filename for consistency
-    model_filename = os.path.basename(active_model.path)
+    # Use the exact model path provided, don't modify it
+    print(f"Setting active model: {active_model.name}, path={active_model.path}")
     
     with open(ACTIVE_MODEL_PATH, "w") as f:
         json.dump({
             "name": active_model.name,
-            "path": model_filename
+            "path": active_model.path
         }, f, indent=2)
     return {"message": f"Model {active_model.name} set as active"}
 
@@ -136,7 +143,9 @@ async def get_active_model():
         return None
     
     with open(ACTIVE_MODEL_PATH, "r") as f:
-        return ActiveModel(**json.load(f))
+        active_model = ActiveModel(**json.load(f))
+        print(f"Retrieved active model: {active_model.name}, path={active_model.path}")
+        return active_model
 
 @router.get("/file-url")
 async def get_model_file_url(path: str):
