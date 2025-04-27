@@ -1,6 +1,7 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
+
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, WebSocket
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, validator, field_validator, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 import numpy as np
 import cv2
 import json
@@ -642,6 +643,7 @@ async def detect_objects(inference_request: InferenceRequest):
                 )
         else:
             session = model_sessions[model_path]
+            input_name = session.get_inputs()[0].name
         
         # Decode base64 image
         try:
@@ -790,3 +792,41 @@ async def websocket_endpoint(websocket: WebSocket):
                     else:
                         session = model_sessions[model_path]
                         input_name = session.get_inputs()[0].name
+                        
+                    # Run inference
+                    try:
+                        start_time = time.time()
+                        outputs = session.run(None, {input_name: img_batch})
+                        inference_time = time.time() - start_time
+                        
+                        # Process outputs
+                        detections = process_yolo_output(outputs, img_width, img_height, conf_threshold=threshold)
+                        
+                        # Format response
+                        response = {
+                            "detections": [detection.dict() for detection in detections],
+                            "inferenceTime": inference_time * 1000,  # Convert to milliseconds
+                            "processedAt": "edge"
+                        }
+                        
+                        await websocket.send_text(json.dumps(response))
+                        
+                    except Exception as e:
+                        print(f"Inference error: {str(e)}")
+                        # Send error message
+                        await websocket.send_text(json.dumps({
+                            "error": f"Inference failed: {str(e)}",
+                            "detections": []
+                        }))
+                        
+                except Exception as e:
+                    print(f"WebSocket image processing error: {str(e)}")
+                    await websocket.send_text(json.dumps({
+                        "error": f"Image processing failed: {str(e)}",
+                        "detections": []
+                    }))
+                    
+    except Exception as e:
+        print(f"WebSocket error: {str(e)}")
+        # WebSocket closed or other error
+
