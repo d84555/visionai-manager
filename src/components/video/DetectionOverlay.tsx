@@ -14,7 +14,6 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
   useEffect(() => {
     if (detections?.length > 0) {
       console.log(`DetectionOverlay received ${detections.length} detections`);
-      console.log('Sample detection:', detections[0]);
       
       // Limit number of detections to prevent performance issues
       // Sort by confidence before limiting
@@ -38,7 +37,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
   return (
     <>
       {visibleDetections.map((detection, index) => {
-        // Check if detection has explicit x,y,width,height or bbox
+        // Handle both formats - either explicit x,y,width,height or bbox array
         if (detection.x !== undefined && detection.y !== undefined && 
             detection.width !== undefined && detection.height !== undefined) {
           // Apply scaling factor for minimal view if needed
@@ -128,6 +127,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           );
         }
         
+        // Log invalid detection format
         console.warn("Invalid detection format received:", detection);
         return null;
       })}

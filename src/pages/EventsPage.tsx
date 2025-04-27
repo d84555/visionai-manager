@@ -2,26 +2,46 @@
 import React, { useState, useEffect } from 'react';
 import EventLogging from '@/components/events/EventLogging';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowUpRight, Box, Camera, Clock } from 'lucide-react';
+import { ArrowUpRight, Box, Camera, Clock, List } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 const EventsPage = () => {
   const [detectionStats, setDetectionStats] = useState({
     lastDetectionCount: 0,
     totalDetections: 0,
     lastDetectionTime: null,
-    activeModel: null
+    activeModel: null,
+    detectedClasses: {} as Record<string, number>,
+    lastDetectedClasses: [] as string[]
   });
 
   // Listen for detection events
   useEffect(() => {
     const handleDetectionEvent = (event) => {
       if (event.detail && Array.isArray(event.detail.detections)) {
+        // Get class counts from the detections
+        const detectedClasses = { ...detectionStats.detectedClasses };
+        const lastDetectedClasses: string[] = [];
+        
+        event.detail.detections.forEach(detection => {
+          const className = detection.label || detection.class || 'Unknown';
+          if (className) {
+            lastDetectedClasses.push(className);
+            detectedClasses[className] = (detectedClasses[className] || 0) + 1;
+          }
+        });
+        
+        // Update stats with the new detection information
         setDetectionStats(prev => ({
           lastDetectionCount: event.detail.detections.length,
           totalDetections: prev.totalDetections + event.detail.detections.length,
           lastDetectionTime: new Date(),
-          activeModel: event.detail.modelName || prev.activeModel
+          activeModel: event.detail.modelName || prev.activeModel,
+          detectedClasses,
+          lastDetectedClasses: lastDetectedClasses.slice(0, 5) // Limit to top 5 classes
         }));
+        
+        console.log(`Event received with ${event.detail.detections.length} detections from model ${event.detail.modelName}`);
       }
     };
 
@@ -31,7 +51,7 @@ const EventsPage = () => {
     return () => {
       window.removeEventListener('ai-detection', handleDetectionEvent);
     };
-  }, []);
+  }, [detectionStats.detectedClasses]);
 
   return (
     <div className="space-y-6">
@@ -99,6 +119,26 @@ const EventsPage = () => {
           </CardContent>
         </Card>
       </div>
+      
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Recent Detections</CardTitle>
+          <List className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            {detectionStats.lastDetectedClasses.length > 0 ? (
+              detectionStats.lastDetectedClasses.map((className, index) => (
+                <Badge key={`${className}-${index}`} variant="outline" className="bg-avianet-red text-white">
+                  {className}
+                </Badge>
+              ))
+            ) : (
+              <span className="text-sm text-muted-foreground">No recent detections</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
       
       <EventLogging />
     </div>
