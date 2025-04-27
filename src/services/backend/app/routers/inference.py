@@ -162,12 +162,37 @@ def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
             print("NMS: Using Ultralytics NMS with PyTorch")
             if isinstance(predictions, np.ndarray):
                 print(f"Converting predictions from NumPy array (shape: {predictions.shape}) to PyTorch tensor")
+                
+                # Check if we need to transpose - common YOLO output format is (classes+5, anchors)
+                # but NMS expects (anchors, classes+5)
+                if len(predictions.shape) == 2:
+                    if predictions.shape[0] < predictions.shape[1]:
+                        # No need to transpose
+                        pass
+                    else:
+                        # Need to transpose from (84, 8400) → (8400, 84)
+                        print(f"Transposing predictions from shape {predictions.shape}")
+                        predictions = np.transpose(predictions, (1, 0))
+                        print(f"After transpose: shape {predictions.shape}")
+                
+                # Convert to PyTorch tensor
                 predictions = torch.from_numpy(predictions).to('cpu')
             
             # Ensure tensor is on CPU
             if hasattr(predictions, 'device') and predictions.device.type != 'cpu':
                 predictions = predictions.to('cpu')
-                
+            
+            # Check if tensor needs transposing (PyTorch)
+            if predictions.dim() == 2:
+                if predictions.shape[0] < predictions.shape[1]:
+                    # No need to transpose
+                    pass
+                else:
+                    # Need to transpose from (84, 8400) → (8400, 84)
+                    print(f"Transposing tensor from shape {predictions.shape}")
+                    predictions = predictions.permute(1, 0)
+                    print(f"After transpose: shape {predictions.shape}")
+                    
             print(f"Running Ultralytics NMS on tensor of shape: {predictions.shape}")
             # Use built-in NMS from ultralytics
             nms_results = non_max_suppression(predictions, conf_threshold, iou_threshold)
@@ -756,94 +781,3 @@ async def detect_objects(inference_request: InferenceRequest):
                 )
                 
         except Exception as e:
-            print(f"Image processing error: {str(e)}")
-            raise HTTPException(status_code=400, detail=f"Invalid image data: {str(e)}")
-        
-    except Exception as e:
-        print(f"Inference error: {str(e)}")
-        # Return a valid response with an empty detections list instead of raising an exception
-        return InferenceResult(
-            detections=[],  # Empty list instead of None
-            inferenceTime=0,
-            processedAt="server",
-            timestamp=datetime.now().isoformat()
-        )
-
-@router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for streaming inference results"""
-    await websocket.accept()
-    try:
-        while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-            
-            # Check if the message contains image data
-            if 'imageData' in message and 'modelPath' in message:
-                image_data = message['imageData']
-                model_path = message['modelPath']
-                threshold = message.get('threshold', 0.5)  # Default threshold
-                
-                # Decode base64 image
-                try:
-                    image = base64_to_image(image_data.split(',')[1])
-                    img_width, img_height = image.size
-                    
-                    # Preprocess the image
-                    img_batch = preprocess_image(image)
-                    
-                    # Load model (or use cached session)
-                    if model_path not in model_sessions:
-                        providers = []
-                        if "CUDAExecutionProvider" in get_available_providers():
-                            providers.append("CUDAExecutionProvider")
-                        providers.append("CPUExecutionProvider")
-                        
-                        try:
-                            session = ort.InferenceSession(model_path, providers=providers)
-                            model_sessions[model_path] = session
-                            input_name = session.get_inputs()[0].name
-                        except Exception as e:
-                            print(f"Error loading ONNX model: {str(e)}")
-                            await websocket.send_text(json.dumps({"error": "Failed to load model"}))
-                            continue
-                    else:
-                        session = model_sessions[model_path]
-                        input_name = session.get_inputs()[0].name
-                        
-                    # Run inference
-                    try:
-                        start_time = time.time()
-                        outputs = session.run(None, {input_name: img_batch})
-                        inference_time = time.time() - start_time
-                        
-                        # Process outputs
-                        detections = process_yolo_output(outputs, img_width, img_height, conf_threshold=threshold)
-                        
-                        # Format response
-                        response = {
-                            "detections": [detection.dict() for detection in detections],
-                            "inferenceTime": inference_time * 1000,  # Convert to milliseconds
-                            "processedAt": "edge"
-                        }
-                        
-                        await websocket.send_text(json.dumps(response))
-                        
-                    except Exception as e:
-                        print(f"Inference error: {str(e)}")
-                        # Send error message
-                        await websocket.send_text(json.dumps({
-                            "error": f"Inference failed: {str(e)}",
-                            "detections": []
-                        }))
-                        
-                except Exception as e:
-                    print(f"WebSocket image processing error: {str(e)}")
-                    await websocket.send_text(json.dumps({
-                        "error": f"Image processing failed: {str(e)}",
-                        "detections": []
-                    }))
-                    
-    except Exception as e:
-        print(f"WebSocket error: {str(e)}")
-        # WebSocket closed or other error
