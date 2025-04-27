@@ -48,6 +48,9 @@ async def upload_model(file: UploadFile = File(...), name: str = Form(...)):
         # Default to ONNX if no extension
         file_name = f"{file_name}.onnx"
     
+    # Log file info for debugging
+    print(f"Uploading file: {file_name}, extension: {original_extension}")
+    
     # Ensure unique filename to prevent overwriting
     base_name = os.path.splitext(file_name)[0]
     extension = os.path.splitext(file_name)[1]
@@ -70,11 +73,14 @@ async def upload_model(file: UploadFile = File(...), name: str = Form(...)):
     
     print(f"Uploaded model: {file_name}, Is ONNX: {is_onnx}")
     
-    # Create model info - store the filename with extension for consistent path handling
+    # Create a path that includes the directory and filename
+    relative_path = os.path.join("/custom_models", file_name)
+    
+    # Create model info - store the full path with extension
     model_info = ModelInfo(
         id=model_id,
         name=name,
-        path=file_name,  # Store just the filename with extension
+        path=relative_path,  # Store full path with extension
         type="Object Detection",
         size=f"{file_size:.1f} MB",
         uploadedAt=datetime.now().isoformat(),

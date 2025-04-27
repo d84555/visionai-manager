@@ -25,13 +25,24 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     const loadModels = async () => {
       setIsLoading(true);
       try {
-        const storageService = StorageServiceFactory.getService();
-        const customModels = await storageService.listModels();
+        // Temporarily switch to simulated storage if API fails
+        let storageService = StorageServiceFactory.getService();
+        let customModels;
         
+        try {
+          customModels = await storageService.listModels();
+        } catch (error) {
+          console.warn('API storage failed, falling back to simulated storage');
+          StorageServiceFactory.setMode('simulated');
+          storageService = StorageServiceFactory.getService();
+          customModels = await storageService.listModels();
+        }
+        
+        // Make sure to preserve the exact file extensions from the model paths
         const formattedCustomModels = customModels.map(model => ({
           id: model.id,
           name: model.name,
-          path: model.path,
+          path: model.path, // Keep original path with extension
         }));
         
         console.log('Loaded models:', formattedCustomModels);

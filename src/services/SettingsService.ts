@@ -77,58 +77,58 @@ interface LocalStorageConfig {
   enabled: boolean;
 }
 
-const SettingsService = {
+class SettingsServiceClass {
   // Local storage configuration
-  localStorageConfig: {
+  localStorageConfig: LocalStorageConfig = {
     basePath: '/opt/visionai/',  // Changed from /var/lib/visionai/ to /opt/visionai/
     modelsPath: '/opt/visionai/models/',  // Changed path
     settingsPath: '/opt/visionai/settings/',  // Changed path
     enabled: true // Whether local storage is enabled
-  } as LocalStorageConfig,
+  } as LocalStorageConfig;
   
   // Initialize local storage paths
-  initLocalStorage: () => {
+  initLocalStorage = () => {
     try {
       // IMPORTANT NOTE: Browser Security Sandbox
       // In a web browser environment, we cannot directly access the file system
       // This would require server-side code (Node.js) or Electron for filesystem access
-      console.log("Local storage initialized with base path:", SettingsService.localStorageConfig.basePath);
+      console.log("Local storage initialized with base path:", this.localStorageConfig.basePath);
       console.log("NOTE: In browser environment, this is simulated storage only.");
       
       // Store the config in localStorage for simulated persistence
-      localStorage.setItem('local-storage-config', JSON.stringify(SettingsService.localStorageConfig));
+      localStorage.setItem('local-storage-config', JSON.stringify(this.localStorageConfig));
       
       return true;
     } catch (error) {
       console.error("Failed to initialize local storage:", error);
       return false;
     }
-  },
+  };
   
   // Update local storage configuration
-  updateLocalStorageConfig: (config: Partial<LocalStorageConfig>) => {
-    SettingsService.localStorageConfig = {
-      ...SettingsService.localStorageConfig,
+  updateLocalStorageConfig = (config: Partial<LocalStorageConfig>) => {
+    this.localStorageConfig = {
+      ...this.localStorageConfig,
       ...config
     };
     
-    localStorage.setItem('local-storage-config', JSON.stringify(SettingsService.localStorageConfig));
-    console.log("Updated local storage configuration:", SettingsService.localStorageConfig);
+    localStorage.setItem('local-storage-config', JSON.stringify(this.localStorageConfig));
+    console.log("Updated local storage configuration:", this.localStorageConfig);
     
-    return SettingsService.localStorageConfig;
-  },
+    return this.localStorageConfig;
+  };
   
   // Get local storage configuration
-  getLocalStorageConfig: (): LocalStorageConfig => {
+  getLocalStorageConfig = (): LocalStorageConfig => {
     const storedConfig = localStorage.getItem('local-storage-config');
     if (storedConfig) {
       return JSON.parse(storedConfig);
     }
-    return SettingsService.localStorageConfig;
-  },
+    return this.localStorageConfig;
+  };
 
   // Get active AI model - now returns the model directly instead of a promise
-  getActiveModel: () => {
+  getActiveModel = () => {
     const storageService = StorageServiceFactory.getService();
     try {
       // Get from localStorage first for synchronous access
@@ -141,10 +141,10 @@ const SettingsService = {
       console.error("Error getting active model:", e);
       return null;
     }
-  },
+  };
   
   // Set active AI model - now returns void instead of a promise
-  setActiveModel: (name: string, path: string) => {
+  setActiveModel = (name: string, path: string) => {
     const storageService = StorageServiceFactory.getService();
     // Store in localStorage for synchronous access
     localStorage.setItem('active-ai-model', JSON.stringify({ name, path }));
@@ -153,16 +153,16 @@ const SettingsService = {
       console.error("Error setting active model:", e);
     });
     return { name, path };
-  },
+  };
   
   // Upload a custom YOLO model
-  uploadCustomModel: (file: File, name: string): Promise<ModelInfo> => {
+  uploadCustomModel = (file: File, name: string): Promise<ModelInfo> => {
     const storageService = StorageServiceFactory.getService();
     return storageService.uploadModel(file, name);
-  },
+  };
   
   // Get list of custom models - now returns array directly instead of promise
-  getCustomModels: (): ModelInfo[] => {
+  getCustomModels = (): ModelInfo[] => {
     try {
       const storedModels = localStorage.getItem('custom-ai-models');
       return storedModels ? JSON.parse(storedModels) : [];
@@ -170,21 +170,21 @@ const SettingsService = {
       console.error("Error getting custom models:", e);
       return [];
     }
-  },
+  };
   
   // Save grid layout settings
-  saveGridLayout: (settings: { layout: '1x1' | '2x2' | '3x3' | '4x4'; streamType: 'main' | 'sub' }) => {
+  saveGridLayout = (settings: { layout: '1x1' | '2x2' | '3x3' | '4x4'; streamType: 'main' | 'sub' }) => {
     localStorage.setItem('grid-layout', JSON.stringify(settings));
     
     // Also save to simulated local file system
-    if (SettingsService.localStorageConfig.enabled) {
-      console.log(`Saving grid layout to ${SettingsService.localStorageConfig.settingsPath}grid-layout.json`);
+    if (this.localStorageConfig.enabled) {
+      console.log(`Saving grid layout to ${this.localStorageConfig.settingsPath}grid-layout.json`);
       localStorage.setItem('fs-grid-layout', JSON.stringify(settings));
     }
-  },
+  };
   
   // Get grid layout settings
-  getGridLayout: () => {
+  getGridLayout = () => {
     // Try to load from filesystem simulation first
     const fsLayout = localStorage.getItem('fs-grid-layout');
     if (fsLayout) {
@@ -197,10 +197,10 @@ const SettingsService = {
       return JSON.parse(savedLayout);
     }
     return null;
-  },
+  };
   
   // Get settings for a specific category
-  getSettings: (category: string) => {
+  getSettings = (category: string) => {
     // Try to load from filesystem simulation first
     const fsSettings = localStorage.getItem(`fs-settings-${category}`);
     if (fsSettings) {
@@ -208,12 +208,12 @@ const SettingsService = {
     }
     
     // Fall back to normal settings
-    const settings = SettingsService.getAllSettings();
+    const settings = this.getAllSettings();
     return settings[category] || {};
-  },
+  };
   
   // Get all settings
-  getAllSettings: () => {
+  getAllSettings = () => {
     // Try to load from filesystem simulation first
     const fsAllSettings = localStorage.getItem('fs-all-settings');
     if (fsAllSettings) {
@@ -223,40 +223,40 @@ const SettingsService = {
     // Fall back to normal localStorage
     const storedSettings = localStorage.getItem('avianet-settings');
     return storedSettings ? JSON.parse(storedSettings) : {};
-  },
+  };
   
   // Save settings for a specific category
-  saveSettings: (category: string, data: any) => {
-    const settings = SettingsService.getAllSettings();
+  saveSettings = (category: string, data: any) => {
+    const settings = this.getAllSettings();
     settings[category] = { ...settings[category], ...data };
     localStorage.setItem('avianet-settings', JSON.stringify(settings));
     
     // Also save to simulated local file system
-    if (SettingsService.localStorageConfig.enabled) {
-      console.log(`Saving ${category} settings to ${SettingsService.localStorageConfig.settingsPath}${category}.json`);
+    if (this.localStorageConfig.enabled) {
+      console.log(`Saving ${category} settings to ${this.localStorageConfig.settingsPath}${category}.json`);
       localStorage.setItem(`fs-settings-${category}`, JSON.stringify(settings[category]));
       localStorage.setItem('fs-all-settings', JSON.stringify(settings));
     }
-  },
+  };
   
   // Update settings for a specific category (alias for saveSettings for clarity)
-  updateSettings: (category: string, data: any) => {
-    SettingsService.saveSettings(category, data);
-  },
+  updateSettings = (category: string, data: any) => {
+    this.saveSettings(category, data);
+  };
   
   // Save all settings at once
-  saveAllSettings: (allSettings: Record<string, any>) => {
+  saveAllSettings = (allSettings: Record<string, any>) => {
     localStorage.setItem('avianet-settings', JSON.stringify(allSettings));
     
     // Also save to simulated local file system
-    if (SettingsService.localStorageConfig.enabled) {
-      console.log(`Saving all settings to ${SettingsService.localStorageConfig.settingsPath}all-settings.json`);
+    if (this.localStorageConfig.enabled) {
+      console.log(`Saving all settings to ${this.localStorageConfig.settingsPath}all-settings.json`);
       localStorage.setItem('fs-all-settings', JSON.stringify(allSettings));
     }
-  },
+  };
   
   // Get the Blob URL for a model file (if available)
-  getModelFileUrl: (modelPath: string) => {
+  getModelFileUrl = (modelPath: string) => {
     // First try direct mapping (new approach)
     const directUrl = localStorage.getItem(`model-url-${modelPath}`);
     if (directUrl) {
@@ -284,15 +284,21 @@ const SettingsService = {
     
     console.warn(`No URL found for model path: ${modelPath}`);
     return null;
-  },
+  };
 
   // Add a helper method to create a test model for debugging
-  createTestModel: (name: string, path: string) => {
+  createTestModel = (name: string, path: string) => {
     const modelId = `test-${Date.now()}`;
+    
+    // Ensure the path ends with .onnx extension for proper format detection
+    const fixedPath = path.toLowerCase().endsWith('.onnx') ? 
+      path : 
+      path.replace(/\.[^/.]+$/, '.onnx');
+    
     const modelInfo = {
       id: modelId,
       name: name,
-      path: path,
+      path: fixedPath,
       type: 'Object Detection',
       size: '5.2 MB',
       uploadedAt: new Date().toISOString(),
@@ -312,17 +318,20 @@ const SettingsService = {
     }));
     
     // Create direct mapping
-    localStorage.setItem(`model-url-${path}`, fileURL);
+    localStorage.setItem(`model-url-${fixedPath}`, fileURL);
     
     // Add to custom models list
-    const customModels = SettingsService.getCustomModels();
+    const customModels = this.getCustomModels();
     customModels.push(modelInfo);
     localStorage.setItem('custom-ai-models', JSON.stringify(customModels));
     
-    console.log(`Created test model ${name} with path ${path} and URL ${fileURL}`);
+    console.log(`Created test model ${name} with path ${fixedPath} and URL ${fileURL}`);
     return modelInfo;
   }
-};
+}
+
+// Initialize the service
+const SettingsService = new SettingsServiceClass();
 
 // Initialize local storage on module load
 SettingsService.initLocalStorage();
