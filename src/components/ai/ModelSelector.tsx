@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import {
   Card,
@@ -43,39 +42,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   }, []);
   
   const loadModels = async () => {
-    const defaultModels = [
-      { 
-        id: 'yolov11-n', 
-        name: 'YOLOv11 Nano', 
-        path: '/models/yolov11-n.onnx',
-        description: 'Smallest model, fastest inference, lowest accuracy'
-      },
-      { 
-        id: 'yolov11-s', 
-        name: 'YOLOv11 Small', 
-        path: '/models/yolov11-s.onnx',
-        description: 'Small model, good balance of speed and accuracy'
-      },
-      { 
-        id: 'yolov11', 
-        name: 'YOLOv11 Base', 
-        path: '/models/yolov11.onnx', 
-        description: 'Standard model, balanced performance'
-      },
-      { 
-        id: 'yolov11-m', 
-        name: 'YOLOv11 Medium', 
-        path: '/models/yolov11-m.onnx',
-        description: 'Medium model, higher accuracy, slower inference'
-      },
-      { 
-        id: 'yolov11-l', 
-        name: 'YOLOv11 Large', 
-        path: '/models/yolov11-l.onnx',
-        description: 'Largest model, highest accuracy, slowest inference'
-      }
-    ];
-    
     try {
       const storageService = StorageServiceFactory.getService();
       const customModels = await storageService.listModels();
@@ -84,14 +50,14 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
         id: model.id,
         name: model.name,
         path: model.path,
-        description: `Custom uploaded model (${model.size || 'unknown size'})`
+        description: `Custom model (${model.size || 'unknown size'})`
       }));
       
-      setAvailableModels([...defaultModels, ...formattedCustomModels]);
+      setAvailableModels(formattedCustomModels);
     } catch (error) {
       console.error('Failed to load custom models:', error);
-      setAvailableModels(defaultModels);
-      toast.error('Failed to load custom models from the Edge Computing node');
+      setAvailableModels([]);
+      toast.error('Failed to load models from the Edge Computing node');
     }
   };
   
@@ -194,7 +160,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
       setModelFile(null);
       setModelType('object-detection');
       
-      // Reload the models list to include the newly uploaded model
       loadModels();
     } catch (error) {
       console.error('Error uploading model:', error);
@@ -221,10 +186,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
         description: `${modelToDelete.name} has been successfully removed from the Edge Computing node.`
       });
       
-      // Reload models to update the list
       loadModels();
       
-      // If the active model was deleted, reset it
       if (activeModel && availableModels.find(m => m.id === modelId)?.path === activeModel.path) {
         setActiveModel(undefined);
       }
@@ -244,33 +207,33 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
       <TabsContent value="select">
         <Card className="border-none shadow-none pt-0">
           <CardContent className="p-0 pt-6">
-            <RadioGroup
-              value={selectedModel}
-              onValueChange={handleModelChange}
-              className="space-y-2"
-            >
-              {availableModels.map((model) => (
-                <div 
-                  key={model.id} 
-                  className={`flex items-center space-x-2 border p-3 rounded-lg transition-colors ${
-                    activeModel?.path === model.path ? 'border-avianet-red bg-avianet-red/5' : ''
-                  }`}
-                >
-                  <RadioGroupItem value={model.id} id={`model-${model.id}`} />
-                  <div className="grid gap-1.5 flex-1">
-                    <Label htmlFor={`model-${model.id}`} className="font-medium">
-                      {model.name}
-                      {activeModel?.path === model.path && (
-                        <span className="ml-2 inline-flex items-center text-xs font-medium text-green-600">
-                          <Check className="w-3 h-3 mr-1" /> Active
-                        </span>
-                      )}
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      {model.description}
-                    </p>
-                  </div>
-                  {model.id.startsWith('custom-') && (
+            {availableModels.length > 0 ? (
+              <RadioGroup
+                value={selectedModel}
+                onValueChange={handleModelChange}
+                className="space-y-2"
+              >
+                {availableModels.map((model) => (
+                  <div 
+                    key={model.id} 
+                    className={`flex items-center space-x-2 border p-3 rounded-lg transition-colors ${
+                      activeModel?.path === model.path ? 'border-avianet-red bg-avianet-red/5' : ''
+                    }`}
+                  >
+                    <RadioGroupItem value={model.id} id={`model-${model.id}`} />
+                    <div className="grid gap-1.5 flex-1">
+                      <Label htmlFor={`model-${model.id}`} className="font-medium">
+                        {model.name}
+                        {activeModel?.path === model.path && (
+                          <span className="ml-2 inline-flex items-center text-xs font-medium text-green-600">
+                            <Check className="w-3 h-3 mr-1" /> Active
+                          </span>
+                        )}
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        {model.description}
+                      </p>
+                    </div>
                     <Button 
                       variant="ghost" 
                       size="sm" 
@@ -279,10 +242,20 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
                     >
                       Delete
                     </Button>
-                  )}
+                  </div>
+                ))}
+              </RadioGroup>
+            ) : (
+              <div className="text-center py-8">
+                <div className="flex flex-col items-center justify-center space-y-2">
+                  <Layers className="w-12 h-12 text-muted-foreground/50" />
+                  <h3 className="font-medium text-lg">No Models Available</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Please upload an AI model to get started with object detection
+                  </p>
                 </div>
-              ))}
-            </RadioGroup>
+              </div>
+            )}
             
             <div className="flex items-center space-x-2 mt-6">
               <input
