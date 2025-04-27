@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, validator, field_validator, model_validator
@@ -98,7 +97,33 @@ def get_available_providers():
         # Return simulated providers if ONNX is not available
         return ["SimulatedCPU"]
 
-# ... keep existing code (image preprocessing functions)
+def base64_to_image(base64_str):
+    """Convert base64 string to PIL Image"""
+    image_data = base64.b64decode(base64_str)
+    image = Image.open(BytesIO(image_data))
+    return image
+
+def preprocess_image(image, target_size=(640, 640)):
+    """Preprocess image to fit model input requirements"""
+    # Resize the image
+    resized_image = image.resize(target_size)
+    
+    # Convert to RGB
+    rgb_image = resized_image.convert("RGB")
+    
+    # Convert to numpy array
+    img_np = np.array(rgb_image)
+    
+    # Normalize the image
+    img_normalized = img_np.astype(np.float32) / 255.0
+    
+    # Transpose the image to NCHW format
+    img_transposed = img_normalized.transpose((2, 0, 1))
+    
+    # Add batch dimension
+    img_batch = np.expand_dims(img_transposed, axis=0)
+    
+    return img_batch
 
 def is_onnx_model(model_path):
     """Check if the model is in ONNX format"""
@@ -131,6 +156,7 @@ def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
             # Basic NMS implementation
             final_boxes = []
             # Sort by confidence
+            print("NMS: Starting custom NMS implementation")
             conf_sort_index = np.argsort(-predictions[:, 4])
             predictions = predictions[conf_sort_index]
             
@@ -140,7 +166,10 @@ def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
             
             # If no predictions after filtering, return empty list
             if len(predictions) == 0:
+                print("NMS: No predictions above confidence threshold")
                 return []
+            
+            print(f"NMS: Processing {len(predictions)} predictions after confidence filtering")
                 
             # Simple loop-based NMS (not efficient but functional)
             selected_indices = []
@@ -177,12 +206,17 @@ def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
                     )
                     
                     if iou > iou_threshold:
-                        selected_indices.remove(j)
+                        # If j is already in selected_indices, remove it
+                        if j in selected_indices:
+                            selected_indices.remove(j)
             
+            print(f"NMS: Selected {len(selected_indices)} boxes after NMS")
             return predictions[selected_indices]
             
     except Exception as e:
         print(f"Error in NMS: {str(e)}")
+        import traceback
+        traceback.print_exc()
         # Return original predictions if NMS fails
         return predictions
 
@@ -208,7 +242,9 @@ def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
             # Newer YOLO models already apply sigmoid internally
             # Check max values to determine if sigmoid already applied
             first_row_sample = predictions[0, 0, 4:] if predictions.ndim > 2 else predictions[0, 4:]
-            if np.max(first_row_sample) > 1.0:
+            max_value = np.max(first_row_sample) if first_row_sample.size > 0 else 0
+            
+            if max_value > 1.0:
                 print("Applying sigmoid to confidence values")
                 # Apply sigmoid only to confidence scores and class probabilities
                 if predictions.ndim > 2:  # 3D tensor
@@ -290,7 +326,7 @@ def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
                             x1 = max(0, float(x_center - width/2) / img_width)
                             y1 = max(0, float(y_center - height/2) / img_height)
                             x2 = min(1, float(x_center + width/2) / img_width)
-                            y2 = min(1, float(y_center + height/2) / img_height)
+                            y2 = min(1, float(y_center + width/2) / img_height)
                             
                             # Get class label
                             label = YOLO_CLASSES[class_id] if class_id < len(YOLO_CLASSES) else f"class_{class_id}"
@@ -300,7 +336,7 @@ def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
                                 confidence=float(confidence),
                                 bbox=[x1, y1, x2, y2]
                             ))
-            
+        
         elif len(outputs) == 3 or len(outputs) == 4:
             # Multiple output format (boxes, scores, classes, [masks])
             print(f"Multiple output tensors detected: {len(outputs)}")
@@ -479,7 +515,16 @@ def simulate_detection():
 @router.get("/devices", response_model=List[DeviceInfo])
 async def list_devices():
     """List available inference devices"""
-    # ... keep existing code (device listing function)
+    devices = [
+        DeviceInfo(id="cpu", name="CPU", type="cpu", status="available"),
+    ]
+    
+    if "CUDAExecutionProvider" in get_available_providers():
+        devices.append(DeviceInfo(id="gpu", name="CUDA GPU", type="gpu", status="available"))
+    else:
+        devices.append(DeviceInfo(id="gpu", name="CUDA GPU", type="gpu", status="unavailable"))
+    
+    return devices
 
 @router.post("/detect", response_model=InferenceResult)
 async def detect_objects(inference_request: InferenceRequest):
@@ -704,4 +749,44 @@ async def detect_objects(inference_request: InferenceRequest):
             timestamp=datetime.now().isoformat()
         )
 
-# ... keep existing code (stream processing endpoints and utility functions)
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for streaming inference results"""
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            
+            # Check if the message contains image data
+            if 'imageData' in message and 'modelPath' in message:
+                image_data = message['imageData']
+                model_path = message['modelPath']
+                threshold = message.get('threshold', 0.5)  # Default threshold
+                
+                # Decode base64 image
+                try:
+                    image = base64_to_image(image_data.split(',')[1])
+                    img_width, img_height = image.size
+                    
+                    # Preprocess the image
+                    img_batch = preprocess_image(image)
+                    
+                    # Load model (or use cached session)
+                    if model_path not in model_sessions:
+                        providers = []
+                        if "CUDAExecutionProvider" in get_available_providers():
+                            providers.append("CUDAExecutionProvider")
+                        providers.append("CPUExecutionProvider")
+                        
+                        try:
+                            session = ort.InferenceSession(model_path, providers=providers)
+                            model_sessions[model_path] = session
+                            input_name = session.get_inputs()[0].name
+                        except Exception as e:
+                            print(f"Error loading ONNX model: {str(e)}")
+                            await websocket.send_text(json.dumps({"error": "Failed to load model"}))
+                            continue
+                    else:
+                        session = model_sessions[model_path]
+                        input_name = session.get_inputs()[0].name
