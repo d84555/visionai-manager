@@ -1,7 +1,7 @@
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, validator, root_validator
+from pydantic import BaseModel, validator, field_validator, model_validator
 import numpy as np
 import cv2
 import json
@@ -35,7 +35,7 @@ class Detection(BaseModel):
     bbox: List[float]  # [x1, y1, x2, y2] normalized coordinates
     
     # Validate that bbox is properly formatted
-    @validator('bbox')
+    @field_validator('bbox')
     def validate_bbox(cls, v):
         if len(v) != 4:
             raise ValueError('Bounding box must contain exactly 4 values: [x1, y1, x2, y2]')
@@ -53,11 +53,11 @@ class InferenceResult(BaseModel):
     timestamp: str = ""
     
     # Ensure detections is always a list
-    @root_validator
-    def ensure_detections_list(cls, values):
-        if values.get('detections') is None:
-            values['detections'] = []
-        return values
+    @model_validator(mode='after')
+    def ensure_detections_list(self) -> 'InferenceResult':
+        if self.detections is None:
+            self.detections = []
+        return self
 
 class DeviceInfo(BaseModel):
     id: str
@@ -378,3 +378,4 @@ async def detect_objects(inference_request: InferenceRequest):
         )
 
 # ... keep existing code (stream processing endpoints and utility functions)
+
