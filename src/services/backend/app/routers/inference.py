@@ -74,6 +74,15 @@ YOLO_CLASSES = [
     "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
 ]
 
+# Add the missing function to get available providers
+def get_available_providers():
+    """Get available ONNX Runtime providers"""
+    if ONNX_AVAILABLE:
+        return ort.get_available_providers()
+    else:
+        # Return simulated providers if ONNX is not available
+        return ["SimulatedCPU"]
+
 def preprocess_image(image: Image.Image, target_size=(640, 640)):
     """Preprocess image for YOLO model inference"""
     # Resize with padding to maintain aspect ratio
