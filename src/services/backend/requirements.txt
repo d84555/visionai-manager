@@ -9,3 +9,4 @@ onnxruntime-gpu>=1.14.0; platform_system!="Darwin"
 pillow>=9.5.0
 torch>=2.0.0
 ultralytics>=8.0.0
+opencv-python>=4.7.0
