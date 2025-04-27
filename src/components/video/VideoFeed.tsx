@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Camera, VideoIcon, Loader, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +12,8 @@ import { DetectionOverlay } from './DetectionOverlay';
 import { ModelSelector } from './ModelSelector';
 import { DemoVideoButtons } from './DemoVideoButtons';
 import SettingsService from '@/services/SettingsService';
+import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
+import { toast } from 'sonner';
 
 interface VideoFeedProps {
   initialVideoUrl?: string;
@@ -44,6 +46,35 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   const [selectedModel, setSelectedModel] = useState<{name: string; path: string} | null>(null);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
 
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const storageService = StorageServiceFactory.getService();
+        const customModels = await storageService.listModels();
+        
+        const formattedCustomModels = customModels.map(model => ({
+          id: model.id,
+          name: model.name,
+          path: model.path
+        }));
+        
+        setAvailableModels(formattedCustomModels);
+        
+        const savedModel = SettingsService.getActiveModel();
+        if (savedModel) {
+          setSelectedModel(savedModel);
+        } else if (activeModel) {
+          setSelectedModel(activeModel);
+        }
+      } catch (error) {
+        console.error('Failed to load models:', error);
+        toast.error('Failed to load models from the Edge Computing node');
+      }
+    };
+    
+    loadModels();
+  }, [activeModel]);
+
   const {
     videoUrl,
     setVideoUrl,
@@ -75,31 +106,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     activeModel: selectedModel || activeModel,
     streamType
   });
-
-  React.useEffect(() => {
-    const modelsList = [
-      { id: 'yolov11-n', name: 'YOLOv11 Nano', path: '/models/yolov11-n.onnx' },
-      { id: 'yolov11-s', name: 'YOLOv11 Small', path: '/models/yolov11-s.onnx' },
-      { id: 'yolov11', name: 'YOLOv11 Base', path: '/models/yolov11.onnx' },
-      { id: 'yolov11-m', name: 'YOLOv11 Medium', path: '/models/yolov11-m.onnx' },
-      { id: 'yolov11-l', name: 'YOLOv11 Large', path: '/models/yolov11-l.onnx' }
-    ];
-    
-    const customModels = SettingsService.getCustomModels().map(model => ({
-      id: model.id,
-      name: model.name,
-      path: model.path
-    }));
-    
-    setAvailableModels([...modelsList, ...customModels]);
-    
-    const savedModel = SettingsService.getActiveModel();
-    if (savedModel) {
-      setSelectedModel(savedModel);
-    } else if (activeModel) {
-      setSelectedModel(activeModel);
-    }
-  }, [activeModel]);
 
   const handleModelChange = (modelId: string) => {
     if (modelId === "none") {
