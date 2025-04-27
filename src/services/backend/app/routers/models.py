@@ -40,7 +40,13 @@ async def upload_model(file: UploadFile = File(...), name: str = Form(...)):
     file_name = file.filename
     if not file_name:
         file_name = f"{name.lower().replace(' ', '_')}.onnx"
-        
+    
+    # Ensure we preserve the original file extension
+    original_extension = os.path.splitext(file_name)[1].lower()
+    if not original_extension:
+        # Default to ONNX if no extension
+        file_name = f"{file_name}.onnx"
+    
     model_path = os.path.join(MODELS_DIR, file_name)
     
     # Save uploaded file

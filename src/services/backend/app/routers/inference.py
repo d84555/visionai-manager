@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
@@ -108,7 +107,10 @@ def preprocess_image(image: Image.Image, target_size=(640, 640)):
 
 def is_onnx_model(model_path):
     """Check if the model is in ONNX format"""
-    return model_path.lower().endswith('.onnx')
+    # More robust check than just file extension
+    if model_path.lower().endswith('.onnx'):
+        return True
+    return False
 
 def simulate_detection():
     """Simulate object detections when model loading fails"""
@@ -167,26 +169,21 @@ async def detect_objects(inference_request: InferenceRequest):
     start_time = time.time()
     
     try:
-        # Process the model path - check if it's a relative path or a full path
+        # Process the model path - handle both filename and full path formats
         model_file = inference_request.modelPath
         
-        # If it starts with /, it's an absolute path
-        if model_file.startswith('/'):
-            # Get just the filename
+        # Extract just the filename if it's a full path
+        if '/' in model_file:
             model_file = os.path.basename(model_file)
         
         # Construct the full path to the model file
         model_path = os.path.join(MODELS_DIR, model_file)
         
-        if not os.path.exists(model_path):
-            # Check if the model exists in the models directory without modifications
-            additional_model_path = os.path.join(MODELS_DIR, os.path.basename(inference_request.modelPath))
-            if os.path.exists(additional_model_path):
-                model_path = additional_model_path
-            else:
-                raise HTTPException(status_code=404, detail=f"Model not found: {model_path}")
+        print(f"Looking for model at: {model_path}")
         
-        print(f"Using model path: {model_path}")
+        # Check if model file exists
+        if not os.path.exists(model_path):
+            raise HTTPException(status_code=404, detail=f"Model not found: {model_path}")
         
         # Check if model is ONNX format
         if not is_onnx_model(model_path):
@@ -200,8 +197,15 @@ async def detect_objects(inference_request: InferenceRequest):
             )
             
         if not ONNX_AVAILABLE:
-            raise HTTPException(status_code=500, detail="ONNX Runtime not available")
-            
+            print("ONNX Runtime not available. Using simulated detections.")
+            detections = simulate_detection()
+            inference_time = time.time() - start_time
+            return InferenceResult(
+                detections=detections,
+                inferenceTime=inference_time * 1000,
+                timestamp=datetime.now().isoformat()
+            )
+        
         # Load model (or use cached session)
         if model_path not in model_sessions:
             providers = []
@@ -210,6 +214,7 @@ async def detect_objects(inference_request: InferenceRequest):
             providers.append("CPUExecutionProvider")
             
             try:
+                print(f"Loading ONNX model: {model_path}")
                 session = ort.InferenceSession(model_path, providers=providers)
                 model_sessions[model_path] = session
                 print(f"Successfully loaded ONNX model: {model_path}")

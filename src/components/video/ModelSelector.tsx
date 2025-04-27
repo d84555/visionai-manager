@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useEffect, useState } from 'react';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 
 interface ModelSelectorProps {
   selectedModel: { name: string; path: string } | null;
@@ -66,6 +67,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             displayModels.map(model => (
               <SelectItem key={model.id} value={model.id}>
                 {model.name}
+                {!model.path.toLowerCase().endsWith('.onnx') && (
+                  <Badge variant="outline" className="ml-2 bg-yellow-100 text-yellow-800 text-xs">
+                    Non-ONNX
+                  </Badge>
+                )}
               </SelectItem>
             ))
           ) : (
@@ -76,7 +82,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       <p className="text-xs text-muted-foreground">
         {isLoading ? 'Loading available models...' : 
           displayModels.length > 0 ? 
-            'Select an AI model to use for object detection on this video feed' : 
+            'Select an AI model to use for object detection on this video feed. ONNX models (.onnx) recommended.' : 
             'No models available. Please upload a model in Settings > AI Models.'}
       </p>
     </div>

@@ -56,9 +56,10 @@ class EdgeAIInferenceService {
         console.warn(`Model ${request.modelPath} is not an ONNX model. The backend will fallback to simulation.`);
       }
       
-      // Fix the model path handling - use the basename only for API call
-      // The backend expects model files to be in its model directory
-      const modelPath = request.modelPath;
+      // Extract just the filename from the path to ensure consistent handling
+      const modelPath = request.modelPath.split('/').pop() || request.modelPath;
+      
+      console.log(`Using model filename: ${modelPath}`);
       
       const response = await fetch(`${this.apiBaseUrl}/inference/detect`, {
         method: 'POST',
