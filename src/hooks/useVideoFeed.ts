@@ -113,59 +113,74 @@ export const useVideoFeed = ({
             // Create a unique ID for React
             const uniqueId = `${index}-${Date.now()}`;
             
-            // Process bbox data based on format received
-            let processedBbox: number[] = [];
-            let processedLabel = detection.label || detection.class || 'Object';
+            // Get detection properties with proper defaults
+            const processedDetection: Detection = {
+              id: uniqueId,
+              label: detection.label || detection.class || 'Object',
+              class: detection.class || detection.label || 'Object',
+              confidence: detection.confidence || 0
+            };
             
-            // Check if we have bbox array format [x1, y1, x2, y2] (normalized 0-1)
+            // Handle YOLO-style center+dimensions format (keep as is)
+            if (detection.x !== undefined && detection.y !== undefined && 
+                detection.width !== undefined && detection.height !== undefined) {
+              processedDetection.x = detection.x;
+              processedDetection.y = detection.y;
+              processedDetection.width = detection.width;
+              processedDetection.height = detection.height;
+              
+              // For debugging - log raw values
+              console.log(`Detection ${index}: YOLO format - center:(${detection.x.toFixed(3)},${detection.y.toFixed(3)}), dims:(${detection.width.toFixed(3)}x${detection.height.toFixed(3)})`);
+            }
+            
+            // Process bbox coordinates if available [x1, y1, x2, y2]
             if (Array.isArray(detection.bbox) && detection.bbox.length === 4) {
-              processedBbox = [...detection.bbox];
+              processedDetection.bbox = [...detection.bbox];
               
               // Ensure all values are valid numbers
-              processedBbox = processedBbox.map(val => 
+              processedDetection.bbox = processedDetection.bbox.map(val => 
                 isNaN(val) ? 0 : val
               );
               
               // Ensure coordinates are properly ordered (x1 < x2, y1 < y2)
-              if (processedBbox[2] < processedBbox[0]) {
-                [processedBbox[0], processedBbox[2]] = [processedBbox[2], processedBbox[0]];
+              if (processedDetection.bbox[2] < processedDetection.bbox[0]) {
+                [processedDetection.bbox[0], processedDetection.bbox[2]] = 
+                  [processedDetection.bbox[2], processedDetection.bbox[0]];
               }
-              if (processedBbox[3] < processedBbox[1]) {
-                [processedBbox[1], processedBbox[3]] = [processedBbox[3], processedBbox[1]];
+              if (processedDetection.bbox[3] < processedDetection.bbox[1]) {
+                [processedDetection.bbox[1], processedDetection.bbox[3]] = 
+                  [processedDetection.bbox[3], processedDetection.bbox[1]];
               }
               
-              console.log(`Detection ${index}: Using bbox [${processedBbox.join(', ')}]`);
-            }
-            // Check if we have x,y,width,height format
-            else if (detection.x !== undefined && detection.y !== undefined && 
-                    detection.width !== undefined && detection.height !== undefined) {
+              console.log(`Detection ${index}: Using bbox [${processedDetection.bbox.join(', ')}]`);
               
-              // Convert to normalized format [0-1]
-              const imgWidth = canvasRef.current?.width || 640;
-              const imgHeight = canvasRef.current?.height || 360;
+              // If we don't have center coordinates but have bbox, calculate center coords
+              if (processedDetection.x === undefined) {
+                const [x1, y1, x2, y2] = processedDetection.bbox;
+                processedDetection.x = (x1 + x2) / 2;
+                processedDetection.y = (y1 + y2) / 2;
+                processedDetection.width = x2 - x1;
+                processedDetection.height = y2 - y1;
+                
+                console.log(`Detection ${index}: Calculated center from bbox: (${processedDetection.x.toFixed(3)},${processedDetection.y.toFixed(3)}), dims:(${processedDetection.width.toFixed(3)}x${processedDetection.height.toFixed(3)})`);
+              }
+            } 
+            // If no valid bbox data but we have center coords, calculate bbox
+            else if (processedDetection.x !== undefined && processedDetection.bbox === undefined) {
+              const halfWidth = processedDetection.width! / 2;
+              const halfHeight = processedDetection.height! / 2;
               
-              const x1 = detection.x / imgWidth;
-              const y1 = detection.y / imgHeight;
-              const x2 = (detection.x + detection.width) / imgWidth;
-              const y2 = (detection.y + detection.height) / imgHeight;
+              processedDetection.bbox = [
+                processedDetection.x - halfWidth,    // x1
+                processedDetection.y - halfHeight,   // y1
+                processedDetection.x + halfWidth,    // x2
+                processedDetection.y + halfHeight    // y2
+              ];
               
-              processedBbox = [x1, y1, x2, y2];
-              console.log(`Detection ${index}: Converting x,y,w,h to bbox [${processedBbox.join(', ')}]`);
-            }
-            // If no valid bbox data, use default (full frame)
-            else {
-              processedBbox = [0, 0, 1, 1];
-              console.log(`Detection ${index}: No valid bbox, using default [${processedBbox.join(', ')}]`);
+              console.log(`Detection ${index}: Calculated bbox from center: [${processedDetection.bbox.join(', ')}]`);
             }
             
-            // Return normalized detection
-            return {
-              id: uniqueId,
-              label: processedLabel,
-              class: detection.class || detection.label || 'Object',
-              confidence: detection.confidence || 0,
-              bbox: processedBbox
-            };
+            return processedDetection;
           });
           
           // Filter out detections with very low confidence

@@ -1,4 +1,3 @@
-
 // EdgeAIInference.ts
 // This service handles communication with edge devices for AI inference
 
@@ -27,10 +26,10 @@ export interface BackendDetection {
   class?: string;   // Class property for detection type
   confidence: number;
   bbox?: number[];   // [x1, y1, x2, y2] normalized coordinates
-  x?: number;       // Absolute x position
-  y?: number;       // Absolute y position
-  width?: number;   // Width in pixels
-  height?: number;  // Height in pixels
+  x?: number;       // Center x position (YOLO format)
+  y?: number;       // Center y position (YOLO format)
+  width?: number;   // Width in pixels or normalized
+  height?: number;  // Height in pixels or normalized
 }
 
 // Frontend detection format (used by the UI components)
@@ -39,16 +38,16 @@ export interface Detection {
   class?: string;
   label?: string;
   confidence: number;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  bbox?: number[]; // [x1, y1, x2, y2] normalized coordinates
+  x?: number;        // Center x position (YOLO format)
+  y?: number;        // Center y position (YOLO format)
+  width?: number;    // Width in pixels or normalized
+  height?: number;   // Height in pixels or normalized
+  bbox?: number[];   // [x1, y1, x2, y2] coordinates
 }
 
 class EdgeAIInferenceService {
   private apiBaseUrl = 'http://localhost:8000/api';
-  private simulatedMode = false; // New flag to control simulation
+  private simulatedMode = false; // Flag to control simulation
 
   constructor() {
     console.log("Initializing Edge AI Inference service with API server backend");
@@ -102,45 +101,46 @@ class EdgeAIInferenceService {
         // Create simulated detections after a short delay
         await new Promise(resolve => setTimeout(resolve, 200));
         
-        // Generate timestamp to ensure unique detection IDs
-        const timestamp = Date.now();
-        
-        // Create test detections with the correct format for the expected model input and output sizes
-        // The detections now need scaling from 640x640 model space to video display space
+        // Create test detections with YOLO format (center_x, center_y, width, height)
+        // These are center-based coordinates as output by YOLO models
         return {
           detections: [
             {
               label: "person",
               class: "person",
               confidence: 0.92,
-              bbox: [0.1, 0.2, 0.3, 0.7], // Normalized coordinates in 0-1 range
-              // Adding absolute coordinates based on 640x640 model space
-              x: 64,  // 0.1 * 640
-              y: 128, // 0.2 * 640
-              width: 128, // 0.2 * 640
-              height: 320 // 0.5 * 640
+              // Provide both formats for testing
+              // center-based coordinates (YOLO standard output format)
+              x: 0.2,       // center_x (normalized 0-1)
+              y: 0.45,      // center_y (normalized 0-1)
+              width: 0.2,   // width (normalized 0-1)
+              height: 0.5,  // height (normalized 0-1)
+              // Also include bbox format for compatibility
+              bbox: [0.1, 0.2, 0.3, 0.7]  // [x1, y1, x2, y2] normalized
             },
             {
               label: "car",
               class: "car",
               confidence: 0.87,
-              bbox: [0.6, 0.5, 0.9, 0.7], // Normalized coordinates
-              // Adding absolute coordinates based on 640x640 model space
-              x: 384, // 0.6 * 640
-              y: 320, // 0.5 * 640
-              width: 192, // 0.3 * 640
-              height: 128 // 0.2 * 640
+              // YOLO format (center_x, center_y, width, height)
+              x: 0.75,      // center_x (normalized 0-1)
+              y: 0.6,       // center_y (normalized 0-1)
+              width: 0.3,   // width (normalized 0-1)
+              height: 0.2,  // height (normalized 0-1)
+              // Also include bbox format for compatibility
+              bbox: [0.6, 0.5, 0.9, 0.7]  // [x1, y1, x2, y2] normalized
             },
             {
               label: "small_test",
               class: "test",
               confidence: 0.65,
-              bbox: [0.05, 0.05, 0.10, 0.15], // Slightly larger for visibility
-              // Adding absolute coordinates based on 640x640 model space
-              x: 32, // 0.05 * 640
-              y: 32, // 0.05 * 640
-              width: 32, // 0.05 * 640
-              height: 64 // 0.1 * 640
+              // YOLO format with small values
+              x: 0.075,     // center_x (normalized 0-1)
+              y: 0.1,       // center_y (normalized 0-1)
+              width: 0.05,  // width (normalized 0-1)
+              height: 0.1,  // height (normalized 0-1)
+              // Also include bbox format for compatibility
+              bbox: [0.05, 0.05, 0.10, 0.15]  // [x1, y1, x2, y2] normalized
             }
           ],
           processedAt: 'server',
@@ -148,6 +148,7 @@ class EdgeAIInferenceService {
         };
       }
       
+      // Make real API request to backend
       const response = await fetch(`${this.apiBaseUrl}/inference/detect`, {
         method: 'POST',
         headers: {
@@ -211,10 +212,7 @@ class EdgeAIInferenceService {
         });
       }
       
-      // Apply model input scaling to backend detections (640x640 -> actual video size)
-      // This scaling happens on the frontend because we need to know the actual video dimensions
-      
-      // Validate each detection's format
+      // Validate and transform detections if needed
       if (result.detections.length > 0) {
         const validDetections = result.detections.filter(detection => {
           // Check if detection has valid format
@@ -242,8 +240,43 @@ class EdgeAIInferenceService {
           
           result.detections = validDetections;
         }
+        
+        // Transform YOLO format if needed (usually backend should handle this)
+        // If backend returns center+dimensions, convert to bbox format for standardization
+        result.detections = result.detections.map(det => {
+          // Skip if already in proper format
+          if (Array.isArray(det.bbox) && det.bbox.length === 4) {
+            return det;
+          }
+          
+          // Check for YOLO-style output (center_x, center_y, width, height)
+          if (det.x !== undefined && det.y !== undefined && 
+              det.width !== undefined && det.height !== undefined) {
+            
+            // These are center coordinates from YOLO, but we'll keep them as is
+            // The DetectionOverlay component will handle the conversion
+            console.log(`Detection with center format: (${det.x}, ${det.y}, ${det.width}, ${det.height})`);
+            
+            // Also add bbox format for compatibility
+            if (!det.bbox) {
+              // Convert center format to corners format [x1, y1, x2, y2]
+              // Assuming x,y,w,h are already normalized (0-1) values
+              const halfWidth = det.width / 2;
+              const halfHeight = det.height / 2;
+              det.bbox = [
+                det.x - halfWidth,    // x1
+                det.y - halfHeight,   // y1
+                det.x + halfWidth,    // x2
+                det.y + halfHeight    // y2
+              ];
+            }
+          }
+          
+          return det;
+        });
       }
       
+      // Return processed result
       return {
         detections: result.detections || [],  // Ensure we always have an array, even if empty
         processedAt: result.processedAt || 'edge',
@@ -258,28 +291,30 @@ class EdgeAIInferenceService {
       // Fallback to simulated mode when API fails
       this.setSimulatedMode(true);
       
-      // Return simulated detection results with more visible bboxes and absolute coordinates
+      // Return simulated detection results with YOLO format
       return {
         detections: [
           {
             label: "person",
             class: "person", 
             confidence: 0.92,
-            bbox: [0.1, 0.2, 0.3, 0.7],
-            x: 64,  // 0.1 * 640
-            y: 128, // 0.2 * 640
-            width: 128, // 0.2 * 640
-            height: 320 // 0.5 * 640
+            // YOLO format (center_x, center_y, width, height) with normalized values
+            x: 0.2,       // center_x (normalized 0-1)
+            y: 0.45,      // center_y (normalized 0-1)
+            width: 0.2,   // width (normalized 0-1)
+            height: 0.5,  // height (normalized 0-1)
+            bbox: [0.1, 0.2, 0.3, 0.7]  // [x1, y1, x2, y2] normalized
           },
           {
             label: "car",
             class: "car",
             confidence: 0.87,
-            bbox: [0.6, 0.5, 0.9, 0.7],
-            x: 384, // 0.6 * 640
-            y: 320, // 0.5 * 640
-            width: 192, // 0.3 * 640
-            height: 128 // 0.2 * 640
+            // YOLO format with normalized values
+            x: 0.75,      // center_x (normalized 0-1)
+            y: 0.6,       // center_y (normalized 0-1)
+            width: 0.3,   // width (normalized 0-1)
+            height: 0.2,  // height (normalized 0-1)
+            bbox: [0.6, 0.5, 0.9, 0.7]  // [x1, y1, x2, y2] normalized
           }
         ],
         processedAt: 'server',
