@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, WebSocket
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, field_validator, model_validator
@@ -557,7 +558,7 @@ def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
         traceback.print_exc()
         return []
 
-def convert_ultralytics_results_to_detections(results, conf_threshold=0.5):
+def convert_ultralytics_results_to_detections(results, img_width, img_height, conf_threshold=0.5):
     """Convert Ultralytics YOLO results to Detection objects"""
     detections = []
     
@@ -571,6 +572,21 @@ def convert_ultralytics_results_to_detections(results, conf_threshold=0.5):
         # Extract boxes, confidence scores and class predictions
         boxes = result.boxes
         print(f"Found {len(boxes)} boxes")
+        
+        # Get original image dimensions from the result
+        try:
+            # Try to extract original image dimensions from the result
+            orig_shape = result.orig_shape  # (height, width)
+            img_height, img_width = orig_shape
+            print(f"Found original image dimensions from result: {img_width}x{img_height}")
+        except AttributeError:
+            # If orig_shape is not available, use the passed dimensions or defaults
+            if img_width is None or img_height is None:
+                img_width = 640  # Default width
+                img_height = 480  # Default height
+                print(f"Using default dimensions: {img_width}x{img_height}")
+            else:
+                print(f"Using provided dimensions: {img_width}x{img_height}")
         
         # Process each detection
         for i, box in enumerate(boxes):
@@ -783,6 +799,8 @@ async def detect_objects(inference_request: InferenceRequest):
                     # Convert results to our detection format
                     detections = convert_ultralytics_results_to_detections(
                         results, 
+                        img_width=img_width,  # Now explicitly passing image dimensions
+                        img_height=img_height,
                         conf_threshold=inference_request.threshold
                     )
                     
@@ -892,6 +910,9 @@ async def detect_objects(inference_request: InferenceRequest):
                 
                 print(f"Using input dimensions: {input_width}x{input_height}")
                 
+                # Convert image to numpy array for OpenCV processing
+                img_np = np.array(image)
+                
                 # Resize and normalize
                 img_resized = cv2.resize(img_np, (input_width, input_height))
                 img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
@@ -983,3 +1004,4 @@ async def detect_objects(inference_request: InferenceRequest):
             inferenceTime=inference_time * 1000,
             timestamp=datetime.now().isoformat()
         )
+
