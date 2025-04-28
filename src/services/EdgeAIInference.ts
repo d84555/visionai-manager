@@ -94,27 +94,42 @@ class EdgeAIInferenceService {
         // Generate timestamp to ensure unique detection IDs
         const timestamp = Date.now();
         
-        // Create more realistic test detections with small normalized coordinates
-        // like the ones seen in console [0.000, 0.002, 0.030, 0.063]
+        // Create test detections with the correct format for the expected model input and output sizes
+        // The detections now need scaling from 640x640 model space to video display space
         return {
           detections: [
             {
               label: "person",
               class: "person",
               confidence: 0.92,
-              bbox: [0.05, 0.2, 0.15, 0.7] // More visible bbox values
+              bbox: [0.1, 0.2, 0.3, 0.7], // Normalized coordinates in 0-1 range
+              // Adding absolute coordinates based on 640x640 model space
+              x: 64,  // 0.1 * 640
+              y: 128, // 0.2 * 640
+              width: 128, // 0.2 * 640
+              height: 320 // 0.5 * 640
             },
             {
               label: "car",
               class: "car",
               confidence: 0.87,
-              bbox: [0.6, 0.5, 0.9, 0.7] // More visible bbox values
+              bbox: [0.6, 0.5, 0.9, 0.7], // Normalized coordinates
+              // Adding absolute coordinates based on 640x640 model space
+              x: 384, // 0.6 * 640
+              y: 320, // 0.5 * 640
+              width: 192, // 0.3 * 640
+              height: 128 // 0.2 * 640
             },
             {
               label: "small_test",
               class: "test",
               confidence: 0.65,
-              bbox: [0.000, 0.002, 0.030, 0.063] // The small values seen in console
+              bbox: [0.05, 0.05, 0.10, 0.15], // Slightly larger for visibility
+              // Adding absolute coordinates based on 640x640 model space
+              x: 32, // 0.05 * 640
+              y: 32, // 0.05 * 640
+              width: 32, // 0.05 * 640
+              height: 64 // 0.1 * 640
             }
           ],
           processedAt: 'server',
@@ -220,20 +235,28 @@ class EdgeAIInferenceService {
       // Fallback to simulated mode when API fails
       StorageServiceFactory.setMode('simulated');
       
-      // Return simulated detection results with more visible bboxes
+      // Return simulated detection results with more visible bboxes and absolute coordinates
       return {
         detections: [
           {
             label: "person",
             class: "person", 
             confidence: 0.92,
-            bbox: [0.05, 0.2, 0.15, 0.7]
+            bbox: [0.1, 0.2, 0.3, 0.7],
+            x: 64,  // 0.1 * 640
+            y: 128, // 0.2 * 640
+            width: 128, // 0.2 * 640
+            height: 320 // 0.5 * 640
           },
           {
             label: "car",
             class: "car",
             confidence: 0.87,
-            bbox: [0.6, 0.5, 0.9, 0.7]
+            bbox: [0.6, 0.5, 0.9, 0.7],
+            x: 384, // 0.6 * 640
+            y: 320, // 0.5 * 640
+            width: 192, // 0.3 * 640
+            height: 128 // 0.2 * 640
           }
         ],
         processedAt: 'server',

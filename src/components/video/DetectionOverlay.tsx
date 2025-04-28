@@ -53,6 +53,13 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
   
   console.log(`Video dimensions: ${videoWidth}x${videoHeight}, Display: ${displayWidth}x${displayHeight}`);
   
+  // Calculate scaling factors based on model input size (640x640) to actual video dimensions
+  const modelInputSize = 640;
+  const scaleX = videoWidth / modelInputSize;
+  const scaleY = videoHeight / modelInputSize;
+  
+  console.log(`Scaling factors: X=${scaleX.toFixed(2)}, Y=${scaleY.toFixed(2)}`);
+  
   return (
     <>
       {visibleDetections.map((detection, index) => {
@@ -74,20 +81,34 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           
           if (isNormalizedFormat) {
             // Convert normalized coordinates to pixel values
-            boxX = x1 * displayWidth;
-            boxY = y1 * displayHeight;
-            boxWidth = (x2 - x1) * displayWidth;
-            boxHeight = (y2 - y1) * displayHeight;
+            // Scale them with the model input to video dimensions scale factor
+            boxX = x1 * displayWidth * scaleX / videoWidth;
+            boxY = y1 * displayHeight * scaleY / videoHeight;
+            boxWidth = (x2 - x1) * displayWidth * scaleX / videoWidth;
+            boxHeight = (y2 - y1) * displayHeight * scaleY / videoHeight;
             
-            console.log(`Detection ${index}: Normalized coords [${x1.toFixed(3)}, ${y1.toFixed(3)}, ${x2.toFixed(3)}, ${y2.toFixed(3)}] → ${boxX.toFixed(1)}×${boxY.toFixed(1)} ${boxWidth.toFixed(1)}×${boxHeight.toFixed(1)}`);
+            // Apply scaling directly to the display coordinates
+            boxX = boxX * displayWidth;
+            boxY = boxY * displayHeight;
+            boxWidth = boxWidth * displayWidth;
+            boxHeight = boxHeight * displayHeight;
+            
+            console.log(`Detection ${index}: Normalized coords with scaling [${x1.toFixed(3)}, ${y1.toFixed(3)}, ${x2.toFixed(3)}, ${y2.toFixed(3)}] → ${boxX.toFixed(1)}×${boxY.toFixed(1)} ${boxWidth.toFixed(1)}×${boxHeight.toFixed(1)}`);
           } else {
             // Assume these are already pixel values
-            boxX = x1;
-            boxY = y1;
-            boxWidth = x2 - x1;
-            boxHeight = y2 - y1;
+            // Apply scaling factors for model input size to video dimensions
+            boxX = x1 * scaleX;
+            boxY = y1 * scaleY;
+            boxWidth = (x2 - x1) * scaleX;
+            boxHeight = (y2 - y1) * scaleY;
             
-            console.log(`Detection ${index}: Pixel coords [${x1.toFixed(1)}, ${y1.toFixed(1)}, ${x2.toFixed(1)}, ${y2.toFixed(1)}] → ${boxWidth.toFixed(1)}×${boxHeight.toFixed(1)}`);
+            // Convert to display coordinates
+            boxX = boxX * displayWidth / videoWidth;
+            boxY = boxY * displayHeight / videoHeight;
+            boxWidth = boxWidth * displayWidth / videoWidth;
+            boxHeight = boxHeight * displayHeight / videoHeight;
+            
+            console.log(`Detection ${index}: Pixel coords with scaling [${x1.toFixed(1)}, ${y1.toFixed(1)}, ${x2.toFixed(1)}, ${y2.toFixed(1)}] → ${boxWidth.toFixed(1)}×${boxHeight.toFixed(1)}`);
           }
           
           // Skip invalid or tiny bounding boxes
@@ -132,13 +153,19 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         else if (detection.x !== undefined && detection.y !== undefined && 
                 detection.width !== undefined && detection.height !== undefined) {
           
-          // Scale to video display size
-          const boxX = detection.x * displayWidth / videoWidth;
-          const boxY = detection.y * displayHeight / videoHeight;
-          const boxWidth = detection.width * displayWidth / videoWidth;
-          const boxHeight = detection.height * displayHeight / videoHeight;
+          // Apply scaling factors for model input to video dimensions
+          const scaledX = detection.x * scaleX;
+          const scaledY = detection.y * scaleY;
+          const scaledWidth = detection.width * scaleX;
+          const scaledHeight = detection.height * scaleY;
           
-          console.log(`Detection ${index} (x,y,w,h): ${detection.x}×${detection.y} ${detection.width}×${detection.height} → ${boxX.toFixed(1)}×${boxY.toFixed(1)} ${boxWidth.toFixed(1)}×${boxHeight.toFixed(1)}`);
+          // Scale to video display size
+          const boxX = scaledX * displayWidth / videoWidth;
+          const boxY = scaledY * displayHeight / videoHeight;
+          const boxWidth = scaledWidth * displayWidth / videoWidth;
+          const boxHeight = scaledHeight * displayHeight / videoHeight;
+          
+          console.log(`Detection ${index} (x,y,w,h) with scaling: ${detection.x}×${detection.y} ${detection.width}×${detection.height} → ${boxX.toFixed(1)}×${boxY.toFixed(1)} ${boxWidth.toFixed(1)}×${boxHeight.toFixed(1)}`);
           
           // Apply minimum size for very small detections
           let finalWidth = boxWidth;
