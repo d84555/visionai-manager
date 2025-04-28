@@ -15,9 +15,31 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
     if (detections?.length > 0) {
       console.log(`DetectionOverlay received ${detections.length} detections`);
       
-      // Log first few detections to debug bbox format
-      const sampleDetections = detections.slice(0, 3);
-      console.log("Sample detections:", sampleDetections);
+      // Enhanced logging for the first detection to understand its format
+      if (detections[0]) {
+        const firstDet = detections[0];
+        console.log("%c Detection Format Analysis:", "background: #27ae60; color: white; padding: 5px;");
+        
+        // Check coordinate format type
+        const hasCenter = firstDet.x !== undefined && firstDet.y !== undefined;
+        const hasBbox = Array.isArray(firstDet.bbox) && firstDet.bbox.length === 4;
+        
+        console.log(`Detection contains: ${hasCenter ? 'Center coordinates (x,y,w,h)' : ''} ${hasBbox ? 'Bbox coordinates [x1,y1,x2,y2]' : ''}`);
+        
+        if (hasCenter) {
+          console.log(`Center format values: x=${firstDet.x}, y=${firstDet.y}, w=${firstDet.width}, h=${firstDet.height}`);
+          // Determine if normalized or absolute
+          const isNormalized = firstDet.x >= 0 && firstDet.x <= 1 && firstDet.y >= 0 && firstDet.y <= 1;
+          console.log(`Center coordinates appear to be: ${isNormalized ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
+        }
+        
+        if (hasBbox) {
+          console.log(`Bbox values: [${firstDet.bbox.join(', ')}]`);
+          // Determine if normalized or absolute
+          const allInRange = firstDet.bbox.every(val => val >= 0 && val <= 1);
+          console.log(`Bbox coordinates appear to be: ${allInRange ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
+        }
+      }
       
       // Sort by confidence before limiting
       const sortedDetections = [...detections].sort((a, b) => 
@@ -224,3 +246,4 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
     </>
   );
 };
+

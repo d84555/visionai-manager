@@ -1,3 +1,4 @@
+
 // EdgeAIInference.ts
 // This service handles communication with edge devices for AI inference
 
@@ -196,10 +197,52 @@ class EdgeAIInferenceService {
       const result = await response.json();
       console.log("API detections received:", result.detections?.length || 0);
       
-      // Log a sample detection if available
+      // *** ADDED: Enhanced detection debugging ***
       if (result.detections && result.detections.length > 0) {
-        console.log("Sample detection:", result.detections[0]);
+        console.log("%c DETAILED DETECTION ANALYSIS", "background: #3498db; color: white; padding: 5px; font-size: 16px;");
+        
+        // Log the first detection in detail to understand its structure
+        const firstDetection = result.detections[0];
+        console.log("%c Example detection received from backend:", "font-weight: bold; color: #2c3e50;");
+        console.log(JSON.stringify(firstDetection, null, 2));
+        
+        // Analyze coordinate range to determine if normalized or absolute
+        const coordSummary = {
+          hasXY: firstDetection.x !== undefined && firstDetection.y !== undefined,
+          hasBbox: Array.isArray(firstDetection.bbox) && firstDetection.bbox.length === 4,
+          xyValues: firstDetection.x !== undefined ? `x: ${firstDetection.x}, y: ${firstDetection.y}` : 'N/A',
+          bboxValues: Array.isArray(firstDetection.bbox) ? `[${firstDetection.bbox.join(', ')}]` : 'N/A',
+          isNormalized: false
+        };
+        
+        // Determine if coordinates appear to be normalized (0-1) or absolute
+        if (coordSummary.hasXY) {
+          coordSummary.isNormalized = 
+            firstDetection.x >= 0 && firstDetection.x <= 1 && 
+            firstDetection.y >= 0 && firstDetection.y <= 1 &&
+            firstDetection.width >= 0 && firstDetection.width <= 1 &&
+            firstDetection.height >= 0 && firstDetection.height <= 1;
+        } else if (coordSummary.hasBbox) {
+          const allInRange = firstDetection.bbox.every(val => val >= 0 && val <= 1);
+          coordSummary.isNormalized = allInRange;
+        }
+        
+        console.log("%c Coordinate Analysis:", "font-weight: bold; color: #2c3e50;");
+        console.log(`- Format: ${coordSummary.hasXY ? 'Center format (x,y,w,h)' : (coordSummary.hasBbox ? 'Bounding box [x1,y1,x2,y2]' : 'Unknown')}`);
+        console.log(`- Values: ${coordSummary.hasXY ? coordSummary.xyValues : coordSummary.bboxValues}`);
+        console.log(`- Range: ${coordSummary.isNormalized ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
+        console.log(`- Recommendation: ${coordSummary.isNormalized ? 'Multiply by image dimensions' : 'Use directly'}`);
+        
+        // Display stats for all detections
+        const confidences = result.detections.map(d => d.confidence || 0);
+        const avgConfidence = confidences.reduce((sum, val) => sum + val, 0) / confidences.length;
+        console.log("%c Detection Statistics:", "font-weight: bold; color: #2c3e50;");
+        console.log(`- Total detections: ${result.detections.length}`);
+        console.log(`- Average confidence: ${avgConfidence.toFixed(3)}`);
+        console.log(`- Highest confidence: ${Math.max(...confidences).toFixed(3)}`);
+        console.log(`- Lowest confidence: ${Math.min(...confidences).toFixed(3)}`);
       }
+      // *** END ENHANCED DEBUGGING ***
       
       // Handle case where detections field is null or missing
       if (!result.detections || !Array.isArray(result.detections)) {
@@ -417,3 +460,4 @@ class EdgeAIInferenceService {
 // Singleton instance
 const EdgeAIInference = new EdgeAIInferenceService();
 export default EdgeAIInference;
+
