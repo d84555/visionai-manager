@@ -258,7 +258,6 @@ def log_output_shapes(outputs):
 
 def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
     """Apply Non-Maximum Suppression to filter overlapping detections"""
-    # ... keep existing code
     try:
         if ULTRALYTICS_AVAILABLE and TORCH_AVAILABLE:
             # Convert NumPy array to PyTorch tensor if needed
@@ -430,7 +429,7 @@ def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
                             x1 = max(0, float(x_center - width/2) / img_width)
                             y1 = max(0, float(y_center - height/2) / img_height)
                             x2 = min(1, float(x_center + width/2) / img_width)
-                            y2 = min(1, float(y_center + height/2) / img_width)
+                            y2 = min(1, float(y_center + height/2) / img_height)
                             
                             # Get class label
                             label = YOLO_CLASSES[class_id] if class_id < len(YOLO_CLASSES) else f"class_{class_id}"
@@ -682,15 +681,18 @@ async def detect_objects(inference_request: InferenceRequest):
                     # Load PyTorch YOLO model using Ultralytics
                     print(f"Loading PyTorch model: {model_path}")
                     
-                    # Determine device (CUDA if available, otherwise CPU)
-                    device = "0" if CUDA_AVAILABLE else "cpu"  # Ultralytics uses "0" for first GPU
+                    # FIX: Use task parameter instead of device - this was causing the error
+                    model = YOLO(model_path)
                     
-                    # Load the model with appropriate device
-                    model = YOLO(model_path, device=device)
+                    # Move model to the correct device after loading
+                    if CUDA_AVAILABLE:
+                        model.to("cuda")
+                    else:
+                        model.to("cpu")
                     
                     # Store original model
                     pytorch_models[model_path] = model
-                    print(f"Successfully loaded PyTorch model: {model_path} on {device}")
+                    print(f"Successfully loaded PyTorch model: {model_path}")
                     
                     # Optimize the model
                     print(f"Optimizing newly loaded model: {model_path}")
