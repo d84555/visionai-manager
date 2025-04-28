@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import {
   Card,
@@ -9,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Upload, Info } from 'lucide-react';
+import { Upload, Info, AlertCircle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -101,7 +102,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     
     if (model) {
       const isOnnxFormat = model.path.toLowerCase().endsWith('.onnx');
-      if (!isOnnxFormat) {
+      const isPytorchFormat = model.path.toLowerCase().endsWith('.pt') || model.path.toLowerCase().endsWith('.pth');
+      
+      if (isPytorchFormat) {
+        toast.info(`Using PyTorch model: ${model.name}`, {
+          description: "PyTorch model support is in beta. For best performance, consider converting to ONNX format."
+        });
+      } else if (!isOnnxFormat) {
         toast.warning(`Model format warning: ${model.name}`, {
           description: "For optimal performance, models should be in ONNX format. Non-ONNX models will use simulation mode."
         });
@@ -232,6 +239,37 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     }
   };
   
+  // Function to check model format
+  const isOnnxFormat = (path: string): boolean => {
+    return path.toLowerCase().endsWith('.onnx');
+  };
+  
+  const isPytorchFormat = (path: string): boolean => {
+    return path.toLowerCase().endsWith('.pt') || path.toLowerCase().endsWith('.pth');
+  };
+  
+  // Get model format details
+  const getModelFormatDetails = (path: string) => {
+    if (isOnnxFormat(path)) {
+      return {
+        badge: <Badge variant="outline" className="ml-2 bg-green-100 text-green-800 text-xs">ONNX</Badge>,
+        icon: null,
+        class: 'border-green-500 bg-green-50/20'
+      };
+    } else if (isPytorchFormat(path)) {
+      return {
+        badge: <Badge variant="outline" className="ml-2 bg-amber-100 text-amber-800 text-xs">PyTorch (Beta)</Badge>,
+        icon: <AlertCircle className="w-4 h-4 ml-1 text-amber-600" />,
+        class: 'border-amber-400 bg-amber-50/20'
+      };
+    }
+    return {
+      badge: <Badge variant="outline" className="ml-2 bg-gray-100 text-gray-800 text-xs">Unknown</Badge>,
+      icon: null,
+      class: ''
+    };
+  };
+  
   return (
     <Tabs defaultValue="select" className="w-full">
       <TabsList className="grid w-full grid-cols-2">
@@ -248,42 +286,43 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
                 onValueChange={handleModelChange}
                 className="space-y-2"
               >
-                {availableModels.map((model) => (
-                  <div 
-                    key={model.id} 
-                    className={`flex items-center space-x-2 border p-3 rounded-lg transition-colors ${
-                      activeModel?.path === model.path ? 'border-avianet-red bg-avianet-red/5' : ''
-                    }`}
-                  >
-                    <RadioGroupItem value={model.id} id={`model-${model.id}`} />
-                    <div className="grid gap-1.5 flex-1">
-                      <Label htmlFor={`model-${model.id}`} className="font-medium">
-                        {model.name}
-                        {activeModel?.path === model.path && (
-                          <span className="ml-2 inline-flex items-center text-xs font-medium text-green-600">
-                            <Check className="w-3 h-3 mr-1" /> Active
-                          </span>
-                        )}
-                        {!model.path.toLowerCase().endsWith('.onnx') && (
-                          <Badge variant="outline" className="ml-2 bg-yellow-100 text-yellow-800 text-xs">
-                            Non-ONNX
-                          </Badge>
-                        )}
-                      </Label>
-                      <p className="text-sm text-muted-foreground">
-                        {model.description}
-                      </p>
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                      onClick={() => handleDeleteModel(model.id)}
+                {availableModels.map((model) => {
+                  const formatDetails = getModelFormatDetails(model.path);
+                  return (
+                    <div 
+                      key={model.id} 
+                      className={`flex items-center space-x-2 border p-3 rounded-lg transition-colors ${
+                        activeModel?.path === model.path ? 'border-avianet-red bg-avianet-red/5' : 
+                        formatDetails.class
+                      }`}
                     >
-                      Delete
-                    </Button>
-                  </div>
-                ))}
+                      <RadioGroupItem value={model.id} id={`model-${model.id}`} />
+                      <div className="grid gap-1.5 flex-1">
+                        <Label htmlFor={`model-${model.id}`} className="font-medium flex items-center">
+                          {model.name}
+                          {activeModel?.path === model.path && (
+                            <span className="ml-2 inline-flex items-center text-xs font-medium text-green-600">
+                              <Check className="w-3 h-3 mr-1" /> Active
+                            </span>
+                          )}
+                          {formatDetails.badge}
+                          {formatDetails.icon}
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          {model.description}
+                        </p>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        onClick={() => handleDeleteModel(model.id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  );
+                })}
               </RadioGroup>
             ) : (
               <div className="text-center py-8">
@@ -348,10 +387,14 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
                   onChange={handleFileChange}
                   disabled={isUploading}
                 />
-                <p className="text-xs text-muted-foreground">
-                  <strong className="text-green-600">Recommended:</strong> .onnx (ONNX format)<br />
-                  <strong className="text-yellow-600">Beta support:</strong> .pt, .pth (PyTorch format)
-                </p>
+                <div className="flex flex-col space-y-1">
+                  <p className="text-xs text-green-700 flex items-center">
+                    <Check className="inline w-3 h-3 mr-1" /> <strong>Recommended:</strong> .onnx (ONNX format)
+                  </p>
+                  <p className="text-xs text-amber-700 flex items-center">
+                    <AlertCircle className="inline w-3 h-3 mr-1" /> <strong>Beta support:</strong> .pt, .pth (PyTorch format)
+                  </p>
+                </div>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -387,12 +430,31 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
                 </div>
               </div>
               
-              <div className="bg-yellow-50 p-4 rounded-md border border-yellow-100">
-                <p className="text-sm text-yellow-800">
-                  <strong>Important:</strong> For GPU acceleration and best performance, please use ONNX format models.
-                  PyTorch (.pt/.pth) support is currently in beta and may have limited functionality.
-                </p>
-              </div>
+              {modelFile && modelFile.name.toLowerCase().endsWith('.pt') && (
+                <div className="bg-amber-50 p-4 rounded-md border border-amber-200">
+                  <h4 className="text-sm font-semibold text-amber-800 flex items-center mb-1">
+                    <AlertCircle className="w-4 h-4 mr-1" /> 
+                    PyTorch Model Format (Beta Support)
+                  </h4>
+                  <p className="text-sm text-amber-800">
+                    PyTorch (.pt/.pth) support is currently in beta and may have limited functionality.
+                    For GPU acceleration and best performance, we recommend converting to ONNX format.
+                  </p>
+                </div>
+              )}
+              
+              {modelFile && modelFile.name.toLowerCase().endsWith('.onnx') && (
+                <div className="bg-green-50 p-4 rounded-md border border-green-200">
+                  <h4 className="text-sm font-semibold text-green-800 flex items-center mb-1">
+                    <Check className="w-4 h-4 mr-1" /> 
+                    ONNX Model Format (Recommended)
+                  </h4>
+                  <p className="text-sm text-green-800">
+                    ONNX format provides optimal performance and GPU acceleration capabilities.
+                    This is the recommended format for all AI models in the platform.
+                  </p>
+                </div>
+              )}
             </div>
           </CardContent>
           <CardFooter className="flex justify-end p-0 pt-6">

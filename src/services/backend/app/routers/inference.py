@@ -25,10 +25,11 @@ try:
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
-    print("WARNING: PyTorch not available. NMS will use fallback implementation.")
+    print("WARNING: PyTorch not available. PyTorch models will not be supported.")
 
 # Import YOLOv8 preprocessing utils
 try:
+    from ultralytics import YOLO
     from ultralytics.utils.ops import scale_boxes
     from ultralytics.utils.ops import non_max_suppression
     ULTRALYTICS_AVAILABLE = True
@@ -76,8 +77,9 @@ class DeviceInfo(BaseModel):
 # Initialize router
 router = APIRouter(prefix="/inference", tags=["inference"])
 
-# Cache for ONNX sessions to improve performance
+# Cache for ONNX sessions and PyTorch models to improve performance
 model_sessions = {}
+pytorch_models = {}
 
 # Configure inference settings
 MODELS_DIR = os.environ.get("MODELS_DIR", "/opt/visionai/models")
@@ -137,6 +139,11 @@ def is_onnx_model(model_path):
     """Check if the model is in ONNX format"""
     # Check file extension - more reliable method
     return model_path.lower().endswith('.onnx')
+
+def is_pytorch_model(model_path):
+    """Check if the model is in PyTorch format"""
+    # Check file extension
+    return model_path.lower().endswith('.pt') or model_path.lower().endswith('.pth')
 
 def log_output_shapes(outputs):
     """Log shapes and types of model outputs for debugging"""
@@ -380,7 +387,7 @@ def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
                             x1 = max(0, float(x_center - width/2) / img_width)
                             y1 = max(0, float(y_center - height/2) / img_height)
                             x2 = min(1, float(x_center + width/2) / img_width)
-                            y2 = min(1, float(y_center + width/2) / img_height)
+                            y2 = min(1, float(y_center + width/2) / img_width)
                             
                             # Get class label
                             label = YOLO_CLASSES[class_id] if class_id < len(YOLO_CLASSES) else f"class_{class_id}"
@@ -550,6 +557,59 @@ def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
         traceback.print_exc()
         return []
 
+def convert_ultralytics_results_to_detections(results, conf_threshold=0.5):
+    """Convert Ultralytics YOLO results to Detection objects"""
+    detections = []
+    
+    print(f"Processing ultralytics results: {len(results)}")
+    
+    if len(results) > 0:
+        # Get the first result (batch)
+        result = results[0]  # Get first batch
+        print(f"Result keys: {dir(result)}")
+        
+        # Extract boxes, confidence scores and class predictions
+        boxes = result.boxes
+        print(f"Found {len(boxes)} boxes")
+        
+        # Process each detection
+        for i, box in enumerate(boxes):
+            # Get box coordinates (already in x1,y1,x2,y2 format)
+            xyxy = box.xyxy[0].cpu().numpy()  # Convert to numpy array
+            x1, y1, x2, y2 = xyxy
+            
+            # Get confidence and class
+            conf = float(box.conf[0])
+            cls = int(box.cls[0])
+            
+            # Skip if below confidence threshold
+            if conf < conf_threshold:
+                continue
+                
+            # Normalize coordinates
+            x1_norm = float(x1 / img_width)
+            y1_norm = float(y1 / img_height)
+            x2_norm = float(x2 / img_width)
+            y2_norm = float(y2 / img_height)
+            
+            # Get class label
+            label = result.names.get(cls, f"class_{cls}")
+            
+            # Create detection object
+            detection = Detection(
+                label=label,
+                confidence=conf,
+                bbox=[x1_norm, y1_norm, x2_norm, y2_norm]
+            )
+            
+            detections.append(detection)
+            
+            # Log first few detections for debugging
+            if i < 3:
+                print(f"Detection {i}: {label} ({conf:.2f}) at [{x1_norm:.2f}, {y1_norm:.2f}, {x2_norm:.2f}, {y2_norm:.2f}]")
+    
+    return detections
+
 def simulate_detection():
     """Simulate object detections when model loading fails"""
     # Always return a list for detections
@@ -578,11 +638,21 @@ async def list_devices():
     else:
         devices.append(DeviceInfo(id="gpu", name="CUDA GPU", type="gpu", status="unavailable"))
     
+    # Add PyTorch device status
+    if TORCH_AVAILABLE:
+        torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+        devices.append(DeviceInfo(
+            id=f"pytorch_{torch_device}", 
+            name=f"PyTorch {torch_device.upper()}", 
+            type=torch_device, 
+            status="available"
+        ))
+    
     return devices
 
 @router.post("/detect", response_model=InferenceResult)
 async def detect_objects(inference_request: InferenceRequest):
-    """Detect objects in an image using ONNX model"""
+    """Detect objects in an image using ONNX or PyTorch model"""
     start_time = time.time()
     
     try:
@@ -641,52 +711,16 @@ async def detect_objects(inference_request: InferenceRequest):
         
         print(f"Using model at path: {model_path}")
         
-        # Check if model is ONNX format based on file extension
-        if not is_onnx_model(model_path):
-            print(f"Non-ONNX model format detected: {model_path}. Using simulated detections.")
-            detections = simulate_detection()
-            inference_time = time.time() - start_time
-            return InferenceResult(
-                detections=detections,
-                inferenceTime=inference_time * 1000,
-                timestamp=datetime.now().isoformat()
-            )
-            
-        if not ONNX_AVAILABLE:
-            print("ONNX Runtime not available. Using simulated detections.")
-            detections = simulate_detection()
-            inference_time = time.time() - start_time
-            return InferenceResult(
-                detections=detections,
-                inferenceTime=inference_time * 1000,
-                timestamp=datetime.now().isoformat()
-            )
+        # Determine model type based on file extension
+        is_onnx = is_onnx_model(model_path)
+        is_pytorch = is_pytorch_model(model_path)
         
-        # Load model (or use cached session)
-        if model_path not in model_sessions:
-            providers = []
-            if "CUDAExecutionProvider" in get_available_providers():
-                providers.append("CUDAExecutionProvider")
-            providers.append("CPUExecutionProvider")
+        # Handle PyTorch models
+        if is_pytorch:
+            print("PyTorch model detected")
             
-            try:
-                print(f"Loading ONNX model: {model_path}")
-                session = ort.InferenceSession(model_path, providers=providers)
-                model_sessions[model_path] = session
-                print(f"Successfully loaded ONNX model: {model_path}")
-                print(f"Using providers: {providers}")
-                
-                # Get model metadata to determine format
-                input_name = session.get_inputs()[0].name
-                input_shape = session.get_inputs()[0].shape
-                output_names = [output.name for output in session.get_outputs()]
-                
-                print(f"Model input name: {input_name}, shape: {input_shape}")
-                print(f"Model output names: {output_names}")
-                
-            except Exception as e:
-                print(f"Error loading ONNX model: {str(e)}")
-                # If model loading failed, use simulated detections
+            if not TORCH_AVAILABLE or not ULTRALYTICS_AVAILABLE:
+                print("PyTorch or Ultralytics not available. Using simulated detections.")
                 detections = simulate_detection()
                 inference_time = time.time() - start_time
                 return InferenceResult(
@@ -694,106 +728,242 @@ async def detect_objects(inference_request: InferenceRequest):
                     inferenceTime=inference_time * 1000,
                     timestamp=datetime.now().isoformat()
                 )
-        else:
-            session = model_sessions[model_path]
-            input_name = session.get_inputs()[0].name
-        
-        # Decode base64 image
-        try:
-            # Handle both with and without data URI prefix
-            image_data_parts = inference_request.imageData.split(',')
-            if len(image_data_parts) > 1:
-                image_data = base64.b64decode(image_data_parts[1])
+            
+            # Load PyTorch model (or use cached model)
+            if model_path not in pytorch_models:
+                try:
+                    # Load PyTorch YOLO model using Ultralytics
+                    print(f"Loading PyTorch model: {model_path}")
+                    model = YOLO(model_path)
+                    pytorch_models[model_path] = model
+                    print(f"Successfully loaded PyTorch model: {model_path}")
+                    
+                except Exception as e:
+                    print(f"Error loading PyTorch model: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    
+                    # If model loading failed, use simulated detections
+                    detections = simulate_detection()
+                    inference_time = time.time() - start_time
+                    return InferenceResult(
+                        detections=detections,
+                        inferenceTime=inference_time * 1000,
+                        timestamp=datetime.now().isoformat()
+                    )
             else:
-                image_data = base64.b64decode(image_data_parts[0])
-                
-            image = Image.open(BytesIO(image_data))
+                model = pytorch_models[model_path]
             
-            # Convert to numpy array for processing
-            img_np = np.array(image)
-            
-            # Get image dimensions
-            img_height, img_width = img_np.shape[:2]
-            print(f"Image dimensions: {img_width}x{img_height}")
-            
-            # Preprocess image for ONNX model
-            # Get expected input shape from model
-            input_shape = session.get_inputs()[0].shape
-            input_name = session.get_inputs()[0].name
-            
-            # Determine input dimensions
-            # Handle dynamic dimensions (often represented as -1)
-            if len(input_shape) >= 4:  # NCHW format
-                if input_shape[2] > 0 and input_shape[3] > 0:
-                    input_height, input_width = input_shape[2], input_shape[3]
-                else:
-                    input_height, input_width = 640, 640  # Default YOLO input size
-            else:
-                input_height, input_width = 640, 640  # Default if shape uncertain
-                
-            print(f"Using input dimensions: {input_width}x{input_height}")
-            
-            # Resize and normalize
-            img_resized = cv2.resize(img_np, (input_width, input_height))
-            img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
-            img_normalized = img_rgb.astype(np.float32) / 255.0
-            
-            # Check if model expects NCHW format (most common)
-            # NCHW: batch, channels, height, width
-            if len(input_shape) >= 4 and (input_shape[1] == 3 or input_shape[1] == -1):
-                # Transpose to NCHW format required by ONNX Runtime
-                img_transposed = np.transpose(img_normalized, (2, 0, 1))  # HWC -> CHW
-                img_batch = np.expand_dims(img_transposed, axis=0)  # CHW -> NCHW
-            else:
-                # Use NHWC format (TensorFlow style)
-                img_batch = np.expand_dims(img_normalized, axis=0)  # HWC -> NHWC
-                
-            print(f"Input batch shape: {img_batch.shape}")
-            
-            # Run inference
+            # Decode base64 image
             try:
-                outputs = session.run(None, {input_name: img_batch})
+                # Handle both with and without data URI prefix
+                image_data_parts = inference_request.imageData.split(',')
+                if len(image_data_parts) > 1:
+                    image_data = base64.b64decode(image_data_parts[1])
+                else:
+                    image_data = base64.b64decode(image_data_parts[0])
+                    
+                image = Image.open(BytesIO(image_data))
                 
-                # Process outputs based on model format
-                detections = process_yolo_output(
-                    outputs, 
-                    img_width, 
-                    img_height, 
-                    conf_threshold=inference_request.threshold
-                )
+                # Get image dimensions
+                img_width, img_height = image.size
+                print(f"Image dimensions: {img_width}x{img_height}")
                 
-                if detections is None:
-                    detections = []
+                # Run inference with PyTorch model
+                try:
+                    # Conduct PyTorch inference
+                    results = model.predict(
+                        source=image, 
+                        conf=inference_request.threshold, 
+                        verbose=False
+                    )
+                    
+                    print(f"PyTorch inference completed with {len(results)} results")
+                    
+                    # Convert results to our detection format
+                    detections = convert_ultralytics_results_to_detections(
+                        results, 
+                        conf_threshold=inference_request.threshold
+                    )
+                    
+                    inference_time = time.time() - start_time
+                    
+                    return InferenceResult(
+                        detections=detections,
+                        inferenceTime=inference_time * 1000,
+                        processedAt="edge",
+                        timestamp=datetime.now().isoformat()
+                    )
                 
-                print(f"Processed detections: {len(detections)}")
-                
-                inference_time = time.time() - start_time
-                
-                return InferenceResult(
-                    detections=detections,
-                    inferenceTime=inference_time * 1000,
-                    processedAt="edge",
-                    timestamp=datetime.now().isoformat()
-                )
-                
+                except Exception as e:
+                    print(f"PyTorch inference error: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    
+                    # Fall back to simulated detections on inference error
+                    detections = simulate_detection()
+                    inference_time = time.time() - start_time
+                    return InferenceResult(
+                        detections=detections,
+                        inferenceTime=inference_time * 1000,
+                        processedAt="server",
+                        timestamp=datetime.now().isoformat()
+                    )
+            
             except Exception as e:
-                print(f"ONNX inference error: {str(e)}")
+                print(f"Error processing image for PyTorch inference: {str(e)}")
                 import traceback
                 traceback.print_exc()
-                # Fall back to simulated detections on inference error
                 detections = simulate_detection()
                 inference_time = time.time() - start_time
                 return InferenceResult(
                     detections=detections,
                     inferenceTime=inference_time * 1000,
-                    processedAt="server",
                     timestamp=datetime.now().isoformat()
                 )
+        
+        # Handle ONNX models - use existing ONNX code path
+        elif is_onnx:
+            # Load model (or use cached session)
+            if model_path not in model_sessions:
+                providers = []
+                if "CUDAExecutionProvider" in get_available_providers():
+                    providers.append("CUDAExecutionProvider")
+                providers.append("CPUExecutionProvider")
                 
-        except Exception as e:
-            print(f"Error processing image: {str(e)}")
-            import traceback
-            traceback.print_exc()
+                try:
+                    print(f"Loading ONNX model: {model_path}")
+                    session = ort.InferenceSession(model_path, providers=providers)
+                    model_sessions[model_path] = session
+                    print(f"Successfully loaded ONNX model: {model_path}")
+                    print(f"Using providers: {providers}")
+                    
+                    # Get model metadata to determine format
+                    input_name = session.get_inputs()[0].name
+                    input_shape = session.get_inputs()[0].shape
+                    output_names = [output.name for output in session.get_outputs()]
+                    
+                    print(f"Model input name: {input_name}, shape: {input_shape}")
+                    print(f"Model output names: {output_names}")
+                    
+                except Exception as e:
+                    print(f"Error loading ONNX model: {str(e)}")
+                    # If model loading failed, use simulated detections
+                    detections = simulate_detection()
+                    inference_time = time.time() - start_time
+                    return InferenceResult(
+                        detections=detections,
+                        inferenceTime=inference_time * 1000,
+                        timestamp=datetime.now().isoformat()
+                    )
+            else:
+                session = model_sessions[model_path]
+                input_name = session.get_inputs()[0].name
+            
+            # Process image and run inference with ONNX model
+            try:
+                # Decode base64 image
+                image_data_parts = inference_request.imageData.split(',')
+                if len(image_data_parts) > 1:
+                    image_data = base64.b64decode(image_data_parts[1])
+                else:
+                    image_data = base64.b64decode(image_data_parts[0])
+                    
+                image = Image.open(BytesIO(image_data))
+                
+                # Get image dimensions
+                img_width, img_height = image.size
+                print(f"Image dimensions: {img_width}x{img_height}")
+                
+                # Preprocess image for ONNX model
+                # Get expected input shape from model
+                input_shape = session.get_inputs()[0].shape
+                input_name = session.get_inputs()[0].name
+                
+                # Determine input dimensions
+                # Handle dynamic dimensions (often represented as -1)
+                if len(input_shape) >= 4:  # NCHW format
+                    if input_shape[2] > 0 and input_shape[3] > 0:
+                        input_height, input_width = input_shape[2], input_shape[3]
+                    else:
+                        input_height, input_width = 640, 640  # Default YOLO input size
+                else:
+                    input_height, input_width = 640, 640  # Default if shape uncertain
+                
+                print(f"Using input dimensions: {input_width}x{input_height}")
+                
+                # Resize and normalize
+                img_resized = cv2.resize(img_np, (input_width, input_height))
+                img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+                img_normalized = img_rgb.astype(np.float32) / 255.0
+                
+                # Check if model expects NCHW format (most common)
+                # NCHW: batch, channels, height, width
+                if len(input_shape) >= 4 and (input_shape[1] == 3 or input_shape[1] == -1):
+                    # Transpose to NCHW format required by ONNX Runtime
+                    img_transposed = np.transpose(img_normalized, (2, 0, 1))  # HWC -> CHW
+                    img_batch = np.expand_dims(img_transposed, axis=0)  # CHW -> NCHW
+                else:
+                    # Use NHWC format (TensorFlow style)
+                    img_batch = np.expand_dims(img_normalized, axis=0)  # HWC -> NHWC
+                
+                print(f"Input batch shape: {img_batch.shape}")
+                
+                # Run inference
+                try:
+                    outputs = session.run(None, {input_name: img_batch})
+                    
+                    # Process outputs based on model format
+                    detections = process_yolo_output(
+                        outputs, 
+                        img_width, 
+                        img_height, 
+                        conf_threshold=inference_request.threshold
+                    )
+                    
+                    if detections is None:
+                        detections = []
+                    
+                    print(f"Processed detections: {len(detections)}")
+                    
+                    inference_time = time.time() - start_time
+                    
+                    return InferenceResult(
+                        detections=detections,
+                        inferenceTime=inference_time * 1000,
+                        processedAt="edge",
+                        timestamp=datetime.now().isoformat()
+                    )
+                    
+                except Exception as e:
+                    print(f"ONNX inference error: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    # Fall back to simulated detections on inference error
+                    detections = simulate_detection()
+                    inference_time = time.time() - start_time
+                    return InferenceResult(
+                        detections=detections,
+                        inferenceTime=inference_time * 1000,
+                        processedAt="server",
+                        timestamp=datetime.now().isoformat()
+                    )
+                
+            except Exception as e:
+                print(f"Error processing image: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                detections = simulate_detection()
+                inference_time = time.time() - start_time
+                return InferenceResult(
+                    detections=detections,
+                    inferenceTime=inference_time * 1000,
+                    timestamp=datetime.now().isoformat()
+                )
+            
+        else:
+            # Unsupported model format
+            print(f"Unsupported model format: {model_path}")
             detections = simulate_detection()
             inference_time = time.time() - start_time
             return InferenceResult(

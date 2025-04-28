@@ -1,4 +1,3 @@
-
 // EdgeAIInference.ts
 // This service handles communication with edge devices for AI inference
 
@@ -44,6 +43,7 @@ export interface Detection {
   width?: number;    // Width in pixels or normalized
   height?: number;   // Height in pixels or normalized
   bbox?: number[];   // [x1, y1, x2, y2] coordinates
+  format?: 'onnx' | 'pytorch' | 'unknown'; // Track the source model format
 }
 
 class EdgeAIInferenceService {
@@ -64,36 +64,30 @@ class EdgeAIInferenceService {
     console.log(`Simulated mode ${enabled ? 'enabled' : 'disabled'}`);
   }
   
+  // Check if a model path is a PyTorch model
+  isPytorchModel(modelPath: string): boolean {
+    return modelPath.toLowerCase().endsWith('.pt') || modelPath.toLowerCase().endsWith('.pth');
+  }
+  
+  // Check if a model path is an ONNX model
+  isOnnxModel(modelPath: string): boolean {
+    return modelPath.toLowerCase().endsWith('.onnx');
+  }
+  
   // Process an inference request
   async performInference(request: InferenceRequest): Promise<InferenceResult> {
     console.info(`Performing inference for camera ${request.cameraId} with model ${request.modelName}`);
     
     try {
+      // Get model format
+      const isPytorch = this.isPytorchModel(request.modelPath);
+      const isOnnx = this.isOnnxModel(request.modelPath);
+      
+      // Log model format for debugging
+      console.log(`Model format: ${isPytorch ? 'PyTorch' : (isOnnx ? 'ONNX' : 'Unknown')}`);
+      
       // Ensure the model path has the correct extension
       let modelPath = request.modelPath;
-      
-      // Handle default case where path might be missing extension or have wrong extension
-      if (modelPath.includes('/custom_models/')) {
-        // If it's a custom model and doesn't end with .onnx (used for simulation)
-        if (!modelPath.toLowerCase().endsWith('.onnx')) {
-          // Check if we're actually using a .onnx model by checking the name
-          if (request.modelName.toLowerCase().includes('onnx')) {
-            // Fix the path to use .onnx extension
-            modelPath = modelPath.replace(/\.[^/.]+$/, '.onnx');
-          }
-          
-          // If path still doesn't have extension, add .onnx
-          if (!modelPath.includes('.')) {
-            modelPath = `${modelPath}.onnx`;
-          }
-        }
-      }
-      
-      // Check model file extension for proper format detection
-      const isOnnxModel = modelPath.toLowerCase().endsWith('.onnx');
-      
-      // Log the model path to help with debugging
-      console.log(`Using model path: ${modelPath}, ONNX: ${isOnnxModel}`);
       
       // If in simulated mode, we'll simulate detection results
       if (this.simulatedMode) {
@@ -169,9 +163,15 @@ class EdgeAIInferenceService {
         
         // Handle specific model format errors
         if (errorDetail.includes("Protobuf parsing failed") || errorDetail.includes("not in ONNX format")) {
-          toast.error("Incompatible model format", {
-            description: "The model must be in ONNX format for inference. Please upload an ONNX model."
-          });
+          if (isPytorch) {
+            toast.error("PyTorch model format error", {
+              description: "There was an error loading the PyTorch model. Make sure it's a valid YOLOv5/YOLOv8 model."
+            });
+          } else {
+            toast.error("Incompatible model format", {
+              description: "The model must be in ONNX format or valid PyTorch format for inference."
+            });
+          }
         } else if (errorDetail.includes("Model not found")) {
           toast.error("Model file not found", {
             description: "The selected model file was not found on the server. Please upload the model again."
@@ -231,6 +231,7 @@ class EdgeAIInferenceService {
         console.log(`- Format: ${coordSummary.hasXY ? 'Center format (x,y,w,h)' : (coordSummary.hasBbox ? 'Bounding box [x1,y1,x2,y2]' : 'Unknown')}`);
         console.log(`- Values: ${coordSummary.hasXY ? coordSummary.xyValues : coordSummary.bboxValues}`);
         console.log(`- Range: ${coordSummary.isNormalized ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
+        console.log(`- Model Format: ${isPytorch ? 'PyTorch' : (isOnnx ? 'ONNX' : 'Unknown')}`);
         console.log(`- Recommendation: ${coordSummary.isNormalized ? 'Multiply by image dimensions' : 'Use directly'}`);
         
         // Display stats for all detections
@@ -284,8 +285,7 @@ class EdgeAIInferenceService {
           result.detections = validDetections;
         }
         
-        // Transform YOLO format if needed (usually backend should handle this)
-        // If backend returns center+dimensions, convert to bbox format for standardization
+        // Transform to standardized format
         result.detections = result.detections.map(det => {
           // Skip if already in proper format
           if (Array.isArray(det.bbox) && det.bbox.length === 4) {
@@ -460,4 +460,3 @@ class EdgeAIInferenceService {
 // Singleton instance
 const EdgeAIInference = new EdgeAIInferenceService();
 export default EdgeAIInference;
-

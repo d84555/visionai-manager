@@ -95,6 +95,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           const centerY = detection.y;
           
           // Convert normalized values (0-1) to display pixel coordinates
+          // Always scale to actual display dimensions, regardless of model format
           const displayCenterX = centerX * displayWidth;
           const displayCenterY = centerY * displayHeight;
           const displayBoxWidth = detection.width * displayWidth;
@@ -104,6 +105,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           const displayX = displayCenterX - (displayBoxWidth / 2);
           const displayY = displayCenterY - (displayBoxHeight / 2);
           
+          // Debug the first few detections to verify proper coordinate conversion
           if (index === 0) {
             console.log(`First detection: normalized(${centerX.toFixed(3)}, ${centerY.toFixed(3)}, ${detection.width.toFixed(3)}, ${detection.height.toFixed(3)}) -> ` +
                        `display pixels(${displayX.toFixed(1)}, ${displayY.toFixed(1)}, ${displayBoxWidth.toFixed(1)}, ${displayBoxHeight.toFixed(1)})`);
@@ -166,6 +168,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           const [x1, y1, x2, y2] = detection.bbox;
           
           // Convert normalized values (0-1) to display pixel coordinates
+          // Always scale to actual display dimensions
           const displayX = x1 * displayWidth;
           const displayY = y1 * displayHeight;
           const displayBoxWidth = (x2 - x1) * displayWidth;

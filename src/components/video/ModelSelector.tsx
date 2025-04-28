@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { AlertCircle } from 'lucide-react';
 
 interface ModelSelectorProps {
   selectedModel: { name: string; path: string } | null;
@@ -65,6 +66,29 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const isOnnxFormat = (path: string): boolean => {
     return path.toLowerCase().endsWith('.onnx');
   };
+  
+  // Function to check if a model is in PyTorch format based on file extension
+  const isPytorchFormat = (path: string): boolean => {
+    return path.toLowerCase().endsWith('.pt') || path.toLowerCase().endsWith('.pth');
+  };
+  
+  // Get model format badge
+  const getModelFormatBadge = (path: string) => {
+    if (isOnnxFormat(path)) {
+      return (
+        <Badge variant="outline" className="ml-2 bg-green-100 text-green-800 text-xs">
+          ONNX
+        </Badge>
+      );
+    } else if (isPytorchFormat(path)) {
+      return (
+        <Badge variant="outline" className="ml-2 bg-amber-100 text-amber-800 text-xs">
+          PyTorch
+        </Badge>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -82,13 +106,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             <SelectItem value="loading" disabled>Loading models...</SelectItem>
           ) : displayModels.length > 0 ? (
             displayModels.map(model => (
-              <SelectItem key={model.id} value={model.id}>
-                {model.name}
-                {!isOnnxFormat(model.path) && (
-                  <Badge variant="outline" className="ml-2 bg-yellow-100 text-yellow-800 text-xs">
-                    Non-ONNX
-                  </Badge>
-                )}
+              <SelectItem key={model.id} value={model.id} className="flex items-center justify-between py-3">
+                <div className="flex items-center space-x-2">
+                  <span>{model.name}</span>
+                  {getModelFormatBadge(model.path)}
+                  {isPytorchFormat(model.path) && (
+                    <AlertCircle className="w-3 h-3 ml-1 text-amber-600" />
+                  )}
+                </div>
               </SelectItem>
             ))
           ) : (
@@ -99,9 +124,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       <p className="text-xs text-muted-foreground">
         {isLoading ? 'Loading available models...' : 
           displayModels.length > 0 ? 
-            'Select an AI model to use for object detection on this video feed. ONNX models (.onnx) recommended.' : 
+            'Select an AI model for object detection. ONNX (.onnx) and PyTorch (.pt/.pth) models are supported.' : 
             'No models available. Please upload a model in Settings > AI Models.'}
       </p>
+      {selectedModel && isPytorchFormat(selectedModel.path) && (
+        <div className="mt-1 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800">
+          <span className="font-medium">PyTorch Model:</span> Running in beta support mode. For best performance and accuracy, consider converting to ONNX format.
+        </div>
+      )}
     </div>
   );
 };
