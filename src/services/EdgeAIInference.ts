@@ -48,9 +48,20 @@ export interface Detection {
 
 class EdgeAIInferenceService {
   private apiBaseUrl = 'http://localhost:8000/api';
+  private simulatedMode = false; // New flag to control simulation
 
   constructor() {
     console.log("Initializing Edge AI Inference service with API server backend");
+    
+    // Check if we're in simulated mode
+    this.simulatedMode = StorageServiceFactory.getMode() === 'simulated';
+    console.log(`Edge AI Service initialized in ${this.simulatedMode ? 'simulated' : 'real'} mode`);
+  }
+  
+  // Toggle simulated mode (for debugging)
+  setSimulatedMode(enabled: boolean) {
+    this.simulatedMode = enabled;
+    console.log(`Simulated mode ${enabled ? 'enabled' : 'disabled'}`);
   }
   
   // Process an inference request
@@ -85,7 +96,7 @@ class EdgeAIInferenceService {
       console.log(`Using model path: ${modelPath}, ONNX: ${isOnnxModel}`);
       
       // If in simulated mode, we'll simulate detection results
-      if (StorageServiceFactory.getMode() === 'simulated' || true) { // Temporarily force simulation for debugging
+      if (this.simulatedMode) {
         console.log("Using simulated inference mode");
         
         // Create simulated detections after a short delay
@@ -165,7 +176,7 @@ class EdgeAIInferenceService {
           });
           
           // When model not found, fall back to simulated mode
-          StorageServiceFactory.setMode('simulated');
+          this.setSimulatedMode(true);
           return this.performInference(request);
         } else {
           throw new Error(errorDetail);
@@ -179,7 +190,15 @@ class EdgeAIInferenceService {
         };
       }
       
+      // Debug network response data
+      console.log("API response received, parsing JSON...");
       const result = await response.json();
+      console.log("API detections received:", result.detections?.length || 0);
+      
+      // Log a sample detection if available
+      if (result.detections && result.detections.length > 0) {
+        console.log("Sample detection:", result.detections[0]);
+      }
       
       // Handle case where detections field is null or missing
       if (!result.detections || !Array.isArray(result.detections)) {
@@ -192,16 +211,20 @@ class EdgeAIInferenceService {
         });
       }
       
+      // Apply model input scaling to backend detections (640x640 -> actual video size)
+      // This scaling happens on the frontend because we need to know the actual video dimensions
+      
       // Validate each detection's format
       if (result.detections.length > 0) {
         const validDetections = result.detections.filter(detection => {
           // Check if detection has valid format
           const isValid = detection && 
                          typeof detection === 'object' && 
-                         typeof detection.label === 'string' && 
+                         ((typeof detection.label === 'string' || typeof detection.class === 'string') && 
                          typeof detection.confidence === 'number' && 
-                         Array.isArray(detection.bbox) &&
-                         detection.bbox.length === 4;
+                         (Array.isArray(detection.bbox) || 
+                          (detection.x !== undefined && detection.y !== undefined && 
+                           detection.width !== undefined && detection.height !== undefined)));
           
           if (!isValid) {
             console.warn("Invalid detection format received:", detection);
@@ -233,7 +256,7 @@ class EdgeAIInferenceService {
       });
       
       // Fallback to simulated mode when API fails
-      StorageServiceFactory.setMode('simulated');
+      this.setSimulatedMode(true);
       
       // Return simulated detection results with more visible bboxes and absolute coordinates
       return {
