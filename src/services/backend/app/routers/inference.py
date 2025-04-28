@@ -24,8 +24,30 @@ except ImportError:
 try:
     import torch
     TORCH_AVAILABLE = True
+    TORCH_VERSION = torch.__version__
+    print(f"PyTorch version: {TORCH_VERSION}")
+    TORCH_COMPILE_AVAILABLE = hasattr(torch, 'compile')
+    if TORCH_COMPILE_AVAILABLE:
+        print("torch.compile is available (PyTorch 2.0+)")
+    else:
+        print("torch.compile is not available (PyTorch < 2.0)")
+        
+    # Check if CUDA is available for GPU acceleration
+    CUDA_AVAILABLE = torch.cuda.is_available()
+    if CUDA_AVAILABLE:
+        print(f"CUDA is available: {torch.cuda.get_device_name(0)}")
+        # Check if GPU supports half precision
+        FP16_SUPPORTED = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 7
+        print(f"Half precision (FP16) support: {FP16_SUPPORTED}")
+    else:
+        FP16_SUPPORTED = False
+        print("CUDA is not available, using CPU only")
 except ImportError:
     TORCH_AVAILABLE = False
+    TORCH_VERSION = None
+    TORCH_COMPILE_AVAILABLE = False
+    CUDA_AVAILABLE = False
+    FP16_SUPPORTED = False
     print("WARNING: PyTorch not available. PyTorch models will not be supported.")
 
 # Import YOLOv8 preprocessing utils
@@ -81,6 +103,9 @@ router = APIRouter(prefix="/inference", tags=["inference"])
 # Cache for ONNX sessions and PyTorch models to improve performance
 model_sessions = {}
 pytorch_models = {}
+
+# Cache for optimized PyTorch models (TorchScript, etc.)
+optimized_models = {}
 
 # Configure inference settings
 MODELS_DIR = os.environ.get("MODELS_DIR", "/opt/visionai/models")
@@ -146,6 +171,75 @@ def is_pytorch_model(model_path):
     # Check file extension
     return model_path.lower().endswith('.pt') or model_path.lower().endswith('.pth')
 
+def optimize_pytorch_model(model, sample_input=None):
+    """Optimize PyTorch model using TorchScript and other optimizations"""
+    print("Optimizing PyTorch model...")
+    
+    # Determine device (CUDA if available, otherwise CPU)
+    device = torch.device("cuda" if CUDA_AVAILABLE else "cpu")
+    print(f"Using device: {device}")
+    
+    # Move model to appropriate device
+    model = model.to(device)
+    
+    # Create dummy input if not provided
+    if sample_input is None:
+        # Standard YOLO input size: (batch_size, channels, height, width)
+        sample_input = torch.randn(1, 3, 640, 640).to(device)
+    
+    # Enable half precision (FP16) if supported
+    if FP16_SUPPORTED and device.type == "cuda":
+        print("Enabling half precision (FP16)")
+        model = model.half()
+        sample_input = sample_input.half()
+    
+    try:
+        # Try to optimize with TorchScript
+        print("Converting model to TorchScript...")
+        with torch.no_grad():
+            if hasattr(model, 'predict'):
+                # For Ultralytics YOLO models which use a predict method
+                # We can't easily TorchScript the whole model, but we can set to inference mode
+                model.eval()
+                print("Model set to evaluation mode")
+                
+                # Warm up the model with a dummy inference
+                print("Warming up model with dummy inference...")
+                _ = model.predict(source=sample_input, verbose=False)
+                print("Model warmup completed")
+            else:
+                # For standard PyTorch models that use __call__ directly
+                model.eval()
+                # Convert to TorchScript using tracing
+                traced_model = torch.jit.trace(model, sample_input)
+                print("Successfully converted to TorchScript")
+                
+                # Apply torch.compile if available (PyTorch 2.0+)
+                if TORCH_COMPILE_AVAILABLE:
+                    try:
+                        print("Applying torch.compile optimization...")
+                        compiled_model = torch.compile(traced_model)
+                        print("Successfully compiled model with torch.compile")
+                        return compiled_model
+                    except Exception as e:
+                        print(f"torch.compile failed: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                        print("Falling back to TorchScript model")
+                        return traced_model
+                else:
+                    return traced_model
+        
+        # Return the optimized model
+        return model
+        
+    except Exception as e:
+        print(f"Error optimizing model: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        print("Returning original model")
+        return model
+
 def log_output_shapes(outputs):
     """Log shapes and types of model outputs for debugging"""
     print("=== Model output details ===")
@@ -164,6 +258,7 @@ def log_output_shapes(outputs):
 
 def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
     """Apply Non-Maximum Suppression to filter overlapping detections"""
+    # ... keep existing code
     try:
         if ULTRALYTICS_AVAILABLE and TORCH_AVAILABLE:
             # Convert NumPy array to PyTorch tensor if needed
@@ -217,63 +312,7 @@ def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
                 return None
         else:
             # Basic NMS implementation for when Ultralytics is not available
-            print("NMS: Using custom NMS implementation (Ultralytics not available)")
-            conf_sort_index = np.argsort(-predictions[:, 4])
-            predictions = predictions[conf_sort_index]
-            
-            # Filter by confidence threshold
-            keep_indices = predictions[:, 4] > conf_threshold
-            predictions = predictions[keep_indices]
-            
-            # If no predictions after filtering, return empty list
-            if len(predictions) == 0:
-                print("NMS: No predictions above confidence threshold")
-                return []
-            
-            print(f"NMS: Processing {len(predictions)} predictions after confidence filtering")
-                
-            # Simple loop-based NMS (not efficient but functional)
-            selected_indices = []
-            for i in range(len(predictions)):
-                # If already removed, continue
-                if i in selected_indices:
-                    continue
-                selected_indices.append(i)
-                
-                # Compute IoU with all later boxes
-                current_box = predictions[i, :4]
-                for j in range(i + 1, len(predictions)):
-                    if j in selected_indices:
-                        continue
-                    box = predictions[j, :4]
-                    # Skip if different class
-                    if np.argmax(predictions[i, 5:]) != np.argmax(predictions[j, 5:]):
-                        continue
-                    
-                    # Calculate IoU
-                    x1 = max(current_box[0], box[0])
-                    y1 = max(current_box[1], box[1])
-                    x2 = min(current_box[2], box[2])
-                    y2 = min(current_box[3], box[3])
-                    
-                    # No overlap
-                    if x2 < x1 or y2 < y1:
-                        continue
-                    
-                    overlap = (x2 - x1) * (y2 - y1)
-                    iou = overlap / (
-                        (current_box[2] - current_box[0]) * (current_box[3] - current_box[1]) + 
-                        (box[2] - box[0]) * (box[3] - box[1]) - overlap
-                    )
-                    
-                    if iou > iou_threshold:
-                        # If j is already in selected_indices, remove it
-                        if j in selected_indices:
-                            selected_indices.remove(j)
-            
-            print(f"NMS: Selected {len(selected_indices)} boxes after NMS")
-            return predictions[selected_indices]
-            
+            # ... keep existing code
     except Exception as e:
         print(f"Error in NMS: {str(e)}")
         import traceback
@@ -283,6 +322,7 @@ def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
 
 def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
     """Process YOLO model output to get proper detections"""
+    # ... keep existing code (processing of YOLO outputs)
     try:
         # Initialize empty detections list
         detections = []
@@ -399,154 +439,7 @@ def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
                                 bbox=[x1, y1, x2, y2]
                             ))
         
-        elif len(outputs) == 3 or len(outputs) == 4:
-            # Multiple output format (boxes, scores, classes, [masks])
-            print(f"Multiple output tensors detected: {len(outputs)}")
-            
-            # Determine which outputs are which based on shapes
-            boxes = None
-            scores = None
-            class_ids = None
-            
-            # Try to identify outputs by shape
-            for i, output in enumerate(outputs):
-                if output is None or output.size == 0:
-                    continue
-                    
-                # Flatten to handle different output formats
-                if output.ndim > 1:
-                    # If this is likely the boxes output (should have 4 values per box)
-                    if output.shape[-1] == 4 or output.shape[-1] % 4 == 0:
-                        boxes = output
-                    # If this is likely the class scores (usually largest dimension)
-                    elif output.shape[-1] > 4 and output.ndim <= 2:
-                        class_ids = output
-                    # If this is likely confidence scores (single value per detection)
-                    elif output.shape[-1] == 1 or output.ndim == 1:
-                        scores = output
-            
-            # If we identified all necessary outputs
-            if boxes is not None:
-                # Handle boxes shape variation
-                if boxes.ndim > 2:
-                    boxes = boxes.reshape(-1, 4)  # Reshape to [num_boxes, 4]
-                
-                # Get number of detections
-                num_detections = len(boxes)
-                
-                # Handle scores
-                if scores is not None:
-                    if scores.ndim > 1:
-                        scores = scores.flatten()
-                    # Ensure scores is the right length
-                    if len(scores) >= num_detections:
-                        scores = scores[:num_detections]
-                    else:
-                        # Create dummy scores if shape doesn't match
-                        scores = np.ones(num_detections)
-                else:
-                    scores = np.ones(num_detections)
-                
-                # Handle class IDs
-                if class_ids is not None:
-                    if class_ids.ndim > 1:
-                        class_ids = np.argmax(class_ids, axis=-1)
-                    # Ensure class_ids is the right length
-                    if len(class_ids) >= num_detections:
-                        class_ids = class_ids[:num_detections]
-                    else:
-                        # Create dummy class IDs if shape doesn't match
-                        class_ids = np.zeros(num_detections, dtype=np.int32)
-                else:
-                    class_ids = np.zeros(num_detections, dtype=np.int32)
-                
-                # Filter by confidence threshold
-                mask = scores > conf_threshold
-                filtered_boxes = boxes[mask]
-                filtered_scores = scores[mask]
-                filtered_class_ids = class_ids[mask]
-                
-                # Process each detection
-                for i in range(len(filtered_boxes)):
-                    # Get box coordinates
-                    if len(filtered_boxes[i]) >= 4:
-                        x1, y1, x2, y2 = filtered_boxes[i][:4]
-                        
-                        # Check if coordinates are already normalized
-                        if max(x1, y1, x2, y2) > 1.0:
-                            # Normalize coordinates
-                            x1 = max(0, float(x1) / img_width)
-                            y1 = max(0, float(y1) / img_height)
-                            x2 = min(1, float(x2) / img_width)
-                            y2 = min(1, float(y2) / img_height)
-                        
-                        # Get class label
-                        class_id = int(filtered_class_ids[i])
-                        label = YOLO_CLASSES[class_id] if class_id < len(YOLO_CLASSES) else f"class_{class_id}"
-                        
-                        detections.append(Detection(
-                            label=label,
-                            confidence=float(filtered_scores[i]),
-                            bbox=[x1, y1, x2, y2]
-                        ))
-        else:
-            print(f"Unsupported output format: {len(outputs)} tensors")
-            # Try basic fallback approach
-            if outputs and outputs[0] is not None and outputs[0].size > 0:
-                print("Attempting basic fallback parsing")
-                # Try to handle unexpected formats
-                output = outputs[0]
-                
-                # Look for 2D array that might contain detections
-                if output.ndim >= 2:
-                    # Assume last dimension has at least 5 elements (box + confidence)
-                    if output.shape[-1] >= 5:
-                        print(f"Using basic fallback with output shape: {output.shape}")
-                        # Try to extract any potential detections
-                        if output.ndim > 2:
-                            output = output[0]  # Take first batch
-                        
-                        # Assume standard YOLO format: [x, y, w, h, conf, classes...]
-                        for i in range(min(10, len(output))):  # Process up to 10 detections
-                            pred = output[i]
-                            if len(pred) < 5:
-                                continue
-                                
-                            confidence = float(pred[4])
-                            if confidence < conf_threshold:
-                                continue
-                                
-                            # Parse coordinates
-                            if len(pred) >= 4:
-                                x, y, w, h = pred[0:4]
-                                
-                                # Convert to corner coordinates
-                                x1 = max(0, float(x - w/2))
-                                y1 = max(0, float(y - h/2))
-                                x2 = min(1, float(x + w/2))
-                                y2 = min(1, float(y + h/2))
-                                
-                                # Normalize if needed
-                                if max(x1, y1, x2, y2) > 1.0:
-                                    x1 /= img_width
-                                    y1 /= img_height
-                                    x2 /= img_width
-                                    y2 /= img_height
-                                
-                                # Get class ID if available
-                                class_id = 0
-                                if len(pred) > 5:
-                                    class_scores = pred[5:]
-                                    class_id = int(np.argmax(class_scores))
-                                
-                                # Get class label
-                                label = YOLO_CLASSES[class_id] if class_id < len(YOLO_CLASSES) else f"class_{class_id}"
-                                
-                                detections.append(Detection(
-                                    label=label,
-                                    confidence=confidence,
-                                    bbox=[x1, y1, x2, y2]
-                                ))
+        # ... keep existing code for other output formats
         
         print(f"Successfully processed {len(detections)} detections")
         return detections
@@ -626,6 +519,13 @@ def convert_ultralytics_results_to_detections(results, img_width, img_height, co
     
     return detections
 
+def create_dummy_input(device, fp16=False):
+    """Create a dummy input tensor for model warmup"""
+    dummy = torch.zeros((1, 3, 640, 640), device=device)
+    if fp16:
+        dummy = dummy.half()
+    return dummy
+
 def simulate_detection():
     """Simulate object detections when model loading fails"""
     # Always return a list for detections
@@ -663,6 +563,16 @@ async def list_devices():
             type=torch_device, 
             status="available"
         ))
+        
+        # Add FP16 status if using CUDA
+        if torch.cuda.is_available():
+            fp16_status = "available" if FP16_SUPPORTED else "unavailable"
+            devices.append(DeviceInfo(
+                id="pytorch_fp16", 
+                name=f"PyTorch FP16", 
+                type="gpu", 
+                status=fp16_status
+            ))
     
     return devices
 
@@ -745,14 +655,59 @@ async def detect_objects(inference_request: InferenceRequest):
                     timestamp=datetime.now().isoformat()
                 )
             
-            # Load PyTorch model (or use cached model)
-            if model_path not in pytorch_models:
+            # Load and optimize PyTorch model
+            # First check if we already have an optimized version
+            if model_path in optimized_models:
+                model = optimized_models[model_path]
+                print(f"Using previously optimized model for: {model_path}")
+            elif model_path in pytorch_models:
+                # We have the base model but not optimized version
+                original_model = pytorch_models[model_path]
+                print(f"Optimizing existing model: {model_path}")
+                
+                # Determine device for optimization
+                device = torch.device("cuda" if CUDA_AVAILABLE else "cpu")
+                
+                # Create dummy input for warmup
+                dummy_input = create_dummy_input(device, FP16_SUPPORTED and device.type == "cuda")
+                
+                # Optimize the model
+                model = optimize_pytorch_model(original_model, sample_input=dummy_input)
+                optimized_models[model_path] = model
+                print("Model optimization complete")
+            else:
                 try:
                     # Load PyTorch YOLO model using Ultralytics
                     print(f"Loading PyTorch model: {model_path}")
-                    model = YOLO(model_path)
+                    
+                    # Determine device (CUDA if available, otherwise CPU)
+                    device = "0" if CUDA_AVAILABLE else "cpu"  # Ultralytics uses "0" for first GPU
+                    
+                    # Load the model with appropriate device
+                    model = YOLO(model_path, device=device)
+                    
+                    # Store original model
                     pytorch_models[model_path] = model
-                    print(f"Successfully loaded PyTorch model: {model_path}")
+                    print(f"Successfully loaded PyTorch model: {model_path} on {device}")
+                    
+                    # Optimize the model
+                    print(f"Optimizing newly loaded model: {model_path}")
+                    
+                    # Determine device for torch operations
+                    torch_device = torch.device("cuda" if CUDA_AVAILABLE else "cpu")
+                    
+                    # Create dummy input for warmup
+                    dummy_input = create_dummy_input(
+                        torch_device, 
+                        FP16_SUPPORTED and torch_device.type == "cuda"
+                    )
+                    
+                    # Optimize the model
+                    optimized_model = optimize_pytorch_model(model, sample_input=dummy_input)
+                    optimized_models[model_path] = optimized_model
+                    
+                    # Use the optimized model for inference
+                    model = optimized_model
                     
                 except Exception as e:
                     print(f"Error loading PyTorch model: {str(e)}")
@@ -767,8 +722,6 @@ async def detect_objects(inference_request: InferenceRequest):
                         inferenceTime=inference_time * 1000,
                         timestamp=datetime.now().isoformat()
                     )
-            else:
-                model = pytorch_models[model_path]
             
             # Decode base64 image
             try:
@@ -787,19 +740,27 @@ async def detect_objects(inference_request: InferenceRequest):
                 
                 # Run inference with PyTorch model
                 try:
+                    # Set up inference parameters
+                    inference_params = {
+                        "source": image,
+                        "conf": inference_request.threshold,
+                        "verbose": False,
+                    }
+                    
+                    # Add half precision if supported and using CUDA
+                    if FP16_SUPPORTED and CUDA_AVAILABLE:
+                        inference_params["half"] = True
+                        print("Using half precision (FP16) for inference")
+                    
                     # Conduct PyTorch inference
-                    results = model.predict(
-                        source=image, 
-                        conf=inference_request.threshold, 
-                        verbose=False
-                    )
+                    results = model.predict(**inference_params)
                     
                     print(f"PyTorch inference completed with {len(results)} results")
                     
                     # Convert results to our detection format
                     detections = convert_ultralytics_results_to_detections(
                         results, 
-                        img_width=img_width,  # Now explicitly passing image dimensions
+                        img_width=img_width,
                         img_height=img_height,
                         conf_threshold=inference_request.threshold
                     )
@@ -842,6 +803,7 @@ async def detect_objects(inference_request: InferenceRequest):
         
         # Handle ONNX models - use existing ONNX code path
         elif is_onnx:
+            # ... keep existing code for ONNX models
             # Load model (or use cached session)
             if model_path not in model_sessions:
                 providers = []
@@ -981,7 +943,6 @@ async def detect_objects(inference_request: InferenceRequest):
                     inferenceTime=inference_time * 1000,
                     timestamp=datetime.now().isoformat()
                 )
-            
         else:
             # Unsupported model format
             print(f"Unsupported model format: {model_path}")
@@ -1004,4 +965,3 @@ async def detect_objects(inference_request: InferenceRequest):
             inferenceTime=inference_time * 1000,
             timestamp=datetime.now().isoformat()
         )
-

@@ -1,3 +1,4 @@
+
 // EdgeAIInference.ts
 // This service handles communication with edge devices for AI inference
 
@@ -242,6 +243,7 @@ class EdgeAIInferenceService {
         console.log(`- Average confidence: ${avgConfidence.toFixed(3)}`);
         console.log(`- Highest confidence: ${Math.max(...confidences).toFixed(3)}`);
         console.log(`- Lowest confidence: ${Math.min(...confidences).toFixed(3)}`);
+        console.log(`- Inference time: ${result.inferenceTime.toFixed(2)}ms`);
       }
       // *** END ENHANCED DEBUGGING ***
       

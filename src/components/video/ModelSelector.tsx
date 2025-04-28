@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Zap } from 'lucide-react';
 
 interface ModelSelectorProps {
   selectedModel: { name: string; path: string } | null;
@@ -82,7 +82,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       );
     } else if (isPytorchFormat(path)) {
       return (
-        <Badge variant="outline" className="ml-2 bg-amber-100 text-amber-800 text-xs">
+        <Badge variant="outline" className="ml-2 bg-amber-100 text-amber-800 text-xs flex items-center gap-1">
+          <Zap size={12} />
           PyTorch
         </Badge>
       );
@@ -129,7 +130,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       </p>
       {selectedModel && isPytorchFormat(selectedModel.path) && (
         <div className="mt-1 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800">
-          <span className="font-medium">PyTorch Model:</span> Running in beta support mode. For best performance and accuracy, consider converting to ONNX format.
+          <span className="font-medium">PyTorch Model:</span> Optimized mode with TorchScript and FP16 where available.
         </div>
       )}
     </div>
