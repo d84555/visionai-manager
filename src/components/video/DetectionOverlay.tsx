@@ -73,7 +73,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
     return null;
   }
   
-  // Get video dimensions - actual display dimensions
+  // Get actual display dimensions of the video element
   const videoBounds = videoElement.getBoundingClientRect();
   const displayWidth = videoBounds.width;
   const displayHeight = videoBounds.height;
@@ -94,8 +94,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           const centerX = detection.x;
           const centerY = detection.y;
           
-          // Assume values are normalized (0-1) as confirmed from model output
-          // Convert normalized values to display pixel coordinates
+          // Convert normalized values (0-1) to display pixel coordinates
           const displayCenterX = centerX * displayWidth;
           const displayCenterY = centerY * displayHeight;
           const displayBoxWidth = detection.width * displayWidth;
@@ -108,6 +107,14 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           if (index === 0) {
             console.log(`First detection: normalized(${centerX.toFixed(3)}, ${centerY.toFixed(3)}, ${detection.width.toFixed(3)}, ${detection.height.toFixed(3)}) -> ` +
                        `display pixels(${displayX.toFixed(1)}, ${displayY.toFixed(1)}, ${displayBoxWidth.toFixed(1)}, ${displayBoxHeight.toFixed(1)})`);
+            console.log({ 
+              displayWidth, 
+              displayHeight, 
+              startX: displayX, 
+              startY: displayY, 
+              boxWidth: displayBoxWidth, 
+              boxHeight: displayBoxHeight 
+            });
           }
           
           // Skip invalid or tiny bounding boxes
@@ -129,10 +136,10 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
               key={`detection-${detection.id || index}`}
               className="absolute border-2 border-avianet-red"
               style={{
-                left: `${displayX * scaleFactor}px`,
-                top: `${displayY * scaleFactor}px`,
-                width: `${finalBoxWidth * scaleFactor}px`,
-                height: `${finalBoxHeight * scaleFactor}px`,
+                left: `${displayX}px`,
+                top: `${displayY}px`,
+                width: `${finalBoxWidth}px`,
+                height: `${finalBoxHeight}px`,
                 pointerEvents: 'none',
                 zIndex: 50,
                 transition: 'none' // Remove any transition that might cause lag
@@ -158,8 +165,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           // Get coordinates [x1, y1, x2, y2]
           const [x1, y1, x2, y2] = detection.bbox;
           
-          // Assume these are normalized coordinates (0-1)
-          // Convert normalized values to display pixel coordinates
+          // Convert normalized values (0-1) to display pixel coordinates
           const displayX = x1 * displayWidth;
           const displayY = y1 * displayHeight;
           const displayBoxWidth = (x2 - x1) * displayWidth;
@@ -168,6 +174,14 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           if (index === 0) {
             console.log(`First detection bbox: normalized[${x1.toFixed(3)}, ${y1.toFixed(3)}, ${x2.toFixed(3)}, ${y2.toFixed(3)}] -> ` +
                        `display pixels[${displayX.toFixed(1)}, ${displayY.toFixed(1)}, ${displayBoxWidth.toFixed(1)}, ${displayBoxHeight.toFixed(1)}]`);
+            console.log({ 
+              displayWidth, 
+              displayHeight, 
+              startX: displayX, 
+              startY: displayY, 
+              boxWidth: displayBoxWidth, 
+              boxHeight: displayBoxHeight 
+            });
           }
           
           // Skip invalid or tiny bounding boxes
@@ -189,10 +203,10 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
               key={`detection-${detection.id || index}`}
               className="absolute border-2 border-avianet-red"
               style={{
-                left: `${displayX * scaleFactor}px`,
-                top: `${displayY * scaleFactor}px`,
-                width: `${finalBoxWidth * scaleFactor}px`,
-                height: `${finalBoxHeight * scaleFactor}px`,
+                left: `${displayX}px`,
+                top: `${displayY}px`,
+                width: `${finalBoxWidth}px`,
+                height: `${finalBoxHeight}px`,
                 pointerEvents: 'none',
                 zIndex: 50,
                 transition: 'none'
