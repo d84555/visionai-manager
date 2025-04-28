@@ -64,33 +64,41 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           // Get normalized coordinates [x1, y1, x2, y2]
           const [x1, y1, x2, y2] = detection.bbox;
           
-          // Check for unrealistically small bounding boxes (as seen in console)
-          // If bbox values are all very small (like [0.001, 0.001, 0.001, 0.001]), 
-          // we need to scale them up
-          let boxX = x1 * displayWidth;
-          let boxY = y1 * displayHeight;
-          let boxWidth = (x2 - x1) * displayWidth;
-          let boxHeight = (y2 - y1) * displayHeight;
+          // Handle very small bounding boxes - these are likely normalized coordinates between 0-1
+          // For values like [0.000, 0.002, 0.030, 0.063] seen in the console
+          let boxX, boxY, boxWidth, boxHeight;
           
-          // Handle extremely small bounding boxes
-          // If all values are less than 0.01, it's likely a preprocessing issue - apply fix
-          if (x1 < 0.01 && y1 < 0.01 && x2 < 0.01 && y2 < 0.01) {
-            // These appear to be coordinates in a different format (not normalized)
-            // Scale to full display size - assume full frame detection since coordinates 
-            // are too small to be useful
-            boxX = 0;
-            boxY = 0;
-            boxWidth = displayWidth;
-            boxHeight = displayHeight;
-            console.log(`Detection ${index}: Extremely small values detected, using full frame`);
+          // Check if the values are likely normalized (all values between 0-1)
+          const isNormalizedFormat = x1 >= 0 && x1 <= 1 && y1 >= 0 && y1 <= 1 && 
+                                    x2 >= 0 && x2 <= 1 && y2 >= 0 && y2 <= 1;
+          
+          if (isNormalizedFormat) {
+            // Convert normalized coordinates to pixel values
+            boxX = x1 * displayWidth;
+            boxY = y1 * displayHeight;
+            boxWidth = (x2 - x1) * displayWidth;
+            boxHeight = (y2 - y1) * displayHeight;
+            
+            console.log(`Detection ${index}: Normalized coords [${x1.toFixed(3)}, ${y1.toFixed(3)}, ${x2.toFixed(3)}, ${y2.toFixed(3)}] → ${boxX.toFixed(1)}×${boxY.toFixed(1)} ${boxWidth.toFixed(1)}×${boxHeight.toFixed(1)}`);
+          } else {
+            // Assume these are already pixel values
+            boxX = x1;
+            boxY = y1;
+            boxWidth = x2 - x1;
+            boxHeight = y2 - y1;
+            
+            console.log(`Detection ${index}: Pixel coords [${x1.toFixed(1)}, ${y1.toFixed(1)}, ${x2.toFixed(1)}, ${y2.toFixed(1)}] → ${boxWidth.toFixed(1)}×${boxHeight.toFixed(1)}`);
           }
           
-          console.log(`Detection ${index}: [${x1.toFixed(3)}, ${y1.toFixed(3)}, ${x2.toFixed(3)}, ${y2.toFixed(3)}] → ${boxX.toFixed(1)}x${boxY.toFixed(1)} ${boxWidth.toFixed(1)}x${boxHeight.toFixed(1)}`);
-          
-          // Skip invalid or tiny bounding boxes (ones that remain too small even after scaling)
+          // Skip invalid or tiny bounding boxes
           if (boxWidth < 1 || boxHeight < 1) {
+            console.log(`Skipping detection ${index} due to invalid dimensions: ${boxWidth.toFixed(1)}×${boxHeight.toFixed(1)}`);
             return null;
           }
+          
+          // Apply minimum size for very small detections to make them visible
+          if (boxWidth < 10) boxWidth = 10;
+          if (boxHeight < 10) boxHeight = 10;
           
           return (
             <div
@@ -130,7 +138,14 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           const boxWidth = detection.width * displayWidth / videoWidth;
           const boxHeight = detection.height * displayHeight / videoHeight;
           
-          console.log(`Detection ${index} (x,y,w,h): ${detection.x}x${detection.y} ${detection.width}x${detection.height} → ${boxX.toFixed(1)}x${boxY.toFixed(1)} ${boxWidth.toFixed(1)}x${boxHeight.toFixed(1)}`);
+          console.log(`Detection ${index} (x,y,w,h): ${detection.x}×${detection.y} ${detection.width}×${detection.height} → ${boxX.toFixed(1)}×${boxY.toFixed(1)} ${boxWidth.toFixed(1)}×${boxHeight.toFixed(1)}`);
+          
+          // Apply minimum size for very small detections
+          let finalWidth = boxWidth;
+          let finalHeight = boxHeight;
+          
+          if (finalWidth < 10) finalWidth = 10;
+          if (finalHeight < 10) finalHeight = 10;
           
           return (
             <div
@@ -139,8 +154,8 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
               style={{
                 left: `${boxX * scaleFactor}px`,
                 top: `${boxY * scaleFactor}px`,
-                width: `${boxWidth * scaleFactor}px`,
-                height: `${boxHeight * scaleFactor}px`,
+                width: `${finalWidth * scaleFactor}px`,
+                height: `${finalHeight * scaleFactor}px`,
                 pointerEvents: 'none',
                 zIndex: 50,
                 transition: 'none' // Remove any transition that might cause lag

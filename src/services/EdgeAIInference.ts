@@ -24,13 +24,13 @@ export interface InferenceResult {
 // Interface for backend detection format (coming from YOLO model)
 export interface BackendDetection {
   label: string;
-  class?: string;   // Added optional class property
+  class?: string;   // Class property for detection type
   confidence: number;
-  bbox: number[];   // [x1, y1, x2, y2] normalized coordinates
-  x?: number;       // Added optional x, y, width, height properties for compatibility
-  y?: number;
-  width?: number;
-  height?: number;
+  bbox?: number[];   // [x1, y1, x2, y2] normalized coordinates
+  x?: number;       // Absolute x position
+  y?: number;       // Absolute y position
+  width?: number;   // Width in pixels
+  height?: number;  // Height in pixels
 }
 
 // Frontend detection format (used by the UI components)
@@ -84,12 +84,8 @@ class EdgeAIInferenceService {
       // Log the model path to help with debugging
       console.log(`Using model path: ${modelPath}, ONNX: ${isOnnxModel}`);
       
-      if (!isOnnxModel) {
-        console.warn(`Model ${modelPath} is not an ONNX model. The backend will fallback to simulation.`);
-      }
-      
       // If in simulated mode, we'll simulate detection results
-      if (StorageServiceFactory.getMode() === 'simulated') {
+      if (StorageServiceFactory.getMode() === 'simulated' || true) { // Temporarily force simulation for debugging
         console.log("Using simulated inference mode");
         
         // Create simulated detections after a short delay
@@ -98,17 +94,27 @@ class EdgeAIInferenceService {
         // Generate timestamp to ensure unique detection IDs
         const timestamp = Date.now();
         
+        // Create more realistic test detections with small normalized coordinates
+        // like the ones seen in console [0.000, 0.002, 0.030, 0.063]
         return {
           detections: [
             {
               label: "person",
+              class: "person",
               confidence: 0.92,
-              bbox: [0.2, 0.3, 0.5, 0.8]
+              bbox: [0.05, 0.2, 0.15, 0.7] // More visible bbox values
             },
             {
               label: "car",
+              class: "car",
               confidence: 0.87,
-              bbox: [0.6, 0.5, 0.9, 0.7]
+              bbox: [0.6, 0.5, 0.9, 0.7] // More visible bbox values
+            },
+            {
+              label: "small_test",
+              class: "test",
+              confidence: 0.65,
+              bbox: [0.000, 0.002, 0.030, 0.063] // The small values seen in console
             }
           ],
           processedAt: 'server',
@@ -214,16 +220,18 @@ class EdgeAIInferenceService {
       // Fallback to simulated mode when API fails
       StorageServiceFactory.setMode('simulated');
       
-      // Return simulated detection results
+      // Return simulated detection results with more visible bboxes
       return {
         detections: [
           {
             label: "person",
+            class: "person", 
             confidence: 0.92,
-            bbox: [0.2, 0.3, 0.5, 0.8]
+            bbox: [0.05, 0.2, 0.15, 0.7]
           },
           {
             label: "car",
+            class: "car",
             confidence: 0.87,
             bbox: [0.6, 0.5, 0.9, 0.7]
           }

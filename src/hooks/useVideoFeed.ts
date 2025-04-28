@@ -108,44 +108,39 @@ export const useVideoFeed = ({
           console.log(`Detected ${result.detections.length} objects with model ${request.modelName}`);
           console.log(`Sample detection:`, result.detections[0]);
           
-          // Create normalized detections with unique IDs and proper coordinates
+          // Create normalized detections with unique IDs
           const normalizedDetections = result.detections.map((detection: BackendDetection, index) => {
             // Create a unique ID for React
             const uniqueId = `${index}-${Date.now()}`;
             
-            // Ensure proper bounding box format
-            let normalizedBbox;
+            // Process bbox data based on format received
+            let processedBbox: number[] = [];
+            let processedLabel = detection.label || detection.class || 'Object';
             
             // Check if we have bbox array format [x1, y1, x2, y2] (normalized 0-1)
             if (Array.isArray(detection.bbox) && detection.bbox.length === 4) {
-              // Handle the case where all values are very small (like [0.001, 0.001, 0.001, 0.001])
-              // By replacing with sensible defaults
-              if (detection.bbox.every(val => val < 0.01) && 
-                  Math.abs(detection.bbox[0] - detection.bbox[2]) < 0.01 &&
-                  Math.abs(detection.bbox[1] - detection.bbox[3]) < 0.01) {
-                // These aren't useful bounding boxes - use full frame instead
-                normalizedBbox = [0, 0, 1, 1];
-                console.log(`Detection ${index}: Tiny bbox detected, using full frame instead`);
-              } else {
-                // Normal case - use as provided
-                normalizedBbox = [...detection.bbox];
-                
-                // Ensure x2 > x1 and y2 > y1
-                if (normalizedBbox[2] < normalizedBbox[0]) {
-                  [normalizedBbox[0], normalizedBbox[2]] = [normalizedBbox[2], normalizedBbox[0]];
-                }
-                if (normalizedBbox[3] < normalizedBbox[1]) {
-                  [normalizedBbox[1], normalizedBbox[3]] = [normalizedBbox[3], normalizedBbox[1]];
-                }
-                
-                console.log(`Detection ${index}: Using normalized bbox [${normalizedBbox.join(', ')}]`);
+              processedBbox = [...detection.bbox];
+              
+              // Ensure all values are valid numbers
+              processedBbox = processedBbox.map(val => 
+                isNaN(val) ? 0 : val
+              );
+              
+              // Ensure coordinates are properly ordered (x1 < x2, y1 < y2)
+              if (processedBbox[2] < processedBbox[0]) {
+                [processedBbox[0], processedBbox[2]] = [processedBbox[2], processedBbox[0]];
               }
-            } 
-            // Check if we have x,y,width,height format (in absolute pixels)
+              if (processedBbox[3] < processedBbox[1]) {
+                [processedBbox[1], processedBbox[3]] = [processedBbox[3], processedBbox[1]];
+              }
+              
+              console.log(`Detection ${index}: Using bbox [${processedBbox.join(', ')}]`);
+            }
+            // Check if we have x,y,width,height format
             else if (detection.x !== undefined && detection.y !== undefined && 
                     detection.width !== undefined && detection.height !== undefined) {
               
-              // Convert to normalized format
+              // Convert to normalized format [0-1]
               const imgWidth = canvasRef.current?.width || 640;
               const imgHeight = canvasRef.current?.height || 360;
               
@@ -154,39 +149,31 @@ export const useVideoFeed = ({
               const x2 = (detection.x + detection.width) / imgWidth;
               const y2 = (detection.y + detection.height) / imgHeight;
               
-              normalizedBbox = [x1, y1, x2, y2];
-              console.log(`Detection ${index}: Converted pixel coords to normalized [${normalizedBbox.join(', ')}]`);
-            } 
-            // If we only have class/score (no location)
+              processedBbox = [x1, y1, x2, y2];
+              console.log(`Detection ${index}: Converting x,y,w,h to bbox [${processedBbox.join(', ')}]`);
+            }
+            // If no valid bbox data, use default (full frame)
             else {
-              // Use default values (full frame)
-              normalizedBbox = [0, 0, 1, 1];
-              console.log(`Detection ${index}: No valid bbox, using default [${normalizedBbox.join(', ')}]`);
+              processedBbox = [0, 0, 1, 1];
+              console.log(`Detection ${index}: No valid bbox, using default [${processedBbox.join(', ')}]`);
             }
             
+            // Return normalized detection
             return {
               id: uniqueId,
-              label: detection.label || (detection.class || 'Object'),
+              label: processedLabel,
               class: detection.class || detection.label || 'Object',
               confidence: detection.confidence || 0,
-              bbox: normalizedBbox
+              bbox: processedBbox
             };
           });
           
           // Filter out detections with very low confidence
           const filteredDetections = normalizedDetections.filter(d => 
-            d.confidence > 0.25 // Only show detections with confidence > 25%
+            d.confidence > 0.1 // Lower threshold to show more detections for debugging
           );
           
           console.log(`Filtered to ${filteredDetections.length} detections above threshold`);
-          
-          // Log an example of a correctly formatted detection
-          if (filteredDetections.length > 0) {
-            console.log("Example detection:", {
-              ...filteredDetections[0],
-              bbox: filteredDetections[0].bbox.map(v => v.toFixed(4)).join(', ')
-            });
-          }
           
           setDetections(filteredDetections);
           setInferenceLocation(result.processedAt);
@@ -201,15 +188,6 @@ export const useVideoFeed = ({
               source: camera?.id || "video-feed" 
             } 
           }));
-          
-          if (!autoStart && filteredDetections.length > 0) {
-            const highConfDetection = filteredDetections.find(d => d.confidence > 0.85);
-            if (highConfDetection) {
-              toast.warning(`High confidence detection: ${highConfDetection.label}`, {
-                description: `Confidence: ${(highConfDetection.confidence * 100).toFixed(1)}%`
-              });
-            }
-          }
         } else {
           console.log("No detections from inference API");
           setDetections([]);

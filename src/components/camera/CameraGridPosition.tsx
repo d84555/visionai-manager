@@ -53,6 +53,7 @@ const CameraGridPosition: React.FC<CameraGridPositionProps> = ({
         id={`camera-${positionId}`}
         className={`relative border rounded-md overflow-hidden ${isFullscreen ? 'fixed inset-0 z-50 bg-black' : ''}`}
         onContextMenu={onContextMenu}
+        style={{ minHeight: "200px" }} // Ensure minimum height for detection overlay
       >
         <div className="absolute top-2 left-2 z-20 bg-black/70 text-white text-xs px-2 py-1 rounded">
           {camera.name}
