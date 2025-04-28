@@ -22,19 +22,19 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         console.log("First detection:", firstDet);
         
         // Check coordinate format type
-        const hasCenterX = firstDet.center_x !== undefined || firstDet.x !== undefined;
-        const hasCenterY = firstDet.center_y !== undefined || firstDet.y !== undefined;
+        const hasCenterX = firstDet.x !== undefined;
+        const hasCenterY = firstDet.y !== undefined;
         const hasBbox = Array.isArray(firstDet.bbox) && firstDet.bbox.length === 4;
         
         console.log(`Detection format: ${(hasCenterX && hasCenterY) ? 'Center coordinates' : ''} ${hasBbox ? 'Bbox coordinates' : ''}`);
         
         if (hasCenterX && hasCenterY) {
-          const centerX = firstDet.center_x !== undefined ? firstDet.center_x : firstDet.x;
-          const centerY = firstDet.center_y !== undefined ? firstDet.center_y : firstDet.y;
+          const centerX = firstDet.x;
+          const centerY = firstDet.y;
           const width = firstDet.width || 0;
           const height = firstDet.height || 0;
           
-          console.log(`Center format values: center_x=${centerX}, center_y=${centerY}, width=${width}, height=${height}`);
+          console.log(`Center format values: x=${centerX}, y=${centerY}, width=${width}, height=${height}`);
           // Determine if normalized or absolute
           const isNormalized = centerX >= 0 && centerX <= 1 && centerY >= 0 && centerY <= 1;
           console.log(`Center coordinates appear to be: ${isNormalized ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
@@ -87,13 +87,12 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         const scaleFactor = minimal ? 0.5 : 1;
         
         // CASE 1: Handle YOLO-style center+dimensions format
-        if ((detection.center_x !== undefined || detection.x !== undefined) && 
-            (detection.center_y !== undefined || detection.y !== undefined) && 
+        if (detection.x !== undefined && detection.y !== undefined && 
             detection.width !== undefined && detection.height !== undefined) {
           
-          // Get center coordinates (handle both center_x and x naming)
-          const centerX = detection.center_x !== undefined ? detection.center_x : detection.x;
-          const centerY = detection.center_y !== undefined ? detection.center_y : detection.y;
+          // Get center coordinates
+          const centerX = detection.x;
+          const centerY = detection.y;
           
           // Assume values are normalized (0-1) as confirmed from model output
           // Convert normalized values to display pixel coordinates
