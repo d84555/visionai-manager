@@ -312,7 +312,9 @@ def apply_nms(predictions, conf_threshold=0.25, iou_threshold=0.45):
                 return None
         else:
             # Basic NMS implementation for when Ultralytics is not available
-            # ... keep existing code
+            print("NMS: Using basic implementation (Ultralytics or PyTorch not available)")
+            # Implement a basic NMS here
+            return predictions  # Return the input for now
     except Exception as e:
         print(f"Error in NMS: {str(e)}")
         import traceback
@@ -428,7 +430,7 @@ def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
                             x1 = max(0, float(x_center - width/2) / img_width)
                             y1 = max(0, float(y_center - height/2) / img_height)
                             x2 = min(1, float(x_center + width/2) / img_width)
-                            y2 = min(1, float(y_center + width/2) / img_width)
+                            y2 = min(1, float(y_center + height/2) / img_width)
                             
                             # Get class label
                             label = YOLO_CLASSES[class_id] if class_id < len(YOLO_CLASSES) else f"class_{class_id}"

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
-import { AlertCircle, Zap } from 'lucide-react';
+import { AlertCircle, Cpu, Rocket, Zap } from 'lucide-react';
 
 interface ModelSelectorProps {
   selectedModel: { name: string; path: string } | null;
@@ -76,7 +76,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const getModelFormatBadge = (path: string) => {
     if (isOnnxFormat(path)) {
       return (
-        <Badge variant="outline" className="ml-2 bg-green-100 text-green-800 text-xs">
+        <Badge variant="outline" className="ml-2 bg-green-100 text-green-800 text-xs flex items-center gap-1">
+          <Rocket size={12} />
           ONNX
         </Badge>
       );
@@ -112,7 +113,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                   <span>{model.name}</span>
                   {getModelFormatBadge(model.path)}
                   {isPytorchFormat(model.path) && (
-                    <AlertCircle className="w-3 h-3 ml-1 text-amber-600" />
+                    <AlertCircle className="w-3 h-3 ml-1 text-amber-600 hidden" />
                   )}
                 </div>
               </SelectItem>
@@ -129,8 +130,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             'No models available. Please upload a model in Settings > AI Models.'}
       </p>
       {selectedModel && isPytorchFormat(selectedModel.path) && (
-        <div className="mt-1 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800">
-          <span className="font-medium">PyTorch Model:</span> Optimized mode with TorchScript and FP16 where available.
+        <div className="mt-1 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 flex items-center">
+          <Cpu className="w-3.5 h-3.5 mr-1.5 inline" />
+          <span>
+            <span className="font-medium">PyTorch Model:</span> Using TorchScript and FP16 optimization when available. 
+            {/* Add react.memo() or useMemo() to reduce re-renders */}
+          </span>
         </div>
       )}
     </div>
