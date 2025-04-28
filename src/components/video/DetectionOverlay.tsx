@@ -19,17 +19,24 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
       if (detections[0]) {
         const firstDet = detections[0];
         console.log("%c Detection Format Analysis:", "background: #27ae60; color: white; padding: 5px;");
+        console.log("First detection:", firstDet);
         
         // Check coordinate format type
-        const hasCenter = firstDet.x !== undefined && firstDet.y !== undefined;
+        const hasCenterX = firstDet.center_x !== undefined || firstDet.x !== undefined;
+        const hasCenterY = firstDet.center_y !== undefined || firstDet.y !== undefined;
         const hasBbox = Array.isArray(firstDet.bbox) && firstDet.bbox.length === 4;
         
-        console.log(`Detection contains: ${hasCenter ? 'Center coordinates (x,y,w,h)' : ''} ${hasBbox ? 'Bbox coordinates [x1,y1,x2,y2]' : ''}`);
+        console.log(`Detection format: ${(hasCenterX && hasCenterY) ? 'Center coordinates' : ''} ${hasBbox ? 'Bbox coordinates' : ''}`);
         
-        if (hasCenter) {
-          console.log(`Center format values: x=${firstDet.x}, y=${firstDet.y}, w=${firstDet.width}, h=${firstDet.height}`);
+        if (hasCenterX && hasCenterY) {
+          const centerX = firstDet.center_x !== undefined ? firstDet.center_x : firstDet.x;
+          const centerY = firstDet.center_y !== undefined ? firstDet.center_y : firstDet.y;
+          const width = firstDet.width || 0;
+          const height = firstDet.height || 0;
+          
+          console.log(`Center format values: center_x=${centerX}, center_y=${centerY}, width=${width}, height=${height}`);
           // Determine if normalized or absolute
-          const isNormalized = firstDet.x >= 0 && firstDet.x <= 1 && firstDet.y >= 0 && firstDet.y <= 1;
+          const isNormalized = centerX >= 0 && centerX <= 1 && centerY >= 0 && centerY <= 1;
           console.log(`Center coordinates appear to be: ${isNormalized ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
         }
         
@@ -66,14 +73,12 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
     return null;
   }
   
-  // Get video dimensions - source dimensions and display dimensions
-  const videoWidth = videoElement.videoWidth;
-  const videoHeight = videoElement.videoHeight;
+  // Get video dimensions - actual display dimensions
   const videoBounds = videoElement.getBoundingClientRect();
   const displayWidth = videoBounds.width;
   const displayHeight = videoBounds.height;
   
-  console.log(`Video dimensions: ${videoWidth}x${videoHeight}, Display: ${displayWidth}x${displayHeight}`);
+  console.log(`Video display dimensions: ${displayWidth}x${displayHeight}`);
   
   return (
     <>
@@ -82,40 +87,29 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         const scaleFactor = minimal ? 0.5 : 1;
         
         // CASE 1: Handle YOLO-style center+dimensions format
-        // This is for models that output (center_x, center_y, width, height)
-        if (detection.x !== undefined && detection.y !== undefined && 
+        if ((detection.center_x !== undefined || detection.x !== undefined) && 
+            (detection.center_y !== undefined || detection.y !== undefined) && 
             detection.width !== undefined && detection.height !== undefined) {
           
-          // First check if these are already pixel values or normalized values (0-1)
-          const isNormalized = detection.x >= 0 && detection.x <= 1 && 
-                              detection.y >= 0 && detection.y <= 1 && 
-                              detection.width >= 0 && detection.width <= 1 && 
-                              detection.height >= 0 && detection.height <= 1;
+          // Get center coordinates (handle both center_x and x naming)
+          const centerX = detection.center_x !== undefined ? detection.center_x : detection.x;
+          const centerY = detection.center_y !== undefined ? detection.center_y : detection.y;
           
-          // If values are normalized (0-1), convert to actual video pixel space
-          let centerX = detection.x;
-          let centerY = detection.y;
-          let boxWidth = detection.width;
-          let boxHeight = detection.height;
-          
-          if (isNormalized) {
-            centerX *= videoWidth;
-            centerY *= videoHeight;
-            boxWidth *= videoWidth;
-            boxHeight *= videoHeight;
-          }
+          // Assume values are normalized (0-1) as confirmed from model output
+          // Convert normalized values to display pixel coordinates
+          const displayCenterX = centerX * displayWidth;
+          const displayCenterY = centerY * displayHeight;
+          const displayBoxWidth = detection.width * displayWidth;
+          const displayBoxHeight = detection.height * displayHeight;
           
           // Convert from center coordinates to top-left coordinates for display
-          const x = centerX - (boxWidth / 2);
-          const y = centerY - (boxHeight / 2);
+          const displayX = displayCenterX - (displayBoxWidth / 2);
+          const displayY = displayCenterY - (displayBoxHeight / 2);
           
-          // Calculate display coordinates from video coordinates
-          const displayX = (x / videoWidth) * displayWidth;
-          const displayY = (y / videoHeight) * displayHeight;
-          const displayBoxWidth = (boxWidth / videoWidth) * displayWidth;
-          const displayBoxHeight = (boxHeight / videoHeight) * displayHeight;
-          
-          console.log(`Detection ${index}: Center format [${centerX.toFixed(1)}, ${centerY.toFixed(1)}, ${boxWidth.toFixed(1)}, ${boxHeight.toFixed(1)}] -> Display [${displayX.toFixed(1)}, ${displayY.toFixed(1)}, ${displayBoxWidth.toFixed(1)}, ${displayBoxHeight.toFixed(1)}]`);
+          if (index === 0) {
+            console.log(`First detection: normalized(${centerX.toFixed(3)}, ${centerY.toFixed(3)}, ${detection.width.toFixed(3)}, ${detection.height.toFixed(3)}) -> ` +
+                       `display pixels(${displayX.toFixed(1)}, ${displayY.toFixed(1)}, ${displayBoxWidth.toFixed(1)}, ${displayBoxHeight.toFixed(1)})`);
+          }
           
           // Skip invalid or tiny bounding boxes
           if (displayBoxWidth < 1 || displayBoxHeight < 1 || isNaN(displayBoxWidth) || 
@@ -165,37 +159,17 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           // Get coordinates [x1, y1, x2, y2]
           const [x1, y1, x2, y2] = detection.bbox;
           
-          // Check if these are normalized coordinates (0-1)
-          const isNormalized = x1 >= 0 && x1 <= 1 && y1 >= 0 && y1 <= 1 && 
-                              x2 >= 0 && x2 <= 1 && y2 >= 0 && y2 <= 1;
+          // Assume these are normalized coordinates (0-1)
+          // Convert normalized values to display pixel coordinates
+          const displayX = x1 * displayWidth;
+          const displayY = y1 * displayHeight;
+          const displayBoxWidth = (x2 - x1) * displayWidth;
+          const displayBoxHeight = (y2 - y1) * displayHeight;
           
-          // Convert to pixel values if normalized
-          let pixelX1, pixelY1, pixelX2, pixelY2;
-          
-          if (isNormalized) {
-            pixelX1 = x1 * videoWidth;
-            pixelY1 = y1 * videoHeight;
-            pixelX2 = x2 * videoWidth;
-            pixelY2 = y2 * videoHeight;
-          } else {
-            // Assume these are already pixel values
-            pixelX1 = x1;
-            pixelY1 = y1;
-            pixelX2 = x2;
-            pixelY2 = y2;
+          if (index === 0) {
+            console.log(`First detection bbox: normalized[${x1.toFixed(3)}, ${y1.toFixed(3)}, ${x2.toFixed(3)}, ${y2.toFixed(3)}] -> ` +
+                       `display pixels[${displayX.toFixed(1)}, ${displayY.toFixed(1)}, ${displayBoxWidth.toFixed(1)}, ${displayBoxHeight.toFixed(1)}]`);
           }
-          
-          // Calculate width and height
-          const boxWidth = pixelX2 - pixelX1;
-          const boxHeight = pixelY2 - pixelY1;
-          
-          // Calculate display coordinates
-          const displayX = (pixelX1 / videoWidth) * displayWidth;
-          const displayY = (pixelY1 / videoHeight) * displayHeight;
-          const displayBoxWidth = (boxWidth / videoWidth) * displayWidth;
-          const displayBoxHeight = (boxHeight / videoHeight) * displayHeight;
-          
-          console.log(`Detection ${index}: bbox [${pixelX1.toFixed(1)},${pixelY1.toFixed(1)},${pixelX2.toFixed(1)},${pixelY2.toFixed(1)}] -> Display [${displayX.toFixed(1)},${displayY.toFixed(1)}, ${displayBoxWidth.toFixed(1)}x${displayBoxHeight.toFixed(1)}]`);
           
           // Skip invalid or tiny bounding boxes
           if (displayBoxWidth < 1 || displayBoxHeight < 1 || isNaN(displayBoxWidth) || 
@@ -246,4 +220,3 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
     </>
   );
 };
-
