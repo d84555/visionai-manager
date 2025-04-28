@@ -2,23 +2,22 @@ import React, { useState, useEffect } from 'react';
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardFooter,
   CardHeader,
-  CardTitle,
+  CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { Upload, Info } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
 import SettingsService from '@/services/SettingsService';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Info, Check, Layers, Upload } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Check, Layers } from 'lucide-react';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 interface ModelSelectorProps {
   onModelSelected?: (modelName: string, modelPath: string) => void;
@@ -139,11 +138,20 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const isOnnxFormat = file.name.toLowerCase().endsWith('.onnx');
+      const isPyTorch = file.name.toLowerCase().endsWith('.pt') || 
+                       file.name.toLowerCase().endsWith('.pth');
+      const isOnnx = file.name.toLowerCase().endsWith('.onnx');
       
-      if (!isOnnxFormat) {
-        toast.warning("Non-ONNX model detected", {
-          description: "For best results, upload models in ONNX format. Other formats may not work with GPU acceleration."
+      if (!isOnnx && !isPyTorch) {
+        toast.warning("Unsupported model format", {
+          description: "Please upload either ONNX (.onnx) or PyTorch (.pt/.pth) models"
+        });
+        return;
+      }
+      
+      if (isPyTorch) {
+        toast.info("PyTorch model detected", {
+          description: "Note: PyTorch models are currently in beta support. For best performance, consider converting to ONNX format."
         });
       }
       
@@ -162,15 +170,24 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
       return;
     }
     
+    const isPyTorch = modelFile.name.toLowerCase().endsWith('.pt') || 
+                     modelFile.name.toLowerCase().endsWith('.pth');
+    
     setIsUploading(true);
     
     try {
       const storageService = StorageServiceFactory.getService();
       const uploadResult = await storageService.uploadModel(modelFile, modelName);
       
-      toast.success('AI Model Uploaded', {
-        description: `${modelName} has been successfully uploaded to the Edge Computing node and is ready to use.`
-      });
+      if (isPyTorch) {
+        toast.success('PyTorch Model Uploaded (Beta)', {
+          description: 'Model uploaded successfully. Note that PyTorch support is in beta.'
+        });
+      } else {
+        toast.success('Model Uploaded', {
+          description: 'Model has been successfully uploaded and is ready to use.'
+        });
+      }
       
       setModelName('');
       setModelFile(null);
@@ -179,8 +196,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
       loadModels();
     } catch (error) {
       console.error('Error uploading model:', error);
-      toast.error('Failed to upload model to Edge Computing node', {
-        description: 'Please try again or check the Edge node connection.'
+      toast.error('Failed to upload model', {
+        description: isPyTorch 
+          ? 'Error uploading PyTorch model. This feature is in beta.'
+          : 'Please try again or check your connection.'
       });
     } finally {
       setIsUploading(false);
@@ -325,13 +344,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
                 <Input 
                   id="model-file" 
                   type="file" 
-                  accept=".onnx,.pt,.pth,.tflite,.pb" 
+                  accept=".onnx,.pt,.pth" 
                   onChange={handleFileChange}
                   disabled={isUploading}
                 />
                 <p className="text-xs text-muted-foreground">
                   <strong className="text-green-600">Recommended:</strong> .onnx (ONNX format)<br />
-                  <strong className="text-yellow-600">Limited support:</strong> .pt, .pth, .tflite, .pb
+                  <strong className="text-yellow-600">Beta support:</strong> .pt, .pth (PyTorch format)
                 </p>
               </div>
               
@@ -371,7 +390,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
               <div className="bg-yellow-50 p-4 rounded-md border border-yellow-100">
                 <p className="text-sm text-yellow-800">
                   <strong>Important:</strong> For GPU acceleration and best performance, please use ONNX format models.
-                  PyTorch (.pt/.pth) and other formats will fall back to simulated detections.
+                  PyTorch (.pt/.pth) support is currently in beta and may have limited functionality.
                 </p>
               </div>
             </div>
