@@ -27,11 +27,12 @@ export interface SyslogConfig {
 
 // Adding this for SyslogConfig component
 export interface SyslogSettings {
+  enabled: boolean;
   server: string;
   port: number;
   protocol: 'UDP' | 'TCP';
   facility: string;
-  appName: string;
+  severity: string;
 }
 
 export interface StorageConfig {
@@ -79,8 +80,8 @@ export interface ModelInfo {
   id: string;
   name: string;
   path: string;
-  size?: string;
-  uploadedAt: string;
+  size?: string;  // Making size optional
+  uploadedAt?: string;
   cameras?: string[];
 }
 
@@ -268,16 +269,19 @@ class SettingsService {
         };
       case 'syslog':
         return {
+          enabled: false,
           server: '',
           port: 514,
           protocol: 'UDP',
           facility: 'local0',
+          severity: 'notice',
           appName: 'AvianetVision'
         };
       case 'gridLayout':
         return {
           layout: '2x2',
-          streamType: 'main'
+          streamType: 'main',
+          pinnedCameraIds: []
         };
       default:
         return {};

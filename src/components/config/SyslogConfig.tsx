@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,8 +13,8 @@ const SyslogConfig = () => {
   const [syslogConfig, setSyslogConfig] = useState<SyslogSettings>({
     enabled: false,
     server: '',
-    port: '514',
-    protocol: 'udp',
+    port: 514,
+    protocol: 'UDP',
     facility: 'local0',
     severity: 'notice',
   });
@@ -36,7 +37,13 @@ const SyslogConfig = () => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setSyslogConfig(prev => ({ ...prev, [name]: value }));
+    setSyslogConfig(prev => {
+      if (name === 'port') {
+        // Convert port to number
+        return { ...prev, [name]: parseInt(value, 10) || 514 };
+      }
+      return { ...prev, [name]: value };
+    });
   };
 
   const handleSelectChange = (name: string, value: string) => {
@@ -110,6 +117,7 @@ const SyslogConfig = () => {
                 value={syslogConfig.port}
                 onChange={handleInputChange}
                 placeholder="514"
+                type="number"
               />
             </div>
           </div>
@@ -125,8 +133,8 @@ const SyslogConfig = () => {
                   <SelectValue placeholder="Select Protocol" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="udp">UDP</SelectItem>
-                  <SelectItem value="tcp">TCP</SelectItem>
+                  <SelectItem value="UDP">UDP</SelectItem>
+                  <SelectItem value="TCP">TCP</SelectItem>
                 </SelectContent>
               </Select>
             </div>

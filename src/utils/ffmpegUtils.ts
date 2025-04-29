@@ -1,3 +1,4 @@
+
 import SettingsService from '@/services/SettingsService';
 import { toast } from 'sonner';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -12,16 +13,6 @@ const supportedFormats = {
   // Hikvision often uses these formats
   'video/x-dav': true,
   'application/octet-stream': true, // For various proprietary formats
-};
-
-// Create FFmpeg instance
-const createFFmpeg = (options: any) => {
-  return new FFmpeg(options);
-};
-
-// Fetch file helper function (replacement for fetchFile from older versions)
-const fetchFile = async (file: File) => {
-  return new Uint8Array(await file.arrayBuffer());
 };
 
 // Track ffmpeg loaded status
@@ -139,31 +130,31 @@ const handleHikvisionFormat = (fileData: Uint8Array, videoFile: File): string =>
  * @returns Promise with URL to the converted MP4 file
  */
 export const convertDavToMP4 = async (file: File): Promise<string> => {
-  const ffmpeg = createFFmpeg({ 
-    log: true,
-    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-  });
+  // Create FFmpeg instance
+  const ffmpeg = new FFmpeg();
   
   try {
     await ffmpeg.load();
     
-    // Write the input file to memory
-    ffmpeg.FS('writeFile', 'input.dav', await fetchFile(file));
+    // For newer versions of @ffmpeg/ffmpeg (v0.12+), we need to use the writeFile method directly
+    // and the WebAssembly API changed significantly
+    const fileData = await file.arrayBuffer();
+    await ffmpeg.writeFile('input.dav', new Uint8Array(fileData));
     
     // Run the FFmpeg command to convert DAV to MP4
-    await ffmpeg.run(
+    await ffmpeg.exec([
       '-i', 'input.dav',
       '-c:v', 'libx264',
       '-preset', 'fast',
       '-c:a', 'aac',
       'output.mp4'
-    );
+    ]);
     
     // Read the output file from memory
-    const data = ffmpeg.FS('readFile', 'output.mp4');
+    const outputData = await ffmpeg.readFile('output.mp4');
     
     // Create a URL for the output file
-    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    const blob = new Blob([outputData], { type: 'video/mp4' });
     const url = URL.createObjectURL(blob);
     
     return url;

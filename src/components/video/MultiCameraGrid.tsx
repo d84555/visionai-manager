@@ -274,7 +274,7 @@ const MultiCameraGrid: React.FC<MultiCameraGridProps> = ({ layout, streamType })
                   camera={camera}
                   isPinned={pinnedCameraIds.includes(camera.id)}
                   onPinToggle={() => handlePinCamera(camera.id)}
-                  activeModel={activeModel}
+                  activeModels={[activeModel]}
                 />
               </div>
             </Card>
