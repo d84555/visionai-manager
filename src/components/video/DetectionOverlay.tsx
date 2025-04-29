@@ -47,12 +47,13 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
             // Determine if normalized or absolute
             const allInRange = firstDet.bbox.every(val => val >= 0 && val <= 1);
             console.log(`Bbox coordinates appear to be: ${allInRange ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
-          } else {
+          } else if (typeof firstDet.bbox === 'object') {
             // Object format
-            const bbox = firstDet.bbox as { x1: number; y1: number; x2: number; y2: number; width: number; height: number; };
+            const bbox = firstDet.bbox as { x1: number; y1: number; x2: number; y2: number; width?: number; height?: number; };
             console.log(`Bbox values: x1=${bbox.x1}, y1=${bbox.y1}, x2=${bbox.x2}, y2=${bbox.y2}`);
             // Determine if normalized or absolute
-            const allInRange = [bbox.x1, bbox.y1, bbox.x2, bbox.y2].every(val => val >= 0 && val <= 1);
+            const coordinates = [bbox.x1, bbox.y1, bbox.x2, bbox.y2];
+            const allInRange = coordinates.every(val => val >= 0 && val <= 1);
             console.log(`Bbox coordinates appear to be: ${allInRange ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
           }
         }
@@ -201,8 +202,12 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
               return null;
             }
           } else {
-            // Object format
-            const bbox = detection.bbox as { x1: number; y1: number; x2: number; y2: number };
+            // Object format - ensure we have all required properties
+            const bbox = detection.bbox as { x1: number; y1: number; x2: number; y2: number; };
+            if (bbox.x1 === undefined || bbox.y1 === undefined || bbox.x2 === undefined || bbox.y2 === undefined) {
+              console.warn('Invalid bbox object format: missing coordinates', detection);
+              return null;
+            }
             x1 = bbox.x1;
             y1 = bbox.y1;
             x2 = bbox.x2;
@@ -325,4 +330,3 @@ function getModelColor(modelName: string): string {
   // Return default color if no match
   return colorMap.default;
 }
-
