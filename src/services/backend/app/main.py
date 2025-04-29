@@ -1,37 +1,54 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 import os
+import sys
+import time
 
 # Import routers
-from app.routers import models, inference
+from app.routers import models, inference, websocket
 
 # Create FastAPI app
-app = FastAPI(title="VisionAI Backend", description="Backend API for VisionAI object detection")
+app = FastAPI(
+    title="VisionAI Edge API",
+    description="API for Edge Computing and Vision AI Model Management",
+    version="1.0.0",
+)
 
-# Configure CORS
+# Add CORS middleware for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend domain
+    allow_origins=["*"],  # In production, restrict to specific origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Include routers
-app.include_router(models.router, prefix="/api")
-app.include_router(inference.router, prefix="/api")
+app.include_router(models.router)
+app.include_router(inference.router)
+app.include_router(websocket.router)
 
-# Mount static files directory for model access if it exists
-STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-os.makedirs(os.path.join(STATIC_DIR, "models"), exist_ok=True)
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-@app.get("/")
+# Root endpoint
+@app.get("/", tags=["status"])
 async def root():
-    return {"message": "VisionAI Backend API is running"}
+    return {
+        "status": "online",
+        "version": "1.0.0",
+        "uptime": time.time(),
+        "endpoints": [
+            "/models - Model management",
+            "/inference - Vision inference",
+            "/ws - WebSocket API for real-time inference",
+        ]
+    }
 
+# Health check endpoint
+@app.get("/health", tags=["status"])
+async def health():
+    return {"status": "healthy"}
+
+# If running as a script, start Uvicorn server
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

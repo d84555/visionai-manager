@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Camera, VideoIcon, Loader, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -7,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useVideoFeed } from '@/hooks/useVideoFeed';
 import { VideoControls } from './VideoControls';
-import { DetectionOverlay } from './DetectionOverlay';
+import { CanvasDetectionOverlay } from './CanvasDetectionOverlay';
 import { ModelSelector } from './ModelSelector';
 import { DemoVideoButtons } from './DemoVideoButtons';
 import SettingsService from '@/services/SettingsService';
@@ -30,6 +31,7 @@ interface VideoFeedProps {
   onPinToggle?: () => void;
   activeModel?: { name: string; path: string };
   streamType?: 'main' | 'sub';
+  fps?: number;
 }
 
 const VideoFeed: React.FC<VideoFeedProps> = ({ 
@@ -40,7 +42,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   isPinned = false,
   onPinToggle,
   activeModel,
-  streamType = 'main'
+  streamType = 'main',
+  fps = 10
 }) => {
   const [selectedModel, setSelectedModel] = useState<{name: string; path: string} | null>(null);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
@@ -85,6 +88,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     hasUploadedFile,
     inferenceLocation,
     inferenceTime,
+    actualFps,
     isHikvisionFormat,
     setIsHikvisionFormat,
     isModelLoading,
@@ -103,7 +107,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     autoStart,
     camera,
     activeModel: selectedModel || activeModel,
-    streamType
+    streamType,
+    fps
   });
 
   const handleModelChange = (modelId: string) => {
@@ -156,7 +161,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             />
             
             <div className="absolute inset-0 pointer-events-none">
-              <DetectionOverlay detections={detections} minimal />
+              <CanvasDetectionOverlay 
+                detections={detections} 
+                videoRef={videoRef}
+                minimal 
+              />
             </div>
             
             <VideoControls
@@ -187,6 +196,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
           {isHikvisionFormat && (
             <Badge variant="outline" className="ml-2 bg-blue-500 text-white">
               HIKVISION
+            </Badge>
+          )}
+          {actualFps !== null && (
+            <Badge variant="outline" className="ml-2">
+              {actualFps} FPS
             </Badge>
           )}
         </CardTitle>
@@ -286,7 +300,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 />
                 
                 <div className="absolute inset-0 pointer-events-none">
-                  <DetectionOverlay detections={detections} />
+                  <CanvasDetectionOverlay detections={detections} videoRef={videoRef} />
                 </div>
                 
                 <VideoControls
@@ -337,14 +351,21 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                   </p>
                 </div>
               </div>
-              {inferenceTime && (
-                <div className="text-right">
-                  <p className="text-sm font-medium">Inference Time</p>
-                  <p className={`text-sm ${inferenceLocation === 'edge' ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
-                    {inferenceTime.toFixed(1)} ms
-                  </p>
+              <div className="text-right flex flex-col">
+                <p className="text-sm font-medium">Inference Stats</p>
+                <div className="flex gap-2 items-center">
+                  {inferenceTime && (
+                    <p className={`text-sm ${inferenceLocation === 'edge' ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                      {inferenceTime.toFixed(1)} ms
+                    </p>
+                  )}
+                  {actualFps !== null && (
+                    <Badge variant="outline" className="text-xs py-0">
+                      {actualFps} FPS
+                    </Badge>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           )}
           

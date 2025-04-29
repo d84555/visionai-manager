@@ -1,13 +1,41 @@
 
-// EdgeAIInference.ts
-// This service handles communication with edge devices for AI inference
+import axios from 'axios';
+import { toast } from 'sonner';
 
-import { toast } from "sonner";
-import SettingsService from './SettingsService';
-import StorageServiceFactory from './storage/StorageServiceFactory';
+// Define the backend server URL
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-// Types for inference requests and responses
-export interface InferenceRequest {
+export interface BackendDetection {
+  label?: string;
+  class?: string;
+  confidence?: number;
+  bbox?: number[]; // [x1, y1, x2, y2]
+  x?: number;      // center x (normalized 0-1)
+  y?: number;      // center y (normalized 0-1)
+  width?: number;  // width (normalized 0-1)
+  height?: number; // height (normalized 0-1)
+}
+
+export interface Detection {
+  id: string;
+  label: string;
+  class: string;
+  confidence: number;
+  bbox?: number[]; // [x1, y1, x2, y2]
+  x?: number;      // center x (normalized 0-1)
+  y?: number;      // center y (normalized 0-1)
+  width?: number;  // width (normalized 0-1)
+  height?: number; // height (normalized 0-1)
+}
+
+interface InferenceResponse {
+  detections: BackendDetection[];
+  inferenceTime: number;
+  processedAt: 'edge' | 'server';
+  timestamp: string;
+}
+
+interface InferenceRequest {
   imageData: string;
   cameraId: string;
   modelName: string;
@@ -15,450 +43,250 @@ export interface InferenceRequest {
   thresholdConfidence: number;
 }
 
-export interface InferenceResult {
-  detections: BackendDetection[];
-  processedAt: 'edge' | 'server';
-  inferenceTime: number;
-}
+// WebSocket connection management
+class WebSocketManager {
+  private socket: WebSocket | null = null;
+  private isConnected = false;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  private messageCallbacks: Map<string, (data: any) => void> = new Map();
+  private clientId: string | null = null;
 
-// Interface for backend detection format (coming from YOLO model)
-export interface BackendDetection {
-  label: string;
-  class?: string;   // Class property for detection type
-  confidence: number;
-  bbox?: number[];   // [x1, y1, x2, y2] normalized coordinates
-  x?: number;       // Center x position (YOLO format)
-  y?: number;       // Center y position (YOLO format)
-  width?: number;   // Width in pixels or normalized
-  height?: number;  // Height in pixels or normalized
-}
+  constructor(private url: string) {}
 
-// Frontend detection format (used by the UI components)
-export interface Detection {
-  id: string;
-  class?: string;
-  label?: string;
-  confidence: number;
-  x?: number;        // Center x position (YOLO format)
-  y?: number;        // Center y position (YOLO format)
-  width?: number;    // Width in pixels or normalized
-  height?: number;   // Height in pixels or normalized
-  bbox?: number[];   // [x1, y1, x2, y2] coordinates
-  format?: 'onnx' | 'pytorch' | 'unknown'; // Track the source model format
-}
-
-class EdgeAIInferenceService {
-  private apiBaseUrl = 'http://localhost:8000/api';
-  private simulatedMode = false; // Flag to control simulation
-
-  constructor() {
-    console.log("Initializing Edge AI Inference service with API server backend");
-    
-    // Check if we're in simulated mode
-    this.simulatedMode = StorageServiceFactory.getMode() === 'simulated';
-    console.log(`Edge AI Service initialized in ${this.simulatedMode ? 'simulated' : 'real'} mode`);
-  }
-  
-  // Toggle simulated mode (for debugging)
-  setSimulatedMode(enabled: boolean) {
-    this.simulatedMode = enabled;
-    console.log(`Simulated mode ${enabled ? 'enabled' : 'disabled'}`);
-  }
-  
-  // Check if a model path is a PyTorch model
-  isPytorchModel(modelPath: string): boolean {
-    return modelPath.toLowerCase().endsWith('.pt') || modelPath.toLowerCase().endsWith('.pth');
-  }
-  
-  // Check if a model path is an ONNX model
-  isOnnxModel(modelPath: string): boolean {
-    return modelPath.toLowerCase().endsWith('.onnx');
-  }
-  
-  // Process an inference request
-  async performInference(request: InferenceRequest): Promise<InferenceResult> {
-    console.info(`Performing inference for camera ${request.cameraId} with model ${request.modelName}`);
-    
-    try {
-      // Get model format
-      const isPytorch = this.isPytorchModel(request.modelPath);
-      const isOnnx = this.isOnnxModel(request.modelPath);
-      
-      // Log model format for debugging
-      console.log(`Model format: ${isPytorch ? 'PyTorch' : (isOnnx ? 'ONNX' : 'Unknown')}`);
-      
-      // Ensure the model path has the correct extension
-      let modelPath = request.modelPath;
-      
-      // If in simulated mode, we'll simulate detection results
-      if (this.simulatedMode) {
-        console.log("Using simulated inference mode");
-        
-        // Create simulated detections after a short delay
-        await new Promise(resolve => setTimeout(resolve, 200));
-        
-        // Create test detections with YOLO format (center_x, center_y, width, height)
-        // These are center-based coordinates as output by YOLO models
-        return {
-          detections: [
-            {
-              label: "person",
-              class: "person",
-              confidence: 0.92,
-              // Provide both formats for testing
-              // center-based coordinates (YOLO standard output format)
-              x: 0.2,       // center_x (normalized 0-1)
-              y: 0.45,      // center_y (normalized 0-1)
-              width: 0.2,   // width (normalized 0-1)
-              height: 0.5,  // height (normalized 0-1)
-              // Also include bbox format for compatibility
-              bbox: [0.1, 0.2, 0.3, 0.7]  // [x1, y1, x2, y2] normalized
-            },
-            {
-              label: "car",
-              class: "car",
-              confidence: 0.87,
-              // YOLO format (center_x, center_y, width, height)
-              x: 0.75,      // center_x (normalized 0-1)
-              y: 0.6,       // center_y (normalized 0-1)
-              width: 0.3,   // width (normalized 0-1)
-              height: 0.2,  // height (normalized 0-1)
-              // Also include bbox format for compatibility
-              bbox: [0.6, 0.5, 0.9, 0.7]  // [x1, y1, x2, y2] normalized
-            },
-            {
-              label: "small_test",
-              class: "test",
-              confidence: 0.65,
-              // YOLO format with small values
-              x: 0.075,     // center_x (normalized 0-1)
-              y: 0.1,       // center_y (normalized 0-1)
-              width: 0.05,  // width (normalized 0-1)
-              height: 0.1,  // height (normalized 0-1)
-              // Also include bbox format for compatibility
-              bbox: [0.05, 0.05, 0.10, 0.15]  // [x1, y1, x2, y2] normalized
-            }
-          ],
-          processedAt: 'server',
-          inferenceTime: 150
-        };
-      }
-      
-      // Make real API request to backend
-      const response = await fetch(`${this.apiBaseUrl}/inference/detect`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          modelPath: modelPath,
-          threshold: request.thresholdConfidence,
-          imageData: request.imageData
-        })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error("API error response:", errorData);
-        const errorDetail = errorData.detail || `API error: ${response.status}`;
-        
-        // Handle specific model format errors
-        if (errorDetail.includes("Protobuf parsing failed") || errorDetail.includes("not in ONNX format")) {
-          if (isPytorch) {
-            toast.error("PyTorch model format error", {
-              description: "There was an error loading the PyTorch model. Make sure it's a valid YOLOv5/YOLOv8 model."
-            });
-          } else {
-            toast.error("Incompatible model format", {
-              description: "The model must be in ONNX format or valid PyTorch format for inference."
-            });
-          }
-        } else if (errorDetail.includes("Model not found")) {
-          toast.error("Model file not found", {
-            description: "The selected model file was not found on the server. Please upload the model again."
-          });
-          
-          // When model not found, fall back to simulated mode
-          this.setSimulatedMode(true);
-          return this.performInference(request);
-        } else {
-          throw new Error(errorDetail);
-        }
-        
-        // Return empty result for error cases
-        return {
-          detections: [],
-          processedAt: 'server',
-          inferenceTime: 0
-        };
-      }
-      
-      // Debug network response data
-      console.log("API response received, parsing JSON...");
-      const result = await response.json();
-      console.log("API detections received:", result.detections?.length || 0);
-      
-      // *** ADDED: Enhanced detection debugging ***
-      if (result.detections && result.detections.length > 0) {
-        console.log("%c DETAILED DETECTION ANALYSIS", "background: #3498db; color: white; padding: 5px; font-size: 16px;");
-        
-        // Log the first detection in detail to understand its structure
-        const firstDetection = result.detections[0];
-        console.log("%c Example detection received from backend:", "font-weight: bold; color: #2c3e50;");
-        console.log(JSON.stringify(firstDetection, null, 2));
-        
-        // Analyze coordinate range to determine if normalized or absolute
-        const coordSummary = {
-          hasXY: firstDetection.x !== undefined && firstDetection.y !== undefined,
-          hasBbox: Array.isArray(firstDetection.bbox) && firstDetection.bbox.length === 4,
-          xyValues: firstDetection.x !== undefined ? `x: ${firstDetection.x}, y: ${firstDetection.y}` : 'N/A',
-          bboxValues: Array.isArray(firstDetection.bbox) ? `[${firstDetection.bbox.join(', ')}]` : 'N/A',
-          isNormalized: false
-        };
-        
-        // Determine if coordinates appear to be normalized (0-1) or absolute
-        if (coordSummary.hasXY) {
-          coordSummary.isNormalized = 
-            firstDetection.x >= 0 && firstDetection.x <= 1 && 
-            firstDetection.y >= 0 && firstDetection.y <= 1 &&
-            firstDetection.width >= 0 && firstDetection.width <= 1 &&
-            firstDetection.height >= 0 && firstDetection.height <= 1;
-        } else if (coordSummary.hasBbox) {
-          const allInRange = firstDetection.bbox.every(val => val >= 0 && val <= 1);
-          coordSummary.isNormalized = allInRange;
-        }
-        
-        console.log("%c Coordinate Analysis:", "font-weight: bold; color: #2c3e50;");
-        console.log(`- Format: ${coordSummary.hasXY ? 'Center format (x,y,w,h)' : (coordSummary.hasBbox ? 'Bounding box [x1,y1,x2,y2]' : 'Unknown')}`);
-        console.log(`- Values: ${coordSummary.hasXY ? coordSummary.xyValues : coordSummary.bboxValues}`);
-        console.log(`- Range: ${coordSummary.isNormalized ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
-        console.log(`- Model Format: ${isPytorch ? 'PyTorch' : (isOnnx ? 'ONNX' : 'Unknown')}`);
-        console.log(`- Recommendation: ${coordSummary.isNormalized ? 'Multiply by image dimensions' : 'Use directly'}`);
-        
-        // Display stats for all detections
-        const confidences = result.detections.map(d => d.confidence || 0);
-        const avgConfidence = confidences.reduce((sum, val) => sum + val, 0) / confidences.length;
-        console.log("%c Detection Statistics:", "font-weight: bold; color: #2c3e50;");
-        console.log(`- Total detections: ${result.detections.length}`);
-        console.log(`- Average confidence: ${avgConfidence.toFixed(3)}`);
-        console.log(`- Highest confidence: ${Math.max(...confidences).toFixed(3)}`);
-        console.log(`- Lowest confidence: ${Math.min(...confidences).toFixed(3)}`);
-        console.log(`- Inference time: ${result.inferenceTime.toFixed(2)}ms`);
-      }
-      // *** END ENHANCED DEBUGGING ***
-      
-      // Handle case where detections field is null or missing
-      if (!result.detections || !Array.isArray(result.detections)) {
-        console.warn("API returned null or invalid detections field. Using empty array instead.");
-        result.detections = [];
-        
-        // Show warning to user about response format issues
-        toast.warning("Detection format issue", {
-          description: "The model output format may not match what's expected. Check model compatibility."
-        });
-      }
-      
-      // Validate and transform detections if needed
-      if (result.detections.length > 0) {
-        const validDetections = result.detections.filter(detection => {
-          // Check if detection has valid format
-          const isValid = detection && 
-                         typeof detection === 'object' && 
-                         ((typeof detection.label === 'string' || typeof detection.class === 'string') && 
-                         typeof detection.confidence === 'number' && 
-                         (Array.isArray(detection.bbox) || 
-                          (detection.x !== undefined && detection.y !== undefined && 
-                           detection.width !== undefined && detection.height !== undefined)));
-          
-          if (!isValid) {
-            console.warn("Invalid detection format received:", detection);
-          }
-          
-          return isValid;
-        });
-        
-        // If we filtered out any invalid detections, show a warning
-        if (validDetections.length < result.detections.length) {
-          console.warn(`Filtered out ${result.detections.length - validDetections.length} invalid detections`);
-          toast.warning("Some detections had invalid format and were filtered out", {
-            description: "Check model compatibility with the system"
-          });
-          
-          result.detections = validDetections;
-        }
-        
-        // Transform to standardized format
-        result.detections = result.detections.map(det => {
-          // Skip if already in proper format
-          if (Array.isArray(det.bbox) && det.bbox.length === 4) {
-            return det;
-          }
-          
-          // Check for YOLO-style output (center_x, center_y, width, height)
-          if (det.x !== undefined && det.y !== undefined && 
-              det.width !== undefined && det.height !== undefined) {
-            
-            // These are center coordinates from YOLO, but we'll keep them as is
-            // The DetectionOverlay component will handle the conversion
-            console.log(`Detection with center format: (${det.x}, ${det.y}, ${det.width}, ${det.height})`);
-            
-            // Also add bbox format for compatibility
-            if (!det.bbox) {
-              // Convert center format to corners format [x1, y1, x2, y2]
-              // Assuming x,y,w,h are already normalized (0-1) values
-              const halfWidth = det.width / 2;
-              const halfHeight = det.height / 2;
-              det.bbox = [
-                det.x - halfWidth,    // x1
-                det.y - halfHeight,   // y1
-                det.x + halfWidth,    // x2
-                det.y + halfHeight    // y2
-              ];
-            }
-          }
-          
-          return det;
-        });
-      }
-      
-      // Return processed result
-      return {
-        detections: result.detections || [],  // Ensure we always have an array, even if empty
-        processedAt: result.processedAt || 'edge',
-        inferenceTime: result.inferenceTime || 0
-      };
-    } catch (error) {
-      console.error("Inference API error:", error);
-      toast.error("API inference failed", {
-        description: error instanceof Error ? error.message : "Check if the API server is running"
-      });
-      
-      // Fallback to simulated mode when API fails
-      this.setSimulatedMode(true);
-      
-      // Return simulated detection results with YOLO format
-      return {
-        detections: [
-          {
-            label: "person",
-            class: "person", 
-            confidence: 0.92,
-            // YOLO format (center_x, center_y, width, height) with normalized values
-            x: 0.2,       // center_x (normalized 0-1)
-            y: 0.45,      // center_y (normalized 0-1)
-            width: 0.2,   // width (normalized 0-1)
-            height: 0.5,  // height (normalized 0-1)
-            bbox: [0.1, 0.2, 0.3, 0.7]  // [x1, y1, x2, y2] normalized
-          },
-          {
-            label: "car",
-            class: "car",
-            confidence: 0.87,
-            // YOLO format with normalized values
-            x: 0.75,      // center_x (normalized 0-1)
-            y: 0.6,       // center_y (normalized 0-1)
-            width: 0.3,   // width (normalized 0-1)
-            height: 0.2,  // height (normalized 0-1)
-            bbox: [0.6, 0.5, 0.9, 0.7]  // [x1, y1, x2, y2] normalized
-          }
-        ],
-        processedAt: 'server',
-        inferenceTime: 120
-      };
-    }
-  }
-  
-  // Connect to an edge device
-  connectToDevice(deviceId: string, ipAddress: string): Promise<boolean> {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const response = await fetch(`${this.apiBaseUrl}/inference/devices/${deviceId}/connect`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ipAddress })
-        });
-        
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.detail || `HTTP error: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        toast.success(`Connected to edge device ${deviceId}`);
+  connect(): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      if (this.isConnected && this.socket) {
         resolve(true);
+        return;
+      }
+
+      try {
+        this.socket = new WebSocket(this.url);
+
+        this.socket.onopen = () => {
+          console.log('WebSocket connection established');
+          this.isConnected = true;
+          this.reconnectAttempts = 0;
+          resolve(true);
+        };
+
+        this.socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            
+            // Store client ID if received from server
+            if (data.clientId && !this.clientId) {
+              this.clientId = data.clientId;
+              console.log(`WebSocket client ID: ${this.clientId}`);
+            }
+            
+            // Handle response by clientId or as general message
+            if (data.clientId && this.messageCallbacks.has(data.clientId)) {
+              this.messageCallbacks.get(data.clientId)?.(data);
+              this.messageCallbacks.delete(data.clientId);
+            } else {
+              // Handle general messages
+              console.log('WebSocket received message:', data);
+            }
+          } catch (error) {
+            console.error('Error parsing WebSocket message:', error);
+          }
+        };
+
+        this.socket.onclose = () => {
+          this.isConnected = false;
+          console.log('WebSocket connection closed');
+          
+          if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            const delay = Math.min(1000 * (this.reconnectAttempts + 1), 5000);
+            console.log(`Attempting to reconnect in ${delay}ms...`);
+            
+            this.reconnectTimeout = setTimeout(() => {
+              this.reconnectAttempts++;
+              this.connect().catch(console.error);
+            }, delay);
+          } else {
+            console.error('Maximum WebSocket reconnection attempts reached');
+            reject(new Error('Maximum WebSocket reconnection attempts reached'));
+          }
+        };
+
+        this.socket.onerror = (error) => {
+          console.error('WebSocket error:', error);
+          reject(error);
+        };
       } catch (error) {
-        console.error(`Failed to connect to edge device ${deviceId}:`, error);
-        toast.error(`Connection to device ${deviceId} failed`);
+        console.error('Error creating WebSocket:', error);
         reject(error);
       }
     });
   }
-  
-  // Disconnect from an edge device
-  async disconnectFromDevice(deviceId: string): Promise<void> {
-    try {
-      const response = await fetch(`${this.apiBaseUrl}/inference/devices/${deviceId}/disconnect`, {
-        method: 'POST'
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || `HTTP error: ${response.status}`);
+
+  async send(data: any): Promise<any> {
+    // Ensure clientId is included in the message
+    if (this.clientId) {
+      data.clientId = this.clientId;
+    }
+    
+    return new Promise(async (resolve, reject) => {
+      if (!this.isConnected) {
+        try {
+          await this.connect();
+        } catch (error) {
+          reject(new Error('Failed to connect WebSocket'));
+          return;
+        }
       }
       
-      toast.success(`Disconnected from device ${deviceId}`);
-    } catch (error) {
-      console.error(`Failed to disconnect from device ${deviceId}:`, error);
-      toast.error(`Disconnection from device ${deviceId} failed`);
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket is not open'));
+        return;
+      }
+
+      try {
+        // Register callback for this specific message
+        const messageId = data.clientId || `msg-${Date.now()}`;
+        
+        // Set up a timeout to remove the callback if no response
+        const timeout = setTimeout(() => {
+          if (this.messageCallbacks.has(messageId)) {
+            this.messageCallbacks.delete(messageId);
+            reject(new Error('WebSocket response timeout'));
+          }
+        }, 10000); // 10 second timeout
+        
+        // Register the callback with timeout cleanup
+        this.messageCallbacks.set(messageId, (response) => {
+          clearTimeout(timeout);
+          resolve(response);
+        });
+        
+        // Send the message
+        this.socket.send(JSON.stringify(data));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  disconnect() {
+    if (this.socket) {
+      this.socket.close();
+      this.socket = null;
+      this.isConnected = false;
+      
+      if (this.reconnectTimeout) {
+        clearTimeout(this.reconnectTimeout);
+        this.reconnectTimeout = null;
+      }
     }
   }
+
+  isWebSocketAvailable(): boolean {
+    return typeof WebSocket !== 'undefined';
+  }
+}
+
+class EdgeAIInference {
+  private webSocketManager: WebSocketManager | null = null;
+  private useWebSocket = true; // Default to using WebSockets when available
   
-  // Deploy a model to an edge device
-  async deployModel(deviceId: string, modelId: string): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.apiBaseUrl}/inference/devices/${deviceId}/deploy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelId })
+  constructor() {
+    // Initialize WebSocket if available
+    if (typeof WebSocket !== 'undefined') {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${wsProtocol}//${API_URL.replace(/^https?:\/\//, '')}/ws/inference`;
+      this.webSocketManager = new WebSocketManager(wsUrl);
+      
+      // Try to establish connection proactively
+      this.webSocketManager.connect().catch(error => {
+        console.warn('WebSocket connection failed, will fall back to HTTP:', error);
+        this.useWebSocket = false;
       });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || `HTTP error: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      toast.success(`Model ${modelId} deployed successfully to device ${deviceId}`);
-      return true;
-    } catch (error) {
-      console.error(`Failed to deploy model ${modelId} to device ${deviceId}:`, error);
-      toast.error(`Model deployment failed: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
+    } else {
+      this.useWebSocket = false;
     }
   }
-  
-  // Remove a model from an edge device
-  async removeModel(deviceId: string, modelId: string): Promise<boolean> {
+
+  async performInference(request: InferenceRequest): Promise<InferenceResponse> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/inference/devices/${deviceId}/models/${modelId}`, {
-        method: 'DELETE'
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || `HTTP error: ${response.status}`);
+      // Try WebSocket first if enabled and available
+      if (this.useWebSocket && this.webSocketManager?.isWebSocketAvailable()) {
+        try {
+          const wsRequest = {
+            modelPath: request.modelPath,
+            threshold: request.thresholdConfidence,
+            imageData: request.imageData
+          };
+          
+          // Send request via WebSocket
+          const response = await this.webSocketManager.send(wsRequest);
+          
+          // Check if response has error
+          if (response.error) {
+            throw new Error(response.error);
+          }
+          
+          return {
+            detections: response.detections || [],
+            inferenceTime: response.inferenceTime || 0,
+            processedAt: response.processedAt || 'server',
+            timestamp: response.timestamp || new Date().toISOString()
+          };
+        } catch (wsError) {
+          console.warn('WebSocket inference failed, falling back to HTTP API:', wsError);
+          // Fall back to HTTP API
+          this.useWebSocket = false;
+        }
       }
       
-      toast.success(`Model ${modelId} removed successfully from device ${deviceId}`);
-      return true;
+      // HTTP API fallback
+      const apiEndpoint = `${API_URL}/inference/detect`;
+      
+      // Prepare the HTTP request
+      const httpRequest = {
+        modelPath: request.modelPath,
+        threshold: request.thresholdConfidence,
+        imageData: request.imageData
+      };
+      
+      // Make the API call
+      const response = await axios.post(apiEndpoint, httpRequest, {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000 // 30 second timeout for long inference operations
+      });
+      
+      // Extract and return the response data
+      return {
+        detections: response.data.detections || [],
+        inferenceTime: response.data.inferenceTime || 0,
+        processedAt: response.data.processedAt || 'server',
+        timestamp: response.data.timestamp || new Date().toISOString()
+      };
+      
     } catch (error) {
-      console.error(`Failed to remove model ${modelId} from device ${deviceId}:`, error);
-      toast.error(`Model removal failed: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
+      console.error('Inference API error:', error);
+      
+      // Show toast only for persistent errors
+      if (axios.isAxiosError(error) && error.code !== 'ECONNABORTED') {
+        toast.error('Edge AI inference failed', {
+          description: 'Check if the Edge AI server is running'
+        });
+      }
+      
+      // Return empty result
+      return {
+        detections: [],
+        inferenceTime: 0,
+        processedAt: 'server',
+        timestamp: new Date().toISOString()
+      };
     }
   }
 }
 
-// Singleton instance
-const EdgeAIInference = new EdgeAIInferenceService();
-export default EdgeAIInference;
+export default new EdgeAIInference();

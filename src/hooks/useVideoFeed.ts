@@ -17,6 +17,7 @@ interface UseVideoFeedProps {
   };
   activeModel?: { name: string; path: string };
   streamType?: 'main' | 'sub';
+  fps?: number;
 }
 
 export const useVideoFeed = ({
@@ -24,7 +25,8 @@ export const useVideoFeed = ({
   autoStart = false,
   camera,
   activeModel,
-  streamType = 'main'
+  streamType = 'main',
+  fps = 10 // Default to 10 frames per second for detection
 }: UseVideoFeedProps) => {
   const [videoUrl, setVideoUrl] = useState(initialVideoUrl);
   const [isStreaming, setIsStreaming] = useState(autoStart);
@@ -38,19 +40,33 @@ export const useVideoFeed = ({
   const [inferenceTime, setInferenceTime] = useState<number | null>(null);
   const [isHikvisionFormat, setIsHikvisionFormat] = useState(false);
   const [isModelLoading, setIsModelLoading] = useState(false);
+  const [actualFps, setActualFps] = useState<number | null>(null);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const detectionIntervalRef = useRef<number | null>(null);
   const lastDetectionTimeRef = useRef<number>(0);
-  const detectionFrequencyMs = 1000; // Process every second
+  const frameCountRef = useRef<number>(0);
+  const lastFpsUpdateTimeRef = useRef<number>(0);
+  const detectionInProgressRef = useRef<boolean>(false);
+  const detectionQueueRef = useRef<boolean>(false);
+  
+  // Calculate time between frames based on FPS
+  const frameIntervalMs = 1000 / fps;
 
   const detectObjects = useCallback(async () => {
     if (!activeModel && !camera) {
       setDetections([]);
       return;
     }
-
+    
+    // Skip if detection already in progress
+    if (detectionInProgressRef.current) {
+      detectionQueueRef.current = true;  // Queue up next detection
+      return;
+    }
+    
     try {
       const modelToUse = activeModel;
       
@@ -59,12 +75,23 @@ export const useVideoFeed = ({
         return;
       }
       
-      // Rate limiting to avoid too frequent detection calls
+      // Rate limiting based on specified FPS
       const now = Date.now();
-      if (now - lastDetectionTimeRef.current < detectionFrequencyMs) {
+      if (now - lastDetectionTimeRef.current < frameIntervalMs) {
         return;
       }
       lastDetectionTimeRef.current = now;
+      
+      // For FPS calculation
+      frameCountRef.current++;
+      if (now - lastFpsUpdateTimeRef.current >= 1000) {
+        setActualFps(frameCountRef.current);
+        frameCountRef.current = 0;
+        lastFpsUpdateTimeRef.current = now;
+      }
+      
+      // Mark detection as started
+      detectionInProgressRef.current = true;
       
       if (!canvasRef.current) {
         const canvas = document.createElement('canvas');
@@ -79,19 +106,17 @@ export const useVideoFeed = ({
         canvasRef.current.width = videoRef.current.videoWidth || 640;
         canvasRef.current.height = videoRef.current.videoHeight || 360;
         
-        console.log(`Canvas dimensions set to: ${canvasRef.current.width}x${canvasRef.current.height}`);
-        
         // Draw the current video frame to the canvas
         ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
         
-        const imageData = canvasRef.current.toDataURL('image/jpeg', 0.8);
+        // Use lower JPEG quality to reduce payload size
+        const imageData = canvasRef.current.toDataURL('image/jpeg', 0.7);
         
         if (!modelToUse) {
           console.warn("No model specified for inference");
+          detectionInProgressRef.current = false;
           return;
         }
-        
-        console.log(`Using model: ${modelToUse.name}, path: ${modelToUse.path}`);
         
         const request = {
           imageData: imageData,
@@ -101,13 +126,9 @@ export const useVideoFeed = ({
           thresholdConfidence: 0.5
         };
         
-        console.log(`Performing inference with model: ${request.modelName}`);
         const result = await EdgeAIInference.performInference(request);
         
         if (result.detections && result.detections.length > 0) {
-          console.log(`Detected ${result.detections.length} objects with model ${request.modelName}`);
-          console.log(`Sample detection:`, result.detections[0]);
-          
           // Create normalized detections with unique IDs
           const normalizedDetections = result.detections.map((detection: BackendDetection, index) => {
             // Create a unique ID for React
@@ -128,9 +149,6 @@ export const useVideoFeed = ({
               processedDetection.y = detection.y;
               processedDetection.width = detection.width;
               processedDetection.height = detection.height;
-              
-              // For debugging - log raw values
-              console.log(`Detection ${index}: YOLO format - center:(${detection.x.toFixed(3)},${detection.y.toFixed(3)}), dims:(${detection.width.toFixed(3)}x${detection.height.toFixed(3)})`);
             }
             
             // Process bbox coordinates if available [x1, y1, x2, y2]
@@ -152,8 +170,6 @@ export const useVideoFeed = ({
                   [processedDetection.bbox[3], processedDetection.bbox[1]];
               }
               
-              console.log(`Detection ${index}: Using bbox [${processedDetection.bbox.join(', ')}]`);
-              
               // If we don't have center coordinates but have bbox, calculate center coords
               if (processedDetection.x === undefined) {
                 const [x1, y1, x2, y2] = processedDetection.bbox;
@@ -161,8 +177,6 @@ export const useVideoFeed = ({
                 processedDetection.y = (y1 + y2) / 2;
                 processedDetection.width = x2 - x1;
                 processedDetection.height = y2 - y1;
-                
-                console.log(`Detection ${index}: Calculated center from bbox: (${processedDetection.x.toFixed(3)},${processedDetection.y.toFixed(3)}), dims:(${processedDetection.width.toFixed(3)}x${processedDetection.height.toFixed(3)})`);
               }
             } 
             // If no valid bbox data but we have center coords, calculate bbox
@@ -176,8 +190,6 @@ export const useVideoFeed = ({
                 processedDetection.x + halfWidth,    // x2
                 processedDetection.y + halfHeight    // y2
               ];
-              
-              console.log(`Detection ${index}: Calculated bbox from center: [${processedDetection.bbox.join(', ')}]`);
             }
             
             return processedDetection;
@@ -187,8 +199,6 @@ export const useVideoFeed = ({
           const filteredDetections = normalizedDetections.filter(d => 
             d.confidence > 0.1 // Lower threshold to show more detections for debugging
           );
-          
-          console.log(`Filtered to ${filteredDetections.length} detections above threshold`);
           
           setDetections(filteredDetections);
           setInferenceLocation(result.processedAt);
@@ -204,7 +214,6 @@ export const useVideoFeed = ({
             } 
           }));
         } else {
-          console.log("No detections from inference API");
           setDetections([]);
         }
       }
@@ -215,8 +224,17 @@ export const useVideoFeed = ({
       });
       setInferenceLocation("server");
       setDetections([]);
+    } finally {
+      // Mark detection as finished
+      detectionInProgressRef.current = false;
+      
+      // Process next frame if one was queued during this detection
+      if (detectionQueueRef.current) {
+        detectionQueueRef.current = false;
+        requestAnimationFrame(() => detectObjects());
+      }
     }
-  }, [activeModel, camera, videoUrl, autoStart]);
+  }, [activeModel, camera, videoUrl, fps, frameIntervalMs]);
 
   const startStream = async () => {
     if (!videoUrl && !originalFile) {
@@ -266,9 +284,20 @@ export const useVideoFeed = ({
         clearInterval(detectionIntervalRef.current);
       }
       
+      // Reset FPS tracking
+      frameCountRef.current = 0;
+      lastFpsUpdateTimeRef.current = Date.now();
+      
+      // Initial detection
       await detectObjects();
       
-      detectionIntervalRef.current = window.setInterval(detectObjects, 3000);
+      // Use requestAnimationFrame for smoother detection scheduling
+      const animateDetection = () => {
+        detectObjects();
+        detectionIntervalRef.current = window.requestAnimationFrame(animateDetection);
+      };
+      
+      detectionIntervalRef.current = window.requestAnimationFrame(animateDetection);
     }
   };
 
@@ -276,9 +305,10 @@ export const useVideoFeed = ({
     setIsStreaming(false);
     setDetections([]);
     setIsPlaying(false);
+    setActualFps(null);
     
     if (detectionIntervalRef.current) {
-      clearInterval(detectionIntervalRef.current);
+      window.cancelAnimationFrame(detectionIntervalRef.current);
       detectionIntervalRef.current = null;
     }
     
@@ -395,26 +425,35 @@ export const useVideoFeed = ({
   };
 
   useEffect(() => {
-    // Update detection interval when detection frequency or activeModel changes
+    // Update detection when activeModel changes
     if (isStreaming && activeModel) {
       if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current);
+        window.cancelAnimationFrame(detectionIntervalRef.current);
       }
+      
+      // Reset FPS tracking
+      frameCountRef.current = 0;
+      lastFpsUpdateTimeRef.current = Date.now();
       
       // Initial detection
       detectObjects();
       
-      // Set frequent interval for more responsive object tracking
-      detectionIntervalRef.current = window.setInterval(detectObjects, detectionFrequencyMs);
+      // Use requestAnimationFrame for smoother detection scheduling
+      const animateDetection = () => {
+        detectObjects();
+        detectionIntervalRef.current = window.requestAnimationFrame(animateDetection);
+      };
+      
+      detectionIntervalRef.current = window.requestAnimationFrame(animateDetection);
     }
     
     return () => {
       if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current);
+        window.cancelAnimationFrame(detectionIntervalRef.current);
         detectionIntervalRef.current = null;
       }
     };
-  }, [isStreaming, activeModel, detectObjects, detectionFrequencyMs]);
+  }, [isStreaming, activeModel, detectObjects, fps]);
 
   useEffect(() => {
     const updateSize = () => {
@@ -441,7 +480,7 @@ export const useVideoFeed = ({
       }
       
       if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current);
+        window.cancelAnimationFrame(detectionIntervalRef.current);
       }
     };
   }, [hasUploadedFile, videoUrl]);
@@ -457,6 +496,7 @@ export const useVideoFeed = ({
     hasUploadedFile,
     inferenceLocation,
     inferenceTime,
+    actualFps,
     isHikvisionFormat,
     setIsHikvisionFormat,
     isModelLoading,
