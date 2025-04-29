@@ -1,8 +1,24 @@
 import axios from 'axios';
 import { toast } from 'sonner';
 
-// Define the backend server URL
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Define the backend server URL with fallback to window.location based URL
+const API_URL = (() => {
+  // First try environment variable
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  
+  // Fall back to current origin with port 8000
+  try {
+    const { protocol, hostname } = window.location;
+    return `${protocol}//${hostname}:8000`;
+  } catch (e) {
+    // Final fallback
+    return 'http://localhost:8000';
+  }
+})();
+
+console.log(`Using API URL: ${API_URL}`);
 
 export interface BackendDetection {
   label?: string;
@@ -65,9 +81,20 @@ class WebSocketManager {
       }
 
       try {
+        console.log(`Attempting WebSocket connection to ${this.url}`);
         this.socket = new WebSocket(this.url);
 
+        // Add connection timeout
+        const connectionTimeout = setTimeout(() => {
+          if (this.socket && this.socket.readyState !== WebSocket.OPEN) {
+            console.error('WebSocket connection timeout');
+            this.socket.close();
+            reject(new Error('WebSocket connection timeout'));
+          }
+        }, 5000);
+
         this.socket.onopen = () => {
+          clearTimeout(connectionTimeout);
           console.log('WebSocket connection established');
           this.isConnected = true;
           this.reconnectAttempts = 0;
@@ -226,8 +253,10 @@ class EdgeAIInference {
   constructor() {
     // Initialize WebSocket if available
     if (typeof WebSocket !== 'undefined') {
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${wsProtocol}//${API_URL.replace(/^https?:\/\//, '')}/ws/inference`;
+      // Use API_URL but replace http/https with ws/wss
+      const wsUrl = API_URL.replace(/^http/, 'ws') + '/ws/inference';
+      console.log(`Initializing WebSocket with URL: ${wsUrl}`);
+      
       this.webSocketManager = new WebSocketManager(wsUrl);
       
       // Try to establish connection proactively
@@ -237,6 +266,7 @@ class EdgeAIInference {
       });
     } else {
       this.useWebSocket = false;
+      console.warn('WebSocket not available in this environment');
     }
 
     // Check for hardware capabilities

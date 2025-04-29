@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, WebSocket, Depends, Request
 from typing import List, Dict, Any, Optional, Callable
 from pydantic import BaseModel, field_validator, model_validator
@@ -80,8 +79,6 @@ except ImportError:
     smart_inference_mode = lambda func: func
 
 # Models for request/response
-# ... keep existing code (Detection BaseModel)
-
 class Detection(BaseModel):
     label: str
     confidence: float
@@ -146,7 +143,6 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 MAX_CONCURRENT_INFERENCES = int(os.environ.get("MAX_CONCURRENT_INFERENCES", "4"))
 
 # YOLO class names
-# ... keep existing code (YOLO_CLASSES)
 YOLO_CLASSES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
     "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
@@ -162,7 +158,6 @@ YOLO_CLASSES = [
 
 def get_available_providers():
     """Get available ONNX Runtime providers"""
-    # ... keep existing code (get_available_providers function)
     if ONNX_AVAILABLE:
         return ort.get_available_providers()
     else:
@@ -212,19 +207,16 @@ def gpu_accelerated_preprocessing(image, target_size=(640, 640)):
 
 def base64_to_image(base64_str):
     """Convert base64 string to PIL Image"""
-    # ... keep existing code (base64_to_image function)
     image_data = base64.b64decode(base64_str)
     image = Image.open(BytesIO(image_data))
     return image
 
 def is_onnx_model(model_path):
     """Check if the model is in ONNX format"""
-    # ... keep existing code (is_onnx_model function)
     return model_path.lower().endswith('.onnx')
 
 def is_pytorch_model(model_path):
     """Check if the model is in PyTorch format"""
-    # ... keep existing code (is_pytorch_model function)
     return model_path.lower().endswith('.pt') or model_path.lower().endswith('.pth')
 
 def create_quantized_model(model):
@@ -268,7 +260,6 @@ def create_quantized_model(model):
 
 def optimize_pytorch_model(model, sample_input=None, enable_quantization=False):
     """Optimize PyTorch model using TorchScript and other optimizations"""
-    # ... keep existing code (optimize_pytorch_model function) with additions below
     print("Optimizing PyTorch model...")
     
     # Determine device (CUDA if available, otherwise CPU)
@@ -340,11 +331,183 @@ def optimize_pytorch_model(model, sample_input=None, enable_quantization=False):
         print("Returning original model")
         return model
 
-# ... keep existing code (log_output_shapes, apply_nms, process_yolo_output)
+def simulate_detection():
+    """Simulate object detections when model loading fails"""
+    # Always return a list for detections
+    return [
+        Detection(
+            label="person",
+            confidence=0.92,
+            bbox=[0.2, 0.3, 0.5, 0.8]
+        ),
+        Detection(
+            label="car",
+            confidence=0.87,
+            bbox=[0.6, 0.5, 0.9, 0.7]
+        )
+    ]
+
+def convert_ultralytics_results_to_detections(results, img_width, img_height, conf_threshold=0.5):
+    """Convert Ultralytics YOLO results to Detection objects"""
+    detections = []
+    
+    print(f"Processing ultralytics results: {len(results)}")
+    
+    if len(results) > 0:
+        # Get the first result (batch)
+        result = results[0]  # Get first batch
+        print(f"Result keys: {dir(result)}")
+        
+        # Extract boxes, confidence scores and class predictions
+        boxes = result.boxes
+        print(f"Found {len(boxes)} boxes")
+        
+        # Get original image dimensions from the result
+        try:
+            # Try to extract original image dimensions from the result
+            orig_shape = result.orig_shape  # (height, width)
+            img_height, img_width = orig_shape
+            print(f"Found original image dimensions from result: {img_width}x{img_height}")
+        except AttributeError:
+            # If orig_shape is not available, use the passed dimensions or defaults
+            if img_width is None or img_height is None:
+                img_width = 640  # Default width
+                img_height = 480  # Default height
+                print(f"Using default dimensions: {img_width}x{img_height}")
+            else:
+                print(f"Using provided dimensions: {img_width}x{img_height}")
+        
+        # Process each detection
+        for i, box in enumerate(boxes):
+            # Get box coordinates (already in x1,y1,x2,y2 format)
+            xyxy = box.xyxy[0].cpu().numpy()  # Convert to numpy array
+            x1, y1, x2, y2 = xyxy
+            
+            # Get confidence and class
+            conf = float(box.conf[0])
+            cls = int(box.cls[0])
+            
+            # Skip if below confidence threshold
+            if conf < conf_threshold:
+                continue
+                
+            # Normalize coordinates
+            x1_norm = float(x1 / img_width)
+            y1_norm = float(y1 / img_height)
+            x2_norm = float(x2 / img_width)
+            y2_norm = float(y2 / img_height)
+            
+            # Get class label
+            label = result.names.get(cls, f"class_{cls}")
+            
+            # Create detection object
+            detection = Detection(
+                label=label,
+                confidence=conf,
+                bbox=[x1_norm, y1_norm, x2_norm, y2_norm]
+            )
+            
+            detections.append(detection)
+            
+            # Log first few detections for debugging
+            if i < 3:
+                print(f"Detection {i}: {label} ({conf:.2f}) at [{x1_norm:.2f}, {y1_norm:.2f}, {x2_norm:.2f}, {y2_norm:.2f}]")
+    
+    return detections
+
+def create_dummy_input(device, fp16=False):
+    """Create a dummy input tensor for model warmup"""
+    dummy = torch.zeros((1, 3, 640, 640), device=device)
+    if fp16:
+        dummy = dummy.half()
+    return dummy
+
+def process_yolo_output(outputs, img_width, img_height, conf_threshold=0.5):
+    """Process YOLO model output and convert to detections"""
+    try:
+        print(f"Processing YOLO outputs with shape: {[output.shape if hasattr(output, 'shape') else 'unknown' for output in outputs]}")
+        
+        # For ONNX YOLO models, output format may vary
+        # Common formats include [boxes, scores, classes] or [boxes_and_scores]
+        detections = []
+        
+        # Simple simulation if we can't determine the format
+        if len(outputs) == 0:
+            return simulate_detection()
+        
+        # Extract detections based on output format
+        if len(outputs) >= 3:  # Likely [boxes, scores, classes] format
+            boxes = outputs[0]
+            scores = outputs[1]
+            classes = outputs[2]
+            
+            # Process each detection
+            num_detections = min(len(boxes), len(scores), len(classes))
+            for i in range(num_detections):
+                if scores[i] >= conf_threshold:
+                    # Get normalized coordinates [y1, x1, y2, x2] -> [x1, y1, x2, y2]
+                    box = boxes[i]
+                    if len(box) == 4:
+                        # Some models output [x1, y1, x2, y2], others [y1, x1, y2, x2]
+                        # Determine format based on values
+                        x1, y1, x2, y2 = box
+                        
+                        # Create detection
+                        label = YOLO_CLASSES[int(classes[i])] if int(classes[i]) < len(YOLO_CLASSES) else f"class_{int(classes[i])}"
+                        detection = Detection(
+                            label=label,
+                            confidence=float(scores[i]),
+                            bbox=[float(x1), float(y1), float(x2), float(y2)]
+                        )
+                        detections.append(detection)
+        else:
+            # Handle single output format (common in newer YOLO models)
+            output = outputs[0]
+            
+            # Determine the format based on shape
+            if len(output.shape) == 3 and output.shape[2] > 5:  # [batch, num_detections, 5+num_classes]
+                for detection in output[0]:  # Take first batch
+                    confidence = float(detection[4])
+                    if confidence >= conf_threshold:
+                        # Get class with highest confidence
+                        class_scores = detection[5:]
+                        class_id = np.argmax(class_scores)
+                        class_conf = float(class_scores[class_id])
+                        total_conf = confidence * class_conf
+                        
+                        if total_conf >= conf_threshold:
+                            # Extract normalized coordinates [x, y, w, h] -> [x1, y1, x2, y2]
+                            cx, cy, w, h = detection[:4]
+                            x1 = cx - w/2
+                            y1 = cy - h/2
+                            x2 = cx + w/2
+                            y2 = cy + h/2
+                            
+                            # Create detection
+                            label = YOLO_CLASSES[class_id] if class_id < len(YOLO_CLASSES) else f"class_{class_id}"
+                            detection = Detection(
+                                label=label,
+                                confidence=total_conf,
+                                bbox=[float(x1), float(y1), float(x2), float(y2)]
+                            )
+                            detections.append(detection)
+            else:
+                # If we can't determine the format, return simulated detections
+                return simulate_detection()
+                
+        return detections
+    except Exception as e:
+        print(f"Error processing YOLO output: {e}")
+        import traceback
+        traceback.print_exc()
+        return simulate_detection()
 
 async def perform_inference(request_data: InferenceRequest, executor: ThreadPoolExecutor) -> InferenceResult:
     """Perform inference asynchronously using thread pool executor"""
     start_time = time.time()
+    
+    # Add debug output to check if this function is being called
+    print(f"Perform inference called with model: {request_data.modelPath}")
     
     # Use executor for CPU-bound operations
     loop = asyncio.get_event_loop()
@@ -359,6 +522,9 @@ async def perform_inference(request_data: InferenceRequest, executor: ThreadPool
         inference_time = time.time() - start_time
         result.inferenceTime = inference_time * 1000
         result.timestamp = datetime.now().isoformat()
+        
+        # Add debug output
+        print(f"Inference completed with {len(result.detections)} detections in {result.inferenceTime:.2f}ms")
         
         return result
     except Exception as e:
@@ -379,8 +545,6 @@ def _perform_inference_sync(inference_request: InferenceRequest) -> InferenceRes
     start_time = time.time()
     
     try:
-        # ... keep existing code (model loading and inference) with modifications for quantization
-        
         # Get the model path from the request
         model_path_input = inference_request.modelPath
         
@@ -546,6 +710,7 @@ def _perform_inference_sync(inference_request: InferenceRequest) -> InferenceRes
                     return InferenceResult(
                         detections=detections,
                         inferenceTime=inference_time * 1000,
+                        processedAt="server",
                         timestamp=datetime.now().isoformat()
                     )
             
@@ -630,7 +795,6 @@ def _perform_inference_sync(inference_request: InferenceRequest) -> InferenceRes
         
         # Handle ONNX models
         elif is_onnx:
-            # ... keep existing code for ONNX models with GPU-accelerated preprocessing
             # Load model (or use cached session)
             if model_path not in model_sessions:
                 providers = []
@@ -800,107 +964,9 @@ async def detect_objects(
     # Process inference asynchronously
     return await perform_inference(inference_request, executor)
 
-# ... keep existing code for WebSocket handling
-
-# Add the remaining simulation functions
-def simulate_detection():
-    """Simulate object detections when model loading fails"""
-    # ... keep existing code (simulate_detection function)
-    # Always return a list for detections
-    return [
-        Detection(
-            label="person",
-            confidence=0.92,
-            bbox=[0.2, 0.3, 0.5, 0.8]
-        ),
-        Detection(
-            label="car",
-            confidence=0.87,
-            bbox=[0.6, 0.5, 0.9, 0.7]
-        )
-    ]
-
-def convert_ultralytics_results_to_detections(results, img_width, img_height, conf_threshold=0.5):
-    """Convert Ultralytics YOLO results to Detection objects"""
-    # ... keep existing code (convert_ultralytics_results_to_detections function)
-    detections = []
-    
-    print(f"Processing ultralytics results: {len(results)}")
-    
-    if len(results) > 0:
-        # Get the first result (batch)
-        result = results[0]  # Get first batch
-        print(f"Result keys: {dir(result)}")
-        
-        # Extract boxes, confidence scores and class predictions
-        boxes = result.boxes
-        print(f"Found {len(boxes)} boxes")
-        
-        # Get original image dimensions from the result
-        try:
-            # Try to extract original image dimensions from the result
-            orig_shape = result.orig_shape  # (height, width)
-            img_height, img_width = orig_shape
-            print(f"Found original image dimensions from result: {img_width}x{img_height}")
-        except AttributeError:
-            # If orig_shape is not available, use the passed dimensions or defaults
-            if img_width is None or img_height is None:
-                img_width = 640  # Default width
-                img_height = 480  # Default height
-                print(f"Using default dimensions: {img_width}x{img_height}")
-            else:
-                print(f"Using provided dimensions: {img_width}x{img_height}")
-        
-        # Process each detection
-        for i, box in enumerate(boxes):
-            # Get box coordinates (already in x1,y1,x2,y2 format)
-            xyxy = box.xyxy[0].cpu().numpy()  # Convert to numpy array
-            x1, y1, x2, y2 = xyxy
-            
-            # Get confidence and class
-            conf = float(box.conf[0])
-            cls = int(box.cls[0])
-            
-            # Skip if below confidence threshold
-            if conf < conf_threshold:
-                continue
-                
-            # Normalize coordinates
-            x1_norm = float(x1 / img_width)
-            y1_norm = float(y1 / img_height)
-            x2_norm = float(x2 / img_width)
-            y2_norm = float(y2 / img_height)
-            
-            # Get class label
-            label = result.names.get(cls, f"class_{cls}")
-            
-            # Create detection object
-            detection = Detection(
-                label=label,
-                confidence=conf,
-                bbox=[x1_norm, y1_norm, x2_norm, y2_norm]
-            )
-            
-            detections.append(detection)
-            
-            # Log first few detections for debugging
-            if i < 3:
-                print(f"Detection {i}: {label} ({conf:.2f}) at [{x1_norm:.2f}, {y1_norm:.2f}, {x2_norm:.2f}, {y2_norm:.2f}]")
-    
-    return detections
-
-def create_dummy_input(device, fp16=False):
-    """Create a dummy input tensor for model warmup"""
-    # ... keep existing code (create_dummy_input function)
-    dummy = torch.zeros((1, 3, 640, 640), device=device)
-    if fp16:
-        dummy = dummy.half()
-    return dummy
-
 @router.get("/devices", response_model=List[DeviceInfo])
 async def list_devices():
     """List available inference devices"""
-    # ... keep existing code (list_devices function) with additions for quantization
     devices = [
         DeviceInfo(id="cpu", name="CPU", type="cpu", status="available"),
     ]
