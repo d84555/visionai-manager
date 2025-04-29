@@ -41,18 +41,9 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
     commonjsOptions: {
       transformMixedEsModules: true, // Handle both ES modules and CommonJS
     },
-    rollupOptions: {
-      external: [
-        // Mark FFmpeg packages as external during build
-        /@ffmpeg\/(ffmpeg|core|util)/
-      ]
-    },
   },
   define: {
     // Needed to fix "require is not defined" error
     global: 'globalThis',
-  },
-  optimizeDeps: {
-    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/core', '@ffmpeg/util']
-  },
+  }
 }));

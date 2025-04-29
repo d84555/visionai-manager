@@ -2,6 +2,7 @@
 import SettingsService from '@/services/SettingsService';
 import { toast } from 'sonner';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile } from '@ffmpeg/util';
 
 // Initialize FFmpeg status
 let isFFmpegLoaded = false;
@@ -134,14 +135,17 @@ export const convertDavToMP4 = async (file: File): Promise<string> => {
   const ffmpeg = new FFmpeg();
   
   try {
+    // Load FFmpeg
     await ffmpeg.load();
     
-    // For newer versions of @ffmpeg/ffmpeg (v0.12+), we need to use the writeFile method directly
-    // and the WebAssembly API changed significantly
-    const fileData = await file.arrayBuffer();
-    await ffmpeg.writeFile('input.dav', new Uint8Array(fileData));
+    // Convert file to buffer
+    const fileBuffer = await fetchFile(file);
+    
+    // Write input file to FFmpeg virtual filesystem
+    await ffmpeg.writeFile('input.dav', fileBuffer);
     
     // Run the FFmpeg command to convert DAV to MP4
+    // Note: Using the new API for FFmpeg v0.12+
     await ffmpeg.exec([
       '-i', 'input.dav',
       '-c:v', 'libx264',
