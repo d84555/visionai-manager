@@ -33,6 +33,20 @@ interface VideoFeedProps {
   fps?: number;
 }
 
+interface Detection {
+  id: string;
+  label: string;
+  confidence: number;
+  bbox: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    width: number;
+    height: number;
+  };
+}
+
 const VideoFeed: React.FC<VideoFeedProps> = ({ 
   initialVideoUrl = '', 
   autoStart = false,
@@ -182,7 +196,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             
             <div className="absolute inset-0 pointer-events-none">
               <CanvasDetectionOverlay 
-                detections={detections} 
+                detections={detections as any[]} 
                 videoRef={videoRef}
                 minimal 
               />
@@ -321,7 +335,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 />
                 
                 <div className="absolute inset-0 pointer-events-none">
-                  <CanvasDetectionOverlay detections={detections} videoRef={videoRef} />
+                  <CanvasDetectionOverlay detections={detections as any[]} videoRef={videoRef} />
                 </div>
                 
                 <VideoControls
@@ -393,8 +407,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
           <div className="text-xs text-gray-500 mt-2 p-3 border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50 dark:bg-gray-800/30">
             <p className="font-medium mb-1">Storage Directory Information:</p>
             <ul className="list-disc pl-5">
-              <li>Models directory: {SettingsService.localStorageConfig.modelsPath}</li>
-              <li>Settings directory: {SettingsService.localStorageConfig.settingsPath}</li>
+              <li>Models directory: {SettingsService.getStorageConfig().modelsPath}</li>
+              <li>Settings directory: {SettingsService.getStorageConfig().settingsPath}</li>
               <li>Note: In browser environment, these paths are simulated</li>
               <li>For true filesystem persistence, an Electron or Node.js implementation is required</li>
             </ul>

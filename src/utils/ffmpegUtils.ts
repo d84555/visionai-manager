@@ -1,6 +1,6 @@
-
 import SettingsService from '@/services/SettingsService';
 import { toast } from 'sonner';
+import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
 
 // Initialize FFmpeg status
 let isFFmpegLoaded = false;
@@ -121,6 +121,46 @@ const handleHikvisionFormat = (fileData: Uint8Array, videoFile: File): string =>
   
   // For simulating successful conversion
   return createDirectBlobUrl(fileData, new File([fileData], videoFile.name, { type: 'video/mp4' }));
+};
+
+/**
+ * Converts Hikvision DAV format to MP4 using FFMPEG
+ * @param file The DAV file to convert
+ * @returns Promise with URL to the converted MP4 file
+ */
+export const convertDavToMP4 = async (file: File): Promise<string> => {
+  const ffmpeg = createFFmpeg({ 
+    log: true,
+    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+  });
+  
+  try {
+    await ffmpeg.load();
+    
+    // Write the input file to memory
+    ffmpeg.FS('writeFile', 'input.dav', await fetchFile(file));
+    
+    // Run the FFmpeg command to convert DAV to MP4
+    await ffmpeg.run(
+      '-i', 'input.dav',
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-c:a', 'aac',
+      'output.mp4'
+    );
+    
+    // Read the output file from memory
+    const data = ffmpeg.FS('readFile', 'output.mp4');
+    
+    // Create a URL for the output file
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    const url = URL.createObjectURL(blob);
+    
+    return url;
+  } catch (error) {
+    console.error('FFmpeg error:', error);
+    throw new Error('Failed to convert DAV file');
+  }
 };
 
 /**

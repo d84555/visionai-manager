@@ -1,6 +1,6 @@
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import json
 import base64
 import time
@@ -72,10 +72,12 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
         all_detections = []
         models_loaded = 0
         inference_times = []
+        model_results = {}
         
         # Process each model
         for model_path in model_paths:
             model_start_time = time.time()
+            model_name = model_path.split('/')[-1]
             
             # Get or load model
             if model_path in active_models:
@@ -127,11 +129,16 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
                     img_width=img_width,
                     img_height=img_height,
                     conf_threshold=threshold,
-                    model_name=model_path.split('/')[-1]  # Add model name to detections
+                    model_name=model_name  # Add model name to detections
                 )
                 
-                # Add detections to combined list
-                all_detections.extend(model_detections)
+                # Store model-specific results
+                model_results[model_name] = model_detections
+                
+                # Add detections to combined list with model name as prefix
+                for detection in model_detections:
+                    detection.label = f"{model_name.split('.')[0]}: {detection.label}"
+                    all_detections.append(detection)
                 
                 # Track inference time for this model
                 model_inference_time = (time.time() - model_start_time) * 1000
@@ -152,6 +159,7 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
         # Send combined results back to client
         await websocket.send_json({
             "detections": [d.dict() for d in all_detections],
+            "modelResults": {name: [d.dict() for d in detections] for name, detections in model_results.items()},
             "inferenceTime": total_inference_time,
             "modelInferenceTimes": inference_times,
             "modelsLoaded": models_loaded,

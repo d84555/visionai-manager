@@ -18,7 +18,7 @@ import { toast } from 'sonner';
 
 const VideoPage = () => {
   const [refreshKey, setRefreshKey] = useState(0);
-  const [activeModel, setActiveModel] = useState<{ name: string; path: string } | undefined>(undefined);
+  const [activeModels, setActiveModels] = useState<{ name: string; path: string }[]>([]);
   const [gridLayout, setGridLayout] = useState<'1x1' | '2x2' | '3x3' | '4x4'>('2x2');
   const [streamType, setStreamType] = useState<'main' | 'sub'>('main');
   const [cameraAssignments, setCameraAssignments] = useState<Record<string, string>>({});
@@ -27,22 +27,32 @@ const VideoPage = () => {
   const [availableModels, setAvailableModels] = useState<{id: string; name: string; path: string}[]>([]);
 
   useEffect(() => {
-    const savedModel = SettingsService.getActiveModel();
-    if (savedModel) {
-      setActiveModel(savedModel);
-    }
+    const loadSavedSettings = async () => {
+      try {
+        // Get saved active models
+        const savedModels = SettingsService.getActiveModels();
+        if (savedModels && savedModels.length > 0) {
+          setActiveModels(savedModels);
+        }
+        
+        // Get saved layout settings
+        const savedLayout = SettingsService.getGridLayout();
+        if (savedLayout) {
+          setGridLayout(savedLayout.layout);
+          setStreamType(savedLayout.streamType);
+        }
+        
+        // Get saved camera assignments
+        const savedAssignments = localStorage.getItem('camera-grid-assignments');
+        if (savedAssignments) {
+          setCameraAssignments(JSON.parse(savedAssignments));
+        }
+      } catch (error) {
+        console.error('Error loading saved settings:', error);
+      }
+    };
     
-    const savedLayout = SettingsService.getGridLayout();
-    if (savedLayout) {
-      setGridLayout(savedLayout.layout);
-      setStreamType(savedLayout.streamType);
-    }
-    
-    const savedAssignments = localStorage.getItem('camera-grid-assignments');
-    if (savedAssignments) {
-      setCameraAssignments(JSON.parse(savedAssignments));
-    }
-    
+    loadSavedSettings();
     loadCameras();
     loadModels();
   }, []);
@@ -65,15 +75,15 @@ const VideoPage = () => {
       
       setAvailableModels(formattedModels);
       
-      // Also try to get the active model
+      // Also try to get the active models
       try {
-        const activeModel = await storageService.getActiveModel();
-        if (activeModel) {
-          setActiveModel(activeModel);
-          SettingsService.setActiveModel(activeModel.name, activeModel.path);
+        const activeModels = await storageService.getActiveModels();
+        if (activeModels && activeModels.length > 0) {
+          setActiveModels(activeModels);
+          SettingsService.setActiveModels(activeModels);
         }
       } catch (error) {
-        console.warn('Failed to load active model, using cached if available');
+        console.warn('Failed to load active models, using cached if available');
       }
     } catch (error) {
       console.error('Failed to load models:', error);
@@ -98,34 +108,38 @@ const VideoPage = () => {
   };
 
   const handleModelSelected = (modelName: string, modelPath: string) => {
-    setActiveModel({ name: modelName, path: modelPath });
-    SettingsService.setActiveModel(modelName, modelPath);
+    const newActiveModels = [{ name: modelName, path: modelPath }];
+    setActiveModels(newActiveModels);
+    SettingsService.setActiveModels(newActiveModels);
     setRefreshKey(prev => prev + 1);
   };
   
-  const handleModelChange = (modelId: string) => {
-    if (modelId === 'none') {
-      setActiveModel(undefined);
-      return;
-    }
+  const handleModelChange = (modelIds: string[]) => {
+    const selectedModels = modelIds.map(id => {
+      const model = availableModels.find(m => m.id === id);
+      return model ? { name: model.name, path: model.path } : null;
+    }).filter((m): m is { name: string; path: string } => m !== null);
     
-    const selectedModel = availableModels.find(model => model.id === modelId);
-    if (selectedModel) {
-      setActiveModel({ name: selectedModel.name, path: selectedModel.path });
-      SettingsService.setActiveModel(selectedModel.name, selectedModel.path);
-      
-      // Also set as active in the backend
-      const storageService = StorageServiceFactory.getService();
-      storageService.setActiveModel(selectedModel.name, selectedModel.path)
-        .then(() => {
-          toast.success(`Model ${selectedModel.name} set as active`);
-          setRefreshKey(prev => prev + 1);
-        })
-        .catch(error => {
-          console.error('Failed to set active model:', error);
-          toast.error('Failed to set active model');
-        });
-    }
+    setActiveModels(selectedModels);
+    SettingsService.setActiveModels(selectedModels);
+    
+    // Also set as active in the backend
+    const storageService = StorageServiceFactory.getService();
+    storageService.setActiveModels(selectedModels)
+      .then(() => {
+        if (selectedModels.length === 0) {
+          toast.info('All detection models have been removed');
+        } else if (selectedModels.length === 1) {
+          toast.success(`Model ${selectedModels[0].name} set as active`);
+        } else {
+          toast.success(`${selectedModels.length} models set as active`);
+        }
+        setRefreshKey(prev => prev + 1);
+      })
+      .catch(error => {
+        console.error('Failed to set active models:', error);
+        toast.error('Failed to set active models');
+      });
   };
 
   const handleAssignCamera = (cameraId: string, gridPositionId: string) => {
@@ -173,12 +187,12 @@ const VideoPage = () => {
         <TabsContent value="stream">
           <div className="mb-4">
             <VideoModelSelector 
-              selectedModel={activeModel || null}
+              selectedModels={activeModels}
               availableModels={availableModels}
               onModelChange={handleModelChange}
             />
           </div>
-          <VideoFeed key={refreshKey} activeModel={activeModel} />
+          <VideoFeed key={refreshKey} activeModels={activeModels} />
         </TabsContent>
         
         <TabsContent value="cameras">
@@ -237,8 +251,7 @@ const VideoPage = () => {
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-6">
-                  Select an AI model to use for object detection on video feeds. You can apply a single model to all 
-                  cameras or configure individual cameras to use different models.
+                  Select AI models to use for object detection on video feeds. You can apply multiple models to detect different objects simultaneously.
                 </p>
                 
                 <ModelSelector onModelSelected={handleModelSelected} />
@@ -252,15 +265,15 @@ const VideoPage = () => {
         <div className="border rounded-md p-4">
           <h2 className="text-lg font-medium mb-2">Video Stream Usage</h2>
           <p className="text-sm text-muted-foreground mb-4">
-            The video stream displays real-time or recorded footage with AI-powered object detection overlays. The YOLOv11 model identifies and classifies objects in the video feed.
+            The video stream displays real-time or recorded footage with AI-powered object detection overlays. Multiple models can be selected to detect different types of objects.
           </p>
           <h3 className="text-md font-medium mb-1">Instructions:</h3>
           <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-1 ml-2">
+            <li>Select one or more detection models from the dropdown</li>
             <li>Enter a valid video stream URL in the input field</li>
             <li>Or upload a local video file from your device</li>
             <li>Click the "Start" button to begin streaming and object detection</li>
             <li>Object detection results appear as overlays on the video</li>
-            <li>Click "Stop" to end the stream</li>
           </ol>
         </div>
         
@@ -283,8 +296,8 @@ const VideoPage = () => {
               <span className="font-medium">Every 3 seconds</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span>Active Model:</span>
-              <span className="font-medium">{activeModel?.name || "None"}</span>
+              <span>Active Models:</span>
+              <span className="font-medium">{activeModels.length > 0 ? activeModels.map(m => m.name).join(', ') : "None"}</span>
             </div>
           </div>
         </div>
