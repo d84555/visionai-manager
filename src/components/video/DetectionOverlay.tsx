@@ -24,7 +24,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         // Check coordinate format type
         const hasCenterX = firstDet.x !== undefined;
         const hasCenterY = firstDet.y !== undefined;
-        const hasBbox = Array.isArray(firstDet.bbox) && firstDet.bbox.length === 4;
+        const hasBbox = firstDet.bbox !== undefined;
         
         console.log(`Detection format: ${(hasCenterX && hasCenterY) ? 'Center coordinates' : ''} ${hasBbox ? 'Bbox coordinates' : ''}`);
         
@@ -41,10 +41,20 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         }
         
         if (hasBbox) {
-          console.log(`Bbox values: [${firstDet.bbox.join(', ')}]`);
-          // Determine if normalized or absolute
-          const allInRange = firstDet.bbox.every(val => val >= 0 && val <= 1);
-          console.log(`Bbox coordinates appear to be: ${allInRange ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
+          // Check if bbox is an array
+          if (Array.isArray(firstDet.bbox)) {
+            console.log(`Bbox values: [${firstDet.bbox.join(', ')}]`);
+            // Determine if normalized or absolute
+            const allInRange = firstDet.bbox.every(val => val >= 0 && val <= 1);
+            console.log(`Bbox coordinates appear to be: ${allInRange ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
+          } else {
+            // Object format
+            const bbox = firstDet.bbox as { x1: number; y1: number; x2: number; y2: number; width: number; height: number; };
+            console.log(`Bbox values: x1=${bbox.x1}, y1=${bbox.y1}, x2=${bbox.x2}, y2=${bbox.y2}`);
+            // Determine if normalized or absolute
+            const allInRange = [bbox.x1, bbox.y1, bbox.x2, bbox.y2].every(val => val >= 0 && val <= 1);
+            console.log(`Bbox coordinates appear to be: ${allInRange ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
+          }
         }
       }
       
@@ -178,9 +188,26 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         }
         
         // CASE 2: Handle bbox format [x1, y1, x2, y2]
-        else if (detection.bbox && detection.bbox.length === 4) {
-          // Get coordinates [x1, y1, x2, y2]
-          const [x1, y1, x2, y2] = detection.bbox;
+        else if (detection.bbox) {
+          // Extract coordinates from bbox
+          let x1: number, y1: number, x2: number, y2: number;
+          
+          if (Array.isArray(detection.bbox)) {
+            // Array format
+            if (detection.bbox.length >= 4) {
+              [x1, y1, x2, y2] = detection.bbox;
+            } else {
+              console.warn(`Invalid bbox array length: ${detection.bbox.length}`, detection);
+              return null;
+            }
+          } else {
+            // Object format
+            const bbox = detection.bbox as { x1: number; y1: number; x2: number; y2: number };
+            x1 = bbox.x1;
+            y1 = bbox.y1;
+            x2 = bbox.x2;
+            y2 = bbox.y2;
+          }
           
           // Convert normalized values (0-1) to display pixel coordinates
           // Always scale to actual display dimensions
