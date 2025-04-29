@@ -28,19 +28,20 @@ export interface Detection {
   height?: number; // height (normalized 0-1)
 }
 
-interface InferenceResponse {
+export interface InferenceResponse {
   detections: BackendDetection[];
   inferenceTime: number;
   processedAt: 'edge' | 'server';
   timestamp: string;
 }
 
-interface InferenceRequest {
+export interface InferenceRequest {
   imageData: string;
   cameraId: string;
   modelName: string;
   modelPath: string;
   thresholdConfidence: number;
+  quantized?: boolean; // Flag to use quantized model
 }
 
 // WebSocket connection management
@@ -52,6 +53,8 @@ class WebSocketManager {
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private messageCallbacks: Map<string, (data: any) => void> = new Map();
   private clientId: string | null = null;
+  private pendingRequests = 0;
+  private maxPendingRequests = 3; // Maximum number of in-flight requests
 
   constructor(private url: string) {}
 
@@ -69,12 +72,16 @@ class WebSocketManager {
           console.log('WebSocket connection established');
           this.isConnected = true;
           this.reconnectAttempts = 0;
+          this.pendingRequests = 0;
           resolve(true);
         };
 
         this.socket.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+            
+            // Decrement pending requests counter
+            this.pendingRequests = Math.max(0, this.pendingRequests - 1);
             
             // Store client ID if received from server
             if (data.clientId && !this.clientId) {
@@ -124,7 +131,21 @@ class WebSocketManager {
     });
   }
 
+  // Check if there are too many pending requests
+  hasTooManyPendingRequests(): boolean {
+    return this.pendingRequests >= this.maxPendingRequests;
+  }
+
   async send(data: any): Promise<any> {
+    // Check if we're already at max pending requests
+    if (this.hasTooManyPendingRequests()) {
+      console.log(`Dropping frame - too many pending requests (${this.pendingRequests}/${this.maxPendingRequests})`);
+      return Promise.reject(new Error('Too many pending requests'));
+    }
+    
+    // Increment pending requests counter
+    this.pendingRequests++;
+    
     // Ensure clientId is included in the message
     if (this.clientId) {
       data.clientId = this.clientId;
@@ -135,12 +156,14 @@ class WebSocketManager {
         try {
           await this.connect();
         } catch (error) {
+          this.pendingRequests = Math.max(0, this.pendingRequests - 1);
           reject(new Error('Failed to connect WebSocket'));
           return;
         }
       }
       
       if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+        this.pendingRequests = Math.max(0, this.pendingRequests - 1);
         reject(new Error('WebSocket is not open'));
         return;
       }
@@ -153,6 +176,7 @@ class WebSocketManager {
         const timeout = setTimeout(() => {
           if (this.messageCallbacks.has(messageId)) {
             this.messageCallbacks.delete(messageId);
+            this.pendingRequests = Math.max(0, this.pendingRequests - 1);
             reject(new Error('WebSocket response timeout'));
           }
         }, 10000); // 10 second timeout
@@ -166,6 +190,7 @@ class WebSocketManager {
         // Send the message
         this.socket.send(JSON.stringify(data));
       } catch (error) {
+        this.pendingRequests = Math.max(0, this.pendingRequests - 1);
         reject(error);
       }
     });
@@ -176,6 +201,7 @@ class WebSocketManager {
       this.socket.close();
       this.socket = null;
       this.isConnected = false;
+      this.pendingRequests = 0;
       
       if (this.reconnectTimeout) {
         clearTimeout(this.reconnectTimeout);
@@ -192,6 +218,11 @@ class WebSocketManager {
 class EdgeAIInference {
   private webSocketManager: WebSocketManager | null = null;
   private useWebSocket = true; // Default to using WebSockets when available
+  private pendingHttpRequests = 0;
+  private maxPendingHttpRequests = 2; // Maximum concurrent HTTP requests
+  private lastRequestTimestamp = 0;
+  private minRequestInterval = 50; // Minimum 50ms between requests (20 FPS max)
+  private useQuantizedModels = false; // Flag to use quantized models when available
   
   constructor() {
     // Initialize WebSocket if available
@@ -208,17 +239,77 @@ class EdgeAIInference {
     } else {
       this.useWebSocket = false;
     }
+
+    // Check for hardware capabilities
+    this.detectHardwareCapabilities();
+  }
+
+  // Check if the device supports advanced features like quantization
+  private async detectHardwareCapabilities(): Promise<void> {
+    try {
+      const response = await axios.get(`${API_URL}/system/info`);
+      
+      if (response.data?.gpu_info?.fp16_supported) {
+        console.log('FP16 acceleration supported');
+      }
+      
+      // Enable quantization if available
+      if (response.data?.gpu_info?.quantization_available) {
+        console.log('INT8 quantization supported, enabling optimized models');
+        this.useQuantizedModels = true;
+      }
+    } catch (error) {
+      console.warn('Failed to detect hardware capabilities:', error);
+    }
+  }
+
+  // Check if we should drop this frame based on timing and pending requests
+  private shouldDropFrame(): boolean {
+    const now = Date.now();
+    
+    // Rate limiting based on minimum interval
+    if (now - this.lastRequestTimestamp < this.minRequestInterval) {
+      return true;
+    }
+    
+    // Too many HTTP requests already in flight
+    if (this.pendingHttpRequests >= this.maxPendingHttpRequests) {
+      return true;
+    }
+    
+    // WebSocket has too many pending requests
+    if (this.useWebSocket && 
+        this.webSocketManager?.isWebSocketAvailable() && 
+        this.webSocketManager?.hasTooManyPendingRequests()) {
+      return true;
+    }
+    
+    return false;
   }
 
   async performInference(request: InferenceRequest): Promise<InferenceResponse> {
+    // Check if we should drop this frame
+    if (this.shouldDropFrame()) {
+      throw new Error('Frame dropped - too many requests in flight or rate limited');
+    }
+    
+    // Update last request timestamp
+    this.lastRequestTimestamp = Date.now();
+    
     try {
+      // Add quantization flag if supported
+      if (this.useQuantizedModels) {
+        request.quantized = true;
+      }
+      
       // Try WebSocket first if enabled and available
       if (this.useWebSocket && this.webSocketManager?.isWebSocketAvailable()) {
         try {
           const wsRequest = {
             modelPath: request.modelPath,
             threshold: request.thresholdConfidence,
-            imageData: request.imageData
+            imageData: request.imageData,
+            quantized: request.quantized
           };
           
           // Send request via WebSocket
@@ -236,6 +327,13 @@ class EdgeAIInference {
             timestamp: response.timestamp || new Date().toISOString()
           };
         } catch (wsError) {
+          if (wsError.message === 'Too many pending requests' || 
+              wsError.message === 'Frame dropped - too many requests in flight or rate limited') {
+            // This is an expected error for frame dropping
+            console.debug('WebSocket frame dropped due to rate limiting');
+            throw wsError;
+          }
+          
           console.warn('WebSocket inference failed, falling back to HTTP API:', wsError);
           // Fall back to HTTP API
           this.useWebSocket = false;
@@ -245,40 +343,57 @@ class EdgeAIInference {
       // HTTP API fallback
       const apiEndpoint = `${API_URL}/inference/detect`;
       
-      // Prepare the HTTP request
-      const httpRequest = {
-        modelPath: request.modelPath,
-        threshold: request.thresholdConfidence,
-        imageData: request.imageData
-      };
+      // Increment pending HTTP requests
+      this.pendingHttpRequests++;
       
-      // Make the API call
-      const response = await axios.post(apiEndpoint, httpRequest, {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: 30000 // 30 second timeout for long inference operations
-      });
-      
-      // Extract and return the response data
-      return {
-        detections: response.data.detections || [],
-        inferenceTime: response.data.inferenceTime || 0,
-        processedAt: response.data.processedAt || 'server',
-        timestamp: response.data.timestamp || new Date().toISOString()
-      };
+      try {
+        // Prepare the HTTP request
+        const httpRequest = {
+          modelPath: request.modelPath,
+          threshold: request.thresholdConfidence,
+          imageData: request.imageData,
+          quantized: request.quantized
+        };
+        
+        // Make the API call
+        const response = await axios.post(apiEndpoint, httpRequest, {
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000 // 30 second timeout for long inference operations
+        });
+        
+        // Extract and return the response data
+        return {
+          detections: response.data.detections || [],
+          inferenceTime: response.data.inferenceTime || 0,
+          processedAt: response.data.processedAt || 'server',
+          timestamp: response.data.timestamp || new Date().toISOString()
+        };
+      } finally {
+        // Decrement pending HTTP requests
+        this.pendingHttpRequests = Math.max(0, this.pendingHttpRequests - 1);
+      }
       
     } catch (error) {
       console.error('Inference API error:', error);
       
-      // Show toast only for persistent errors
-      if (axios.isAxiosError(error) && error.code !== 'ECONNABORTED') {
+      // Only show toast for persistent errors, not for frame dropping
+      if (axios.isAxiosError(error) && error.code !== 'ECONNABORTED' && 
+          !error.message.includes('Frame dropped') && 
+          !error.message.includes('Too many pending requests')) {
         toast.error('Edge AI inference failed', {
           description: 'Check if the Edge AI server is running'
         });
       }
       
-      // Return empty result
+      // Re-throw specific errors
+      if (error.message.includes('Frame dropped') || 
+          error.message.includes('Too many pending requests')) {
+        throw error;
+      }
+      
+      // Return empty result for other errors
       return {
         detections: [],
         inferenceTime: 0,
@@ -286,6 +401,35 @@ class EdgeAIInference {
         timestamp: new Date().toISOString()
       };
     }
+  }
+
+  // Configure performance settings
+  setPerformanceSettings(settings: {
+    maxPendingRequests?: number,
+    minRequestInterval?: number,
+    useQuantized?: boolean
+  }) {
+    if (settings.maxPendingRequests !== undefined) {
+      this.maxPendingHttpRequests = settings.maxPendingRequests;
+      
+      if (this.webSocketManager) {
+        this.webSocketManager.maxPendingRequests = settings.maxPendingRequests;
+      }
+    }
+    
+    if (settings.minRequestInterval !== undefined) {
+      this.minRequestInterval = settings.minRequestInterval;
+    }
+    
+    if (settings.useQuantized !== undefined) {
+      this.useQuantizedModels = settings.useQuantized;
+    }
+    
+    console.log('Performance settings updated:', {
+      maxPendingRequests: this.maxPendingHttpRequests,
+      minRequestInterval: this.minRequestInterval,
+      useQuantizedModels: this.useQuantizedModels
+    });
   }
 }
 

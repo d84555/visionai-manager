@@ -41,19 +41,32 @@ export const useVideoFeed = ({
   const [isHikvisionFormat, setIsHikvisionFormat] = useState(false);
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [actualFps, setActualFps] = useState<number | null>(null);
+  const [droppedFrames, setDroppedFrames] = useState(0);
+  const [consecutiveErrors, setConsecutiveErrors] = useState(0);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const detectionIntervalRef = useRef<number | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
   const lastDetectionTimeRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
+  const droppedFrameCountRef = useRef<number>(0);
   const lastFpsUpdateTimeRef = useRef<number>(0);
   const detectionInProgressRef = useRef<boolean>(false);
-  const detectionQueueRef = useRef<boolean>(false);
+  const consecutiveErrorsRef = useRef<number>(0);
   
   // Calculate time between frames based on FPS
   const frameIntervalMs = 1000 / fps;
+
+  // Optimize performance settings based on device capabilities
+  useEffect(() => {
+    // Configure EdgeAIInference for performance
+    EdgeAIInference.setPerformanceSettings({
+      maxPendingRequests: 2,  // Allow 2 concurrent requests
+      minRequestInterval: Math.floor(frameIntervalMs), // Based on desired FPS
+      useQuantized: true      // Enable quantized models if available
+    });
+  }, [fps, frameIntervalMs]);
 
   const detectObjects = useCallback(async () => {
     if (!activeModel && !camera) {
@@ -63,7 +76,7 @@ export const useVideoFeed = ({
     
     // Skip if detection already in progress
     if (detectionInProgressRef.current) {
-      detectionQueueRef.current = true;  // Queue up next detection
+      droppedFrameCountRef.current++;
       return;
     }
     
@@ -78,6 +91,7 @@ export const useVideoFeed = ({
       // Rate limiting based on specified FPS
       const now = Date.now();
       if (now - lastDetectionTimeRef.current < frameIntervalMs) {
+        droppedFrameCountRef.current++;
         return;
       }
       lastDetectionTimeRef.current = now;
@@ -86,155 +100,194 @@ export const useVideoFeed = ({
       frameCountRef.current++;
       if (now - lastFpsUpdateTimeRef.current >= 1000) {
         setActualFps(frameCountRef.current);
+        setDroppedFrames(droppedFrameCountRef.current);
         frameCountRef.current = 0;
+        droppedFrameCountRef.current = 0;
         lastFpsUpdateTimeRef.current = now;
       }
       
       // Mark detection as started
       detectionInProgressRef.current = true;
       
-      if (!canvasRef.current) {
-        const canvas = document.createElement('canvas');
-        canvas.width = videoRef.current.videoWidth || 640;
-        canvas.height = videoRef.current.videoHeight || 360;
-        canvasRef.current = canvas;
-      }
-      
-      const ctx = canvasRef.current.getContext('2d');
-      if (ctx && videoRef.current) {
-        // Ensure canvas matches video dimensions exactly
-        canvasRef.current.width = videoRef.current.videoWidth || 640;
-        canvasRef.current.height = videoRef.current.videoHeight || 360;
-        
-        // Draw the current video frame to the canvas
-        ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-        
-        // Use lower JPEG quality to reduce payload size
-        const imageData = canvasRef.current.toDataURL('image/jpeg', 0.7);
-        
-        if (!modelToUse) {
-          console.warn("No model specified for inference");
-          detectionInProgressRef.current = false;
-          return;
+      try {
+        if (!canvasRef.current) {
+          const canvas = document.createElement('canvas');
+          canvas.width = videoRef.current.videoWidth || 640;
+          canvas.height = videoRef.current.videoHeight || 360;
+          canvasRef.current = canvas;
         }
         
-        const request = {
-          imageData: imageData,
-          cameraId: camera?.id || videoUrl || "unknown",
-          modelName: modelToUse.name || "custom_model",
-          modelPath: modelToUse.path || "",
-          thresholdConfidence: 0.5
-        };
+        const ctx = canvasRef.current.getContext('2d', { 
+          alpha: false,  // Optimization: disable alpha channel
+          willReadFrequently: true // Optimization: optimize for frequent readback
+        });
         
-        const result = await EdgeAIInference.performInference(request);
-        
-        if (result.detections && result.detections.length > 0) {
-          // Create normalized detections with unique IDs
-          const normalizedDetections = result.detections.map((detection: BackendDetection, index) => {
-            // Create a unique ID for React
-            const uniqueId = `${index}-${Date.now()}`;
-            
-            // Get detection properties with proper defaults
-            const processedDetection: Detection = {
-              id: uniqueId,
-              label: detection.label || detection.class || 'Object',
-              class: detection.class || detection.label || 'Object',
-              confidence: detection.confidence || 0
-            };
-            
-            // Handle YOLO-style center+dimensions format (keep as is)
-            if (detection.x !== undefined && detection.y !== undefined && 
-                detection.width !== undefined && detection.height !== undefined) {
-              processedDetection.x = detection.x;
-              processedDetection.y = detection.y;
-              processedDetection.width = detection.width;
-              processedDetection.height = detection.height;
-            }
-            
-            // Process bbox coordinates if available [x1, y1, x2, y2]
-            if (Array.isArray(detection.bbox) && detection.bbox.length === 4) {
-              processedDetection.bbox = [...detection.bbox];
-              
-              // Ensure all values are valid numbers
-              processedDetection.bbox = processedDetection.bbox.map(val => 
-                isNaN(val) ? 0 : val
-              );
-              
-              // Ensure coordinates are properly ordered (x1 < x2, y1 < y2)
-              if (processedDetection.bbox[2] < processedDetection.bbox[0]) {
-                [processedDetection.bbox[0], processedDetection.bbox[2]] = 
-                  [processedDetection.bbox[2], processedDetection.bbox[0]];
-              }
-              if (processedDetection.bbox[3] < processedDetection.bbox[1]) {
-                [processedDetection.bbox[1], processedDetection.bbox[3]] = 
-                  [processedDetection.bbox[3], processedDetection.bbox[1]];
-              }
-              
-              // If we don't have center coordinates but have bbox, calculate center coords
-              if (processedDetection.x === undefined) {
-                const [x1, y1, x2, y2] = processedDetection.bbox;
-                processedDetection.x = (x1 + x2) / 2;
-                processedDetection.y = (y1 + y2) / 2;
-                processedDetection.width = x2 - x1;
-                processedDetection.height = y2 - y1;
-              }
-            } 
-            // If no valid bbox data but we have center coords, calculate bbox
-            else if (processedDetection.x !== undefined && processedDetection.bbox === undefined) {
-              const halfWidth = processedDetection.width! / 2;
-              const halfHeight = processedDetection.height! / 2;
-              
-              processedDetection.bbox = [
-                processedDetection.x - halfWidth,    // x1
-                processedDetection.y - halfHeight,   // y1
-                processedDetection.x + halfWidth,    // x2
-                processedDetection.y + halfHeight    // y2
-              ];
-            }
-            
-            return processedDetection;
-          });
+        if (ctx && videoRef.current) {
+          // Ensure canvas matches video dimensions exactly
+          canvasRef.current.width = videoRef.current.videoWidth || 640;
+          canvasRef.current.height = videoRef.current.videoHeight || 360;
           
-          // Filter out detections with very low confidence
-          const filteredDetections = normalizedDetections.filter(d => 
-            d.confidence > 0.1 // Lower threshold to show more detections for debugging
-          );
+          // Draw the current video frame to the canvas
+          ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
           
-          setDetections(filteredDetections);
-          setInferenceLocation(result.processedAt);
-          setInferenceTime(result.inferenceTime);
+          // Use lower JPEG quality to reduce payload size
+          const imageData = canvasRef.current.toDataURL('image/jpeg', 0.7);
           
-          // Dispatch detection event for other components
-          window.dispatchEvent(new CustomEvent('ai-detection', { 
-            detail: { 
-              detections: filteredDetections,
-              modelName: request.modelName,
-              timestamp: new Date(),
-              source: camera?.id || "video-feed" 
-            } 
-          }));
+          if (!modelToUse) {
+            console.warn("No model specified for inference");
+            detectionInProgressRef.current = false;
+            return;
+          }
+          
+          const request = {
+            imageData: imageData,
+            cameraId: camera?.id || videoUrl || "unknown",
+            modelName: modelToUse.name || "custom_model",
+            modelPath: modelToUse.path || "",
+            thresholdConfidence: 0.5
+          };
+          
+          const result = await EdgeAIInference.performInference(request);
+          
+          // Reset consecutive errors on success
+          consecutiveErrorsRef.current = 0;
+          
+          if (result.detections && result.detections.length > 0) {
+            // Create normalized detections with unique IDs
+            const normalizedDetections = result.detections.map((detection: BackendDetection, index) => {
+              // Create a unique ID for React
+              const uniqueId = `${index}-${Date.now()}`;
+              
+              // Get detection properties with proper defaults
+              const processedDetection: Detection = {
+                id: uniqueId,
+                label: detection.label || detection.class || 'Object',
+                class: detection.class || detection.label || 'Object',
+                confidence: detection.confidence || 0
+              };
+              
+              // Handle YOLO-style center+dimensions format (keep as is)
+              if (detection.x !== undefined && detection.y !== undefined && 
+                  detection.width !== undefined && detection.height !== undefined) {
+                processedDetection.x = detection.x;
+                processedDetection.y = detection.y;
+                processedDetection.width = detection.width;
+                processedDetection.height = detection.height;
+              }
+              
+              // Process bbox coordinates if available [x1, y1, x2, y2]
+              if (Array.isArray(detection.bbox) && detection.bbox.length === 4) {
+                processedDetection.bbox = [...detection.bbox];
+                
+                // Ensure all values are valid numbers
+                processedDetection.bbox = processedDetection.bbox.map(val => 
+                  isNaN(val) ? 0 : val
+                );
+                
+                // Ensure coordinates are properly ordered (x1 < x2, y1 < y2)
+                if (processedDetection.bbox[2] < processedDetection.bbox[0]) {
+                  [processedDetection.bbox[0], processedDetection.bbox[2]] = 
+                    [processedDetection.bbox[2], processedDetection.bbox[0]];
+                }
+                if (processedDetection.bbox[3] < processedDetection.bbox[1]) {
+                  [processedDetection.bbox[1], processedDetection.bbox[3]] = 
+                    [processedDetection.bbox[3], processedDetection.bbox[1]];
+                }
+                
+                // If we don't have center coordinates but have bbox, calculate center coords
+                if (processedDetection.x === undefined) {
+                  const [x1, y1, x2, y2] = processedDetection.bbox;
+                  processedDetection.x = (x1 + x2) / 2;
+                  processedDetection.y = (y1 + y2) / 2;
+                  processedDetection.width = x2 - x1;
+                  processedDetection.height = y2 - y1;
+                }
+              } 
+              // If no valid bbox data but we have center coords, calculate bbox
+              else if (processedDetection.x !== undefined && processedDetection.bbox === undefined) {
+                const halfWidth = processedDetection.width! / 2;
+                const halfHeight = processedDetection.height! / 2;
+                
+                processedDetection.bbox = [
+                  processedDetection.x - halfWidth,    // x1
+                  processedDetection.y - halfHeight,   // y1
+                  processedDetection.x + halfWidth,    // x2
+                  processedDetection.y + halfHeight    // y2
+                ];
+              }
+              
+              return processedDetection;
+            });
+            
+            // Filter out detections with very low confidence
+            const filteredDetections = normalizedDetections.filter(d => 
+              d.confidence > 0.1 // Lower threshold to show more detections for debugging
+            );
+            
+            setDetections(filteredDetections);
+            setInferenceLocation(result.processedAt);
+            setInferenceTime(result.inferenceTime);
+            
+            // Dispatch detection event for other components
+            window.dispatchEvent(new CustomEvent('ai-detection', { 
+              detail: { 
+                detections: filteredDetections,
+                modelName: request.modelName,
+                timestamp: new Date(),
+                source: camera?.id || "video-feed" 
+              } 
+            }));
+          } else {
+            setDetections([]);
+          }
+          
+        }
+      } catch (error) {
+        // Skip errors related to frame dropping - those are expected
+        if (error.message && (
+            error.message.includes('Frame dropped') || 
+            error.message.includes('Too many pending requests'))) {
+          droppedFrameCountRef.current++;
         } else {
+          // Increment consecutive errors
+          consecutiveErrorsRef.current++;
+          setConsecutiveErrors(consecutiveErrorsRef.current);
+          
+          console.error("Edge inference error:", error);
+          
+          // Only show toast after multiple consecutive errors
+          if (consecutiveErrorsRef.current >= 5) {
+            toast.error("AI inference failed", {
+              description: "Check if the Edge Computing node is running and the model is valid"
+            });
+            setInferenceLocation("server");
+            consecutiveErrorsRef.current = 0; // Reset after showing toast
+          }
+          
           setDetections([]);
         }
+      } finally {
+        // Mark detection as finished
+        detectionInProgressRef.current = false;
       }
     } catch (error) {
-      console.error("Edge inference error:", error);
-      toast.error("AI inference failed", {
-        description: "Check if the Edge Computing node is running and the model is valid"
-      });
-      setInferenceLocation("server");
-      setDetections([]);
-    } finally {
-      // Mark detection as finished
+      console.error("Detection wrapper error:", error);
       detectionInProgressRef.current = false;
-      
-      // Process next frame if one was queued during this detection
-      if (detectionQueueRef.current) {
-        detectionQueueRef.current = false;
-        requestAnimationFrame(() => detectObjects());
-      }
     }
   }, [activeModel, camera, videoUrl, fps, frameIntervalMs]);
+
+  const scheduleNextDetection = useCallback(() => {
+    if (!isStreaming || !isPlaying) return;
+    
+    // Use requestAnimationFrame for smoother timing
+    animationFrameRef.current = requestAnimationFrame(() => {
+      detectObjects()
+        .finally(() => {
+          // Schedule next detection
+          scheduleNextDetection();
+        });
+    });
+  }, [detectObjects, isPlaying, isStreaming]);
 
   const startStream = async () => {
     if (!videoUrl && !originalFile) {
@@ -280,24 +333,20 @@ export const useVideoFeed = ({
     }
     
     if (activeModel) {
-      if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current);
+      // Cancel any existing animation frame
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
       
       // Reset FPS tracking
       frameCountRef.current = 0;
+      droppedFrameCountRef.current = 0;
       lastFpsUpdateTimeRef.current = Date.now();
+      consecutiveErrorsRef.current = 0;
       
-      // Initial detection
-      await detectObjects();
-      
-      // Use requestAnimationFrame for smoother detection scheduling
-      const animateDetection = () => {
-        detectObjects();
-        detectionIntervalRef.current = window.requestAnimationFrame(animateDetection);
-      };
-      
-      detectionIntervalRef.current = window.requestAnimationFrame(animateDetection);
+      // Start detection loop using requestAnimationFrame
+      scheduleNextDetection();
     }
   };
 
@@ -306,10 +355,13 @@ export const useVideoFeed = ({
     setDetections([]);
     setIsPlaying(false);
     setActualFps(null);
+    setDroppedFrames(0);
+    setConsecutiveErrors(0);
     
-    if (detectionIntervalRef.current) {
-      window.cancelAnimationFrame(detectionIntervalRef.current);
-      detectionIntervalRef.current = null;
+    // Cancel animation frame if active
+    if (animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
     
     if (videoRef.current) {
@@ -426,34 +478,29 @@ export const useVideoFeed = ({
 
   useEffect(() => {
     // Update detection when activeModel changes
-    if (isStreaming && activeModel) {
-      if (detectionIntervalRef.current) {
-        window.cancelAnimationFrame(detectionIntervalRef.current);
+    if (isStreaming && activeModel && isPlaying) {
+      // Cancel any existing animation frame
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
       
       // Reset FPS tracking
       frameCountRef.current = 0;
+      droppedFrameCountRef.current = 0;
       lastFpsUpdateTimeRef.current = Date.now();
       
-      // Initial detection
-      detectObjects();
-      
-      // Use requestAnimationFrame for smoother detection scheduling
-      const animateDetection = () => {
-        detectObjects();
-        detectionIntervalRef.current = window.requestAnimationFrame(animateDetection);
-      };
-      
-      detectionIntervalRef.current = window.requestAnimationFrame(animateDetection);
+      // Start detection loop using requestAnimationFrame
+      scheduleNextDetection();
     }
     
     return () => {
-      if (detectionIntervalRef.current) {
-        window.cancelAnimationFrame(detectionIntervalRef.current);
-        detectionIntervalRef.current = null;
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
-  }, [isStreaming, activeModel, detectObjects, fps]);
+  }, [isStreaming, activeModel, isPlaying, scheduleNextDetection]);
 
   useEffect(() => {
     const updateSize = () => {
@@ -479,8 +526,9 @@ export const useVideoFeed = ({
         URL.revokeObjectURL(videoUrl);
       }
       
-      if (detectionIntervalRef.current) {
-        window.cancelAnimationFrame(detectionIntervalRef.current);
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
   }, [hasUploadedFile, videoUrl]);
@@ -497,6 +545,7 @@ export const useVideoFeed = ({
     inferenceLocation,
     inferenceTime,
     actualFps,
+    droppedFrames,
     isHikvisionFormat,
     setIsHikvisionFormat,
     isModelLoading,
