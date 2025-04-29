@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import {
   Card,
@@ -49,7 +50,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
         id: model.id,
         name: model.name,
         path: model.path,
-        description: `Custom model (${model.size || 'unknown size'})`
+        description: `Custom model (${model.fileSize || 'unknown size'})`
       }));
       
       setAvailableModels(formattedCustomModels);
