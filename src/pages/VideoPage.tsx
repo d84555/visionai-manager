@@ -10,7 +10,6 @@ import SettingsService from '@/services/SettingsService';
 import CameraService from '@/services/CameraService';
 import CameraListPanel from '@/components/camera/CameraListPanel';
 import CameraControls from '@/components/video/CameraControls';
-import { ModelSelector as VideoModelSelector } from '@/components/video/ModelSelector';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
@@ -185,13 +184,7 @@ const VideoPage = () => {
         </TabsList>
         
         <TabsContent value="stream">
-          <div className="mb-4">
-            <VideoModelSelector 
-              selectedModels={activeModels}
-              availableModels={availableModels}
-              onModelChange={handleModelChange}
-            />
-          </div>
+          {/* Video feed includes its own model selector, so we removed the duplicate one here */}
           <VideoFeed key={refreshKey} activeModels={activeModels} />
         </TabsContent>
         
