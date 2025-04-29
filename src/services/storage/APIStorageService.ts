@@ -4,24 +4,40 @@ import { StorageServiceInterface, ModelInfo } from './StorageServiceInterface';
 export class APIStorageService implements StorageServiceInterface {
   private apiBaseUrl = 'http://localhost:8000';  // Updated to remove /api prefix
 
+  // Helper method to determine API base URL
+  private getApiBaseUrl(): string {
+    // Check if we're running in development or production
+    const isProduction = window.location.hostname.endsWith('lovableproject.com');
+    
+    if (isProduction) {
+      // Use relative URL to avoid CORS issues on production
+      return '';
+    }
+    
+    return this.apiBaseUrl;
+  }
+
   async uploadModel(file: File, name: string): Promise<ModelInfo> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('name', name);
     
     try {
-      const response = await fetch(`${this.apiBaseUrl}/models/upload`, {
+      console.log(`Uploading model to ${this.getApiBaseUrl()}/models/upload`);
+      const response = await fetch(`${this.getApiBaseUrl()}/models/upload`, {
         method: 'POST',
         body: formData,
         // No Content-Type header needed - browser sets it with boundary for FormData
       });
       
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
         throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
       
-      return await response.json();
+      const result = await response.json();
+      console.log("Upload successful:", result);
+      return result;
     } catch (error) {
       console.error('Failed to upload model:', error);
       throw error;
@@ -30,14 +46,17 @@ export class APIStorageService implements StorageServiceInterface {
 
   async listModels(): Promise<ModelInfo[]> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/models/list`);
+      console.log(`Fetching models from ${this.getApiBaseUrl()}/models/list`);
+      const response = await fetch(`${this.getApiBaseUrl()}/models/list`);
       
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
         throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
       
-      return await response.json();
+      const models = await response.json();
+      console.log("Models retrieved:", models);
+      return models;
     } catch (error) {
       console.error('Failed to list models:', error);
       throw error;
@@ -46,14 +65,17 @@ export class APIStorageService implements StorageServiceInterface {
 
   async deleteModel(modelId: string): Promise<void> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/models/${modelId}`, {
+      console.log(`Deleting model ${modelId}`);
+      const response = await fetch(`${this.getApiBaseUrl()}/models/${modelId}`, {
         method: 'DELETE'
       });
       
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
         throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
+      
+      console.log(`Model ${modelId} deleted successfully`);
     } catch (error) {
       console.error('Failed to delete model:', error);
       throw error;
@@ -62,16 +84,19 @@ export class APIStorageService implements StorageServiceInterface {
 
   async setActiveModel(modelName: string, modelPath: string): Promise<void> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/models/select`, {
+      console.log(`Setting active model: ${modelName}, ${modelPath}`);
+      const response = await fetch(`${this.getApiBaseUrl()}/models/select`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: modelName, path: modelPath })
       });
       
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
         throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
+      
+      console.log("Active model set successfully");
     } catch (error) {
       console.error('Failed to set active model:', error);
       throw error;
@@ -80,17 +105,21 @@ export class APIStorageService implements StorageServiceInterface {
 
   async getActiveModel(): Promise<{ name: string; path: string } | null> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/models/active`);
+      console.log(`Getting active model from ${this.getApiBaseUrl()}/models/active`);
+      const response = await fetch(`${this.getApiBaseUrl()}/models/active`);
       
       if (!response.ok) {
         if (response.status === 404) {
+          console.log("No active model set");
           return null;
         }
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
         throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
       
-      return await response.json();
+      const activeModel = await response.json();
+      console.log("Active model:", activeModel);
+      return activeModel;
     } catch (error) {
       console.error('Failed to get active model:', error);
       throw error;
@@ -99,17 +128,20 @@ export class APIStorageService implements StorageServiceInterface {
 
   async getModelFileUrl(modelPath: string): Promise<string | null> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/models/file-url?path=${encodeURIComponent(modelPath)}`);
+      console.log(`Getting model file URL for ${modelPath}`);
+      const response = await fetch(`${this.getApiBaseUrl()}/models/file-url?path=${encodeURIComponent(modelPath)}`);
       
       if (!response.ok) {
         if (response.status === 404) {
+          console.log(`Model file not found: ${modelPath}`);
           return null;
         }
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
         throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
       }
       
       const data = await response.json();
+      console.log(`Got model file URL: ${data.url}`);
       return data.url;
     } catch (error) {
       console.error('Failed to get model file URL:', error);
