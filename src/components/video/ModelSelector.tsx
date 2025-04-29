@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
-import { AlertCircle, Cpu, Rocket, Zap } from 'lucide-react';
+import { AlertCircle, Cpu } from 'lucide-react';
 
 interface ModelSelectorProps {
   selectedModel: { name: string; path: string } | null;
@@ -76,17 +76,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const getModelFormatBadge = (path: string) => {
     if (isOnnxFormat(path)) {
       return (
-        <Badge variant="outline" className="ml-2 bg-green-100 text-green-800 text-xs flex items-center gap-1">
-          <Rocket size={12} />
-          ONNX
-        </Badge>
+        <Badge variant="outline" className="ml-2 bg-green-100 text-green-800 text-xs">ONNX</Badge>
       );
     } else if (isPytorchFormat(path)) {
       return (
-        <Badge variant="outline" className="ml-2 bg-amber-100 text-amber-800 text-xs flex items-center gap-1">
-          <Zap size={12} />
-          PyTorch
-        </Badge>
+        <Badge variant="outline" className="ml-2 bg-amber-100 text-amber-800 text-xs">PyTorch</Badge>
       );
     }
     return null;
@@ -133,8 +127,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         <div className="mt-1 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 flex items-center">
           <Cpu className="w-3.5 h-3.5 mr-1.5 inline" />
           <span>
-            <span className="font-medium">PyTorch Model:</span> Using TorchScript and FP16 optimization when available. 
-            {/* Add react.memo() or useMemo() to reduce re-renders */}
+            <span className="font-medium">PyTorch Model:</span> Using TorchScript and FP16 optimization when available.
           </span>
         </div>
       )}

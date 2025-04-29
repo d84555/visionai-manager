@@ -47,7 +47,11 @@ export class APIStorageService implements StorageServiceInterface {
   async listModels(): Promise<ModelInfo[]> {
     try {
       console.log(`Fetching models from ${this.getApiBaseUrl()}/models/list`);
-      const response = await fetch(`${this.getApiBaseUrl()}/models/list`);
+      const response = await fetch(`${this.getApiBaseUrl()}/models/list`, {
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
       
       if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
@@ -97,6 +101,8 @@ export class APIStorageService implements StorageServiceInterface {
       }
       
       console.log("Active model set successfully");
+      // Cache the active model in localStorage for quick access
+      localStorage.setItem('active-ai-model', JSON.stringify({ name: modelName, path: modelPath }));
     } catch (error) {
       console.error('Failed to set active model:', error);
       throw error;
@@ -119,9 +125,19 @@ export class APIStorageService implements StorageServiceInterface {
       
       const activeModel = await response.json();
       console.log("Active model:", activeModel);
+      
+      // Cache the active model in localStorage for quick access
+      localStorage.setItem('active-ai-model', JSON.stringify(activeModel));
       return activeModel;
     } catch (error) {
       console.error('Failed to get active model:', error);
+      
+      // Try to get from localStorage if API fails
+      const cachedModel = localStorage.getItem('active-ai-model');
+      if (cachedModel) {
+        return JSON.parse(cachedModel);
+      }
+      
       throw error;
     }
   }

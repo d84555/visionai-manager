@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { VideoIcon, Camera, Layers, Cpu } from 'lucide-react';
@@ -9,8 +10,11 @@ import SettingsService from '@/services/SettingsService';
 import CameraService from '@/services/CameraService';
 import CameraListPanel from '@/components/camera/CameraListPanel';
 import CameraControls from '@/components/video/CameraControls';
+import { ModelSelector as VideoModelSelector } from '@/components/video/ModelSelector';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
+import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
+import { toast } from 'sonner';
 
 const VideoPage = () => {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -20,6 +24,7 @@ const VideoPage = () => {
   const [cameraAssignments, setCameraAssignments] = useState<Record<string, string>>({});
   const [showCameraPanel, setShowCameraPanel] = useState(true);
   const [cameras, setCameras] = useState([]);
+  const [availableModels, setAvailableModels] = useState<{id: string; name: string; path: string}[]>([]);
 
   useEffect(() => {
     const savedModel = SettingsService.getActiveModel();
@@ -39,11 +44,41 @@ const VideoPage = () => {
     }
     
     loadCameras();
+    loadModels();
   }, []);
   
   const loadCameras = () => {
     const loadedCameras = CameraService.getAllCameras();
     setCameras(loadedCameras);
+  };
+  
+  const loadModels = async () => {
+    try {
+      const storageService = StorageServiceFactory.getService();
+      const models = await storageService.listModels();
+      
+      const formattedModels = models.map(model => ({
+        id: model.id,
+        name: model.name,
+        path: model.path
+      }));
+      
+      setAvailableModels(formattedModels);
+      
+      // Also try to get the active model
+      try {
+        const activeModel = await storageService.getActiveModel();
+        if (activeModel) {
+          setActiveModel(activeModel);
+          SettingsService.setActiveModel(activeModel.name, activeModel.path);
+        }
+      } catch (error) {
+        console.warn('Failed to load active model, using cached if available');
+      }
+    } catch (error) {
+      console.error('Failed to load models:', error);
+      toast.error('Failed to load models from the server');
+    }
   };
 
   useEffect(() => {
@@ -64,7 +99,33 @@ const VideoPage = () => {
 
   const handleModelSelected = (modelName: string, modelPath: string) => {
     setActiveModel({ name: modelName, path: modelPath });
+    SettingsService.setActiveModel(modelName, modelPath);
     setRefreshKey(prev => prev + 1);
+  };
+  
+  const handleModelChange = (modelId: string) => {
+    if (modelId === 'none') {
+      setActiveModel(undefined);
+      return;
+    }
+    
+    const selectedModel = availableModels.find(model => model.id === modelId);
+    if (selectedModel) {
+      setActiveModel({ name: selectedModel.name, path: selectedModel.path });
+      SettingsService.setActiveModel(selectedModel.name, selectedModel.path);
+      
+      // Also set as active in the backend
+      const storageService = StorageServiceFactory.getService();
+      storageService.setActiveModel(selectedModel.name, selectedModel.path)
+        .then(() => {
+          toast.success(`Model ${selectedModel.name} set as active`);
+          setRefreshKey(prev => prev + 1);
+        })
+        .catch(error => {
+          console.error('Failed to set active model:', error);
+          toast.error('Failed to set active model');
+        });
+    }
   };
 
   const handleAssignCamera = (cameraId: string, gridPositionId: string) => {
@@ -110,7 +171,14 @@ const VideoPage = () => {
         </TabsList>
         
         <TabsContent value="stream">
-          <VideoFeed activeModel={activeModel} />
+          <div className="mb-4">
+            <VideoModelSelector 
+              selectedModel={activeModel || null}
+              availableModels={availableModels}
+              onModelChange={handleModelChange}
+            />
+          </div>
+          <VideoFeed key={refreshKey} activeModel={activeModel} />
         </TabsContent>
         
         <TabsContent value="cameras">

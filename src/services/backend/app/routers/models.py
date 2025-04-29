@@ -57,6 +57,7 @@ async def list_models():
         models = []
         # First check main models directory
         if os.path.exists(MODELS_DIR):
+            print(f"Checking models directory: {MODELS_DIR}")
             for filename in os.listdir(MODELS_DIR):
                 if filename.endswith(('.pt', '.pth', '.onnx', '.tflite', '.pb')):
                     file_path = os.path.join(MODELS_DIR, filename)
@@ -87,6 +88,7 @@ async def list_models():
         # Look for demo models (pre-packaged)
         demo_dir = os.path.join(MODELS_DIR, "demo")
         if os.path.exists(demo_dir):
+            print(f"Checking demo models directory: {demo_dir}")
             for filename in os.listdir(demo_dir):
                 if filename.endswith(('.pt', '.pth', '.onnx', '.tflite', '.pb')):
                     file_path = os.path.join(demo_dir, filename)
@@ -116,6 +118,7 @@ async def list_models():
         
         # If no models found, provide some simulated test models
         if not models:
+            print("No models found, providing sample models")
             models = [
                 ModelInfo(
                     id="yolov8n",
@@ -253,6 +256,34 @@ async def select_model(model: ActiveModelResponse):
         # Store the active model information
         with open(ACTIVE_MODEL_FILE, "w") as f:
             json.dump({"name": model.name, "path": model.path}, f)
+        
+        # Also save to active_models cache in websocket.py
+        try:
+            from .websocket import active_models
+            # Pre-load the model if possible
+            from .inference import YOLO, TORCH_AVAILABLE, ULTRALYTICS_AVAILABLE, CUDA_AVAILABLE
+            
+            if (TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE and 
+                model.path.lower().endswith(('.pt', '.pth')) and 
+                model.path not in active_models):
+                try:
+                    print(f"Preloading model: {model.path}")
+                    # Load PyTorch model
+                    model_obj = YOLO(model.path)
+                    
+                    # Move to device
+                    if CUDA_AVAILABLE:
+                        model_obj.to("cuda")
+                    else:
+                        model_obj.to("cpu")
+                        
+                    # Store for reuse
+                    active_models[model.path] = model_obj
+                    print(f"Model preloaded successfully: {model.path}")
+                except Exception as e:
+                    print(f"Error preloading model: {str(e)}")
+        except (ImportError, AttributeError) as e:
+            print(f"Could not access active models cache: {str(e)}")
         
         return {"status": "success", "message": f"Model {model.name} set as active"}
         

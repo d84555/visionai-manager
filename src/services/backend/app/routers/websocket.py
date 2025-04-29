@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Dict, List, Any
 import json
@@ -16,7 +17,6 @@ except ImportError:
     TORCH_AVAILABLE = False
 
 # Import models and detection functions
-# Fix import to include only functions that exist in inference.py
 from .inference import InferenceResult, Detection, optimize_pytorch_model
 from .inference import YOLO, TORCH_AVAILABLE, ULTRALYTICS_AVAILABLE, CUDA_AVAILABLE, FP16_SUPPORTED
 from .inference import simulate_detection, convert_ultralytics_results_to_detections
@@ -57,8 +57,10 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
         # Get or load model
         if model_path in active_models:
             model = active_models[model_path]
+            print(f"Using cached model: {model_path}")
         elif TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE and model_path.lower().endswith(('.pt', '.pth')):
             try:
+                print(f"Loading PyTorch model: {model_path}")
                 # Load PyTorch model
                 model = YOLO(model_path)
                 
@@ -70,6 +72,7 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
                     
                 # Store for reuse
                 active_models[model_path] = model
+                print(f"Model loaded and cached: {model_path}")
             except Exception as e:
                 print(f"Error loading model: {str(e)}")
                 # Fallback to simulation
@@ -128,7 +131,8 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
                 "inferenceTime": inference_time,
                 "processedAt": "edge",
                 "timestamp": datetime.now().isoformat(),
-                "clientId": client_id
+                "clientId": client_id,
+                "modelPath": model_path
             })
             
         except Exception as e:
@@ -147,6 +151,15 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
             "timestamp": datetime.now().isoformat()
         })
 
+# Clear model cache periodically to free memory
+async def clear_unused_models():
+    """Periodically clear models that haven't been used recently"""
+    while True:
+        await asyncio.sleep(3600)  # Check every hour
+        if len(active_models) > 3:  # Keep at most 3 models in memory
+            # For now we'll just log this - in production you'd implement a full LRU cache
+            print(f"Would clear some models from cache, currently have {len(active_models)} models")
+
 @router.websocket("/inference")
 async def websocket_inference(websocket: WebSocket):
     await websocket.accept()
@@ -160,6 +173,9 @@ async def websocket_inference(websocket: WebSocket):
             "clientId": client_id,
             "timestamp": datetime.now().isoformat()
         })
+        
+        # Start background task for cache management
+        asyncio.create_task(clear_unused_models())
         
         while True:
             # Receive frame data
