@@ -47,8 +47,8 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
             // Determine if normalized or absolute
             const allInRange = firstDet.bbox.every(val => val >= 0 && val <= 1);
             console.log(`Bbox coordinates appear to be: ${allInRange ? 'NORMALIZED (0-1)' : 'ABSOLUTE PIXELS'}`);
-          } else if (typeof firstDet.bbox === 'object') {
-            // Object format
+          } else if (typeof firstDet.bbox === 'object' && firstDet.bbox !== null) {
+            // Object format - we need to check for null first
             const bbox = firstDet.bbox as { x1: number; y1: number; x2: number; y2: number; width?: number; height?: number; };
             console.log(`Bbox values: x1=${bbox.x1}, y1=${bbox.y1}, x2=${bbox.x2}, y2=${bbox.y2}`);
             // Determine if normalized or absolute
@@ -191,8 +191,10 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         // CASE 2: Handle bbox format [x1, y1, x2, y2]
         else if (detection.bbox) {
           // Extract coordinates from bbox
-          let x1: number, y1: number, x2: number, y2: number;
+          let x1, y1, x2, y2;
           
+          // We need to initialize these variables safely before proceeding
+          // This was likely the cause of the "Cannot access 'c' before initialization" error
           if (Array.isArray(detection.bbox)) {
             // Array format
             if (detection.bbox.length >= 4) {
@@ -201,7 +203,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
               console.warn(`Invalid bbox array length: ${detection.bbox.length}`, detection);
               return null;
             }
-          } else {
+          } else if (typeof detection.bbox === 'object' && detection.bbox !== null) {
             // Object format - ensure we have all required properties
             const bbox = detection.bbox as { x1: number; y1: number; x2: number; y2: number; };
             if (bbox.x1 === undefined || bbox.y1 === undefined || bbox.x2 === undefined || bbox.y2 === undefined) {
@@ -212,6 +214,10 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
             y1 = bbox.y1;
             x2 = bbox.x2;
             y2 = bbox.y2;
+          } else {
+            // Invalid bbox format
+            console.warn('Invalid bbox format', detection);
+            return null;
           }
           
           // Convert normalized values (0-1) to display pixel coordinates
