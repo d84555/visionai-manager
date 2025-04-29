@@ -10,6 +10,7 @@ import asyncio
 from pydantic import BaseModel
 from datetime import datetime
 import copy
+import traceback
 
 try:
     import torch
@@ -48,6 +49,8 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
         client_id = frame_data.get("clientId", "unknown")
         threshold = float(frame_data.get("threshold", 0.5))
         
+        print(f"[DEBUG] Processing frame with {len(model_paths)} models: {model_paths}")
+        
         # If no models specified, return empty results
         if not model_paths:
             await websocket.send_json({
@@ -67,10 +70,17 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
             image_data = base64.b64decode(image_data_parts[0])
         
         # Open the image once
-        original_image = Image.open(BytesIO(image_data))
-        img_width, img_height = original_image.size
-        
-        print(f"Processing image with dimensions {img_width}x{img_height} for {len(model_paths)} models")
+        try:
+            original_image = Image.open(BytesIO(image_data))
+            img_width, img_height = original_image.size
+            print(f"[DEBUG] Successfully decoded image with dimensions {img_width}x{img_height}")
+        except Exception as e:
+            print(f"[ERROR] Failed to decode image: {str(e)}")
+            await websocket.send_json({
+                "error": f"Failed to decode image: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            })
+            return
         
         # Combined detections from all models
         all_detections = []
@@ -83,6 +93,7 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
         
         # Process each model in parallel using asyncio tasks
         for model_path in model_paths:
+            print(f"[DEBUG] Creating task for model: {model_path}")
             # Create a task for each model's inference
             task = asyncio.create_task(
                 process_single_model(
@@ -97,11 +108,13 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
         
         # Wait for all model inference tasks to complete
         results = await asyncio.gather(*model_tasks)
+        print(f"[DEBUG] Gathered results from {len(results)} model tasks")
         
         # Process results from all models
         for result in results:
             if result is not None:
                 model_path, model_detections, model_inference_time, model_name = result
+                print(f"[DEBUG] Model {model_name} returned {len(model_detections)} detections")
                 
                 if model_detections:
                     # Store model-specific results
@@ -111,24 +124,67 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
                     for detection in model_detections:
                         # Ensure each detection has a unique ID
                         detection.id = f"{model_name}_{id(detection)}"
+                        # Ensure detection has the model name for frontend identification
+                        detection.model = model_name
                         all_detections.append(detection)
                     
                     # Track model performance
                     inference_times.append(model_inference_time)
                     models_loaded += 1
+            else:
+                print(f"[WARNING] Model task returned None")
         
         # If no models could be loaded, use simulation as fallback
         if not models_loaded and not all_detections:
-            print("No models could be loaded, falling back to simulation")
+            print("[DEBUG] No models could be loaded, falling back to simulation")
             all_detections = simulate_detection()
             
         # Calculate total inference time
         total_inference_time = (time.time() - start_time) * 1000
         
+        print(f"[DEBUG] Total detections: {len(all_detections)}")
+        print(f"[DEBUG] Model results: {model_results.keys()}")
+        
+        # Check if detections are properly formatted
+        if all_detections:
+            sample_detection = all_detections[0]
+            print(f"[DEBUG] Sample detection: {sample_detection}")
+            
+        # Convert detections to dictionary representation
+        detection_dicts = []
+        for detection in all_detections:
+            try:
+                # Ensure detection has all required fields
+                det_dict = detection.dict()
+                # Add bbox format required by frontend if not present
+                if not det_dict.get('bbox') and all(k in det_dict for k in ['x', 'y', 'width', 'height']):
+                    # Convert center format to bbox format
+                    x, y, w, h = det_dict['x'], det_dict['y'], det_dict['width'], det_dict['height']
+                    det_dict['bbox'] = {
+                        'x1': max(0, x - w/2),
+                        'y1': max(0, y - h/2),
+                        'x2': min(1, x + w/2),
+                        'y2': min(1, y + h/2),
+                        'width': w,
+                        'height': h
+                    }
+                detection_dicts.append(det_dict)
+            except Exception as e:
+                print(f"[ERROR] Failed to convert detection to dict: {str(e)}")
+        
+        # Prepare model-specific results
+        model_results_dict = {}
+        for model_name, detections in model_results.items():
+            try:
+                model_results_dict[model_name] = [d.dict() for d in detections]
+            except Exception as e:
+                print(f"[ERROR] Failed to convert model results to dict: {str(e)}")
+                model_results_dict[model_name] = []
+        
         # Prepare result dictionary for client
         result_dict = {
-            "detections": [d.dict() for d in all_detections],
-            "modelResults": {name: [d.dict() for d in detections] for name, detections in model_results.items()},
+            "detections": detection_dicts,
+            "modelResults": model_results_dict,
             "inferenceTime": total_inference_time,
             "modelInferenceTimes": inference_times,
             "modelsLoaded": models_loaded,
@@ -138,12 +194,18 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
             "modelPaths": model_paths
         }
         
+        # Print detailed information about what we're sending back
+        print(f"[DEBUG] Sending response with {len(detection_dicts)} detections")
+        print(f"[DEBUG] Model results keys: {list(model_results_dict.keys())}")
+        for model_name, model_dets in model_results_dict.items():
+            print(f"[DEBUG] Model {model_name} has {len(model_dets)} detections")
+        
         # Send the combined results back to client
         await websocket.send_json(result_dict)
+        print(f"[DEBUG] Response sent successfully")
             
     except Exception as e:
-        print(f"Error processing frame: {str(e)}")
-        import traceback
+        print(f"[ERROR] Error processing frame: {str(e)}")
         traceback.print_exc()
         await websocket.send_json({
             "error": str(e),
@@ -156,34 +218,39 @@ async def process_single_model(model_path: str, original_image: Image.Image, img
     model_name = model_path.split('/')[-1].split('.')[0]  # Get model name without extension
     
     try:
+        print(f"[DEBUG] Processing model: {model_path} (name: {model_name})")
+        
         # Create a deep copy of the image to avoid shared buffer issues
         image = copy.deepcopy(original_image)
         
         # Get or load model
         if model_path in active_models:
             model = active_models[model_path]
-            print(f"Using cached model: {model_path}")
+            print(f"[DEBUG] Using cached model: {model_path}")
         elif TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE and model_path.lower().endswith(('.pt', '.pth')):
             try:
-                print(f"Loading PyTorch model: {model_path}")
+                print(f"[DEBUG] Loading PyTorch model: {model_path}")
                 # Load PyTorch model
                 model = YOLO(model_path)
                 
                 # Move to device
                 if CUDA_AVAILABLE:
                     model.to("cuda")
+                    print(f"[DEBUG] Model moved to CUDA")
                 else:
                     model.to("cpu")
+                    print(f"[DEBUG] Model using CPU")
                     
                 # Store for reuse
                 active_models[model_path] = model
-                print(f"Model loaded and cached: {model_path}")
+                print(f"[DEBUG] Model loaded and cached: {model_path}")
             except Exception as e:
-                print(f"Error loading model {model_path}: {str(e)}")
+                print(f"[ERROR] Error loading model {model_path}: {str(e)}")
+                traceback.print_exc()
                 return None
         else:
             # Skip unsupported models
-            print(f"Unsupported model format or model not found: {model_path}")
+            print(f"[WARNING] Unsupported model format or model not found: {model_path}")
             return None
                 
         # Run inference
@@ -198,9 +265,12 @@ async def process_single_model(model_path: str, original_image: Image.Image, img
             # Add half precision if supported
             if FP16_SUPPORTED and CUDA_AVAILABLE:
                 inference_params["half"] = True
+                print(f"[DEBUG] Using half precision (FP16)")
             
             # Conduct inference
+            print(f"[DEBUG] Running inference with model {model_name}")
             results = model.predict(**inference_params)
+            print(f"[DEBUG] Inference complete for {model_name}, converting results")
             
             # Convert results to our detection format
             model_detections = convert_ultralytics_results_to_detections(
@@ -213,18 +283,26 @@ async def process_single_model(model_path: str, original_image: Image.Image, img
             
             # Calculate inference time for this model
             model_inference_time = (time.time() - start_time) * 1000
-            print(f"Model {model_name} processed in {model_inference_time:.2f}ms with {len(model_detections)} detections")
+            print(f"[DEBUG] Model {model_name} processed in {model_inference_time:.2f}ms with {len(model_detections)} detections")
+            
+            # Print a sample detection if available
+            if model_detections:
+                print(f"[DEBUG] Sample detection from {model_name}: {model_detections[0]}")
+                for i, det in enumerate(model_detections[:3]):  # Print first 3 detections
+                    print(f"[DEBUG] Detection {i}: class={det.class_name}, label={det.label}, confidence={det.confidence:.2f}, bbox={det.bbox}")
+            else:
+                print(f"[DEBUG] No detections found for model {model_name}")
             
             return model_path, model_detections, model_inference_time, model_name
             
         except Exception as e:
-            print(f"Error during inference with model {model_path}: {str(e)}")
-            import traceback
+            print(f"[ERROR] Error during inference with model {model_path}: {str(e)}")
             traceback.print_exc()
             return None
             
     except Exception as e:
-        print(f"Error processing model {model_path}: {str(e)}")
+        print(f"[ERROR] Error processing model {model_path}: {str(e)}")
+        traceback.print_exc()
         return None
 
 # Clear model cache periodically to free memory
@@ -243,6 +321,7 @@ async def websocket_inference(websocket: WebSocket):
     connected_clients[client_id] = websocket
     
     try:
+        print(f"[INFO] New WebSocket client connected: {client_id}")
         # Send initial connection confirmation
         await websocket.send_json({
             "status": "connected",
@@ -255,7 +334,9 @@ async def websocket_inference(websocket: WebSocket):
         
         while True:
             # Receive frame data
+            print(f"[DEBUG] Waiting for message from client {client_id}")
             frame_data = await websocket.receive_json()
+            print(f"[DEBUG] Received message from client {client_id}")
             
             # Add client ID if not present
             if "clientId" not in frame_data:
@@ -265,11 +346,12 @@ async def websocket_inference(websocket: WebSocket):
             asyncio.create_task(process_frame(websocket, frame_data))
             
     except WebSocketDisconnect:
+        print(f"[INFO] Client disconnected: {client_id}")
         if client_id in connected_clients:
             del connected_clients[client_id]
-        print(f"Client disconnected: {client_id}")
     except Exception as e:
-        print(f"WebSocket error: {str(e)}")
+        print(f"[ERROR] WebSocket error: {str(e)}")
+        traceback.print_exc()
         if client_id in connected_clients:
             del connected_clients[client_id]
 

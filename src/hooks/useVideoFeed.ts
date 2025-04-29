@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { convertDavToMP4 } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
@@ -15,6 +14,7 @@ interface Detection {
     width: number;
     height: number;
   };
+  model?: string; // Add model field to track which model produced detection
 }
 
 interface VideoFeedProps {
@@ -62,6 +62,13 @@ export const useVideoFeed = ({
   const lastFrameTimeRef = useRef<number>(Date.now());
   const processingRef = useRef<boolean>(false);
   const requestAnimationFrameIdRef = useRef<number | null>(null);
+  const activeModelsRef = useRef<{ name: string; path: string }[]>(activeModels);
+
+  // Keep activeModelsRef in sync with activeModels prop
+  useEffect(() => {
+    activeModelsRef.current = activeModels;
+    console.log('Active models updated:', activeModels);
+  }, [activeModels]);
 
   // Initialize WebSocket connection
   const initWebSocket = useCallback(() => {
@@ -88,9 +95,15 @@ export const useVideoFeed = ({
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log('WebSocket response received:', {
+            status: data.status,
+            clientId: data.clientId,
+            detections: data.detections?.length || 0,
+            modelResults: data.modelResults ? Object.keys(data.modelResults) : 'none'
+          });
           
           if (data.detections) {
-            console.log("WebSocket received detection data:", data);
+            console.log(`Received ${data.detections.length} detections from server`);
             
             // Format received detections - handle both flat array and per-model results
             let formattedDetections: Detection[] = [];
@@ -99,47 +112,62 @@ export const useVideoFeed = ({
             if (Array.isArray(data.detections)) {
               formattedDetections = data.detections.map((d: any) => ({
                 id: d.id || `det-${Math.random().toString(36).substring(2, 9)}`,
-                label: d.label || d.class || 'Unknown',
+                label: d.label || d.class_name || d.class || 'Unknown',
                 confidence: d.confidence || 0,
+                model: d.model || 'unknown',
                 bbox: {
-                  x1: d.bbox?.x1 || 0,
-                  y1: d.bbox?.y1 || 0,
-                  x2: d.bbox?.x2 || 0,
-                  y2: d.bbox?.y2 || 0,
-                  width: d.bbox?.width || 0,
-                  height: d.bbox?.height || 0
+                  x1: typeof d.bbox === 'object' ? d.bbox.x1 : (d.x - d.width/2) || 0,
+                  y1: typeof d.bbox === 'object' ? d.bbox.y1 : (d.y - d.height/2) || 0,
+                  x2: typeof d.bbox === 'object' ? d.bbox.x2 : (d.x + d.width/2) || 0,
+                  y2: typeof d.bbox === 'object' ? d.bbox.y2 : (d.y + d.height/2) || 0,
+                  width: d.width || (typeof d.bbox === 'object' ? d.bbox.width : 0),
+                  height: d.height || (typeof d.bbox === 'object' ? d.bbox.height : 0)
                 }
               }));
+              
+              console.log(`Formatted ${formattedDetections.length} detections from flat array`);
+              if (formattedDetections.length > 0) {
+                console.log('Sample formatted detection:', formattedDetections[0]);
+              }
             }
             
             // Check if we have model-specific results (this is the new format we want to support)
             if (data.modelResults) {
-              console.log("Multi-model results found:", data.modelResults);
+              console.log("Multi-model results found:", Object.keys(data.modelResults));
               
               // Process each model's results
               Object.entries(data.modelResults).forEach(([modelName, modelDetections]) => {
                 if (Array.isArray(modelDetections)) {
+                  console.log(`Processing ${(modelDetections as any[]).length} detections from model ${modelName}`);
+                  
                   const modelFormattedDetections = (modelDetections as any[]).map((d: any) => ({
                     id: d.id || `${modelName}-${Math.random().toString(36).substring(2, 9)}`,
-                    label: d.label || d.class || modelName,
+                    label: d.label || d.class_name || d.class || modelName,
                     confidence: d.confidence || 0,
+                    model: modelName,
                     bbox: {
-                      x1: d.bbox?.x1 || 0,
-                      y1: d.bbox?.y1 || 0,
-                      x2: d.bbox?.x2 || 0,
-                      y2: d.bbox?.y2 || 0,
-                      width: d.bbox?.width || 0,
-                      height: d.bbox?.height || 0
+                      x1: typeof d.bbox === 'object' ? d.bbox.x1 : (d.x - d.width/2) || 0,
+                      y1: typeof d.bbox === 'object' ? d.bbox.y1 : (d.y - d.height/2) || 0,
+                      x2: typeof d.bbox === 'object' ? d.bbox.x2 : (d.x + d.width/2) || 0,
+                      y2: typeof d.bbox === 'object' ? d.bbox.y2 : (d.y + d.height/2) || 0,
+                      width: d.width || (typeof d.bbox === 'object' ? d.bbox.width : 0),
+                      height: d.height || (typeof d.bbox === 'object' ? d.bbox.height : 0)
                     }
                   }));
                   
                   // Add this model's detections to the combined results
                   formattedDetections = [...formattedDetections, ...modelFormattedDetections];
+                  
+                  console.log(`Added ${modelFormattedDetections.length} detections from model ${modelName}`);
+                  if (modelFormattedDetections.length > 0) {
+                    console.log('Sample model detection:', modelFormattedDetections[0]);
+                  }
                 }
               });
             }
             
             // Set the combined detections from all models
+            console.log(`Setting ${formattedDetections.length} total detections`);
             setDetections(formattedDetections);
             
             // Update inference stats
@@ -189,8 +217,11 @@ export const useVideoFeed = ({
       return;
     }
     
+    // Get active models from ref to ensure we have latest
+    const currentActiveModels = activeModelsRef.current;
+    
     // Skip if no models are selected or if not playing
-    if (activeModels.length === 0 || !isPlaying) {
+    if (currentActiveModels.length === 0 || !isPlaying) {
       if (requestAnimationFrameIdRef.current !== null) {
         cancelAnimationFrame(requestAnimationFrameIdRef.current);
         requestAnimationFrameIdRef.current = null;
@@ -253,7 +284,7 @@ export const useVideoFeed = ({
       const imageData = canvas.toDataURL('image/jpeg', 0.7);
       
       // Get the model paths from the active models
-      const modelPaths = activeModels.map(model => model.path);
+      const modelPaths = currentActiveModels.map(model => model.path);
       
       // Skip if no models are selected
       if (modelPaths.length === 0) {
@@ -263,7 +294,8 @@ export const useVideoFeed = ({
       }
       
       // Log what models we're sending for detection
-      console.log(`Sending frame for inference with models: ${activeModels.map(m => m.name).join(', ')}`);
+      console.log(`Sending frame for inference with models: ${currentActiveModels.map(m => m.name).join(', ')}`);
+      console.log('Model paths:', modelPaths);
       
       // Send the frame for processing
       socketRef.current.send(JSON.stringify({
@@ -278,7 +310,7 @@ export const useVideoFeed = ({
     
     // Schedule next frame
     requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
-  }, [isStreaming, isPlaying, fps, activeModels]);
+  }, [isStreaming, isPlaying, fps]);
 
   // Start streaming video
   const startStream = useCallback(async () => {
@@ -303,7 +335,7 @@ export const useVideoFeed = ({
         setVideoUrl(mp4Url);
         
         // Model loading can proceed in parallel with conversion
-        if (activeModels.length > 0) {
+        if (activeModelsRef.current.length > 0) {
           setIsModelLoading(true);
         }
         
@@ -322,7 +354,7 @@ export const useVideoFeed = ({
       }
     } else {
       // Standard video streaming
-      if (activeModels.length > 0) {
+      if (activeModelsRef.current.length > 0) {
         setIsModelLoading(true);
         
         // Simulate model loading time
@@ -338,7 +370,7 @@ export const useVideoFeed = ({
       setIsStreaming(true);
       setIsPlaying(true);
     }
-  }, [videoUrl, hasUploadedFile, originalFile, initWebSocket, activeModels]);
+  }, [videoUrl, hasUploadedFile, originalFile, initWebSocket]);
 
   // Stop streaming
   const stopStream = useCallback(() => {

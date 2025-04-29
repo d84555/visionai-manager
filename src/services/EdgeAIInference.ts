@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 import { toast } from 'sonner';
 
@@ -23,12 +24,14 @@ console.log(`Using API URL: ${API_URL}`);
 export interface BackendDetection {
   label?: string;
   class?: string;
+  class_name?: string;
   confidence?: number;
-  bbox?: number[]; // [x1, y1, x2, y2]
+  bbox?: number[] | { x1: number; y1: number; x2: number; y2: number; width: number; height: number; }; 
   x?: number;      // center x (normalized 0-1)
   y?: number;      // center y (normalized 0-1)
   width?: number;  // width (normalized 0-1)
   height?: number; // height (normalized 0-1)
+  model?: string;  // The model that produced this detection
 }
 
 export interface Detection {
@@ -36,15 +39,17 @@ export interface Detection {
   label: string;
   class: string;
   confidence: number;
-  bbox?: number[]; // [x1, y1, x2, y2]
+  bbox?: number[] | { x1: number; y1: number; x2: number; y2: number; width: number; height: number; }; 
   x?: number;      // center x (normalized 0-1)
   y?: number;      // center y (normalized 0-1)
   width?: number;  // width (normalized 0-1)
   height?: number; // height (normalized 0-1)
+  model?: string;  // The model that produced this detection
 }
 
 export interface InferenceResponse {
   detections: BackendDetection[];
+  modelResults?: Record<string, BackendDetection[]>;
   inferenceTime: number;
   processedAt: 'edge' | 'server';
   timestamp: string;
@@ -105,6 +110,7 @@ class WebSocketManager {
         this.socket.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+            console.log('WebSocket received message:', data);
             
             // Decrement pending requests counter
             this.pendingRequests = Math.max(0, this.pendingRequests - 1);
@@ -121,7 +127,23 @@ class WebSocketManager {
               this.messageCallbacks.delete(data.clientId);
             } else {
               // Handle general messages
-              console.log('WebSocket received message:', data);
+              console.log('WebSocket received message without callback:', data);
+            }
+            
+            // Log detection info for debugging
+            if (data.detections && data.detections.length > 0) {
+              console.log(`Received ${data.detections.length} detections`);
+              console.log('Sample detection:', data.detections[0]);
+            } else {
+              console.log('No detections received in response');
+            }
+            
+            // Log model-specific results if available
+            if (data.modelResults) {
+              console.log('Model results:', Object.keys(data.modelResults));
+              for (const [modelName, detections] of Object.entries(data.modelResults)) {
+                console.log(`Model ${modelName} has ${(detections as any[]).length} detections`);
+              }
             }
           } catch (error) {
             console.error('Error parsing WebSocket message:', error);
@@ -163,6 +185,8 @@ class WebSocketManager {
   }
 
   async send(data: any): Promise<any> {
+    console.log('[WebSocket] Sending request:', data);
+    
     // Check if we're already at max pending requests
     if (this.hasTooManyPendingRequests()) {
       console.log(`Dropping frame - too many pending requests (${this.pendingRequests}/${this.maxPendingRequests})`);
@@ -180,9 +204,11 @@ class WebSocketManager {
     return new Promise(async (resolve, reject) => {
       if (!this.isConnected) {
         try {
+          console.log('WebSocket not connected, trying to connect...');
           await this.connect();
         } catch (error) {
           this.pendingRequests = Math.max(0, this.pendingRequests - 1);
+          console.error('Failed to connect WebSocket:', error);
           reject(new Error('Failed to connect WebSocket'));
           return;
         }
@@ -190,6 +216,7 @@ class WebSocketManager {
       
       if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
         this.pendingRequests = Math.max(0, this.pendingRequests - 1);
+        console.error('WebSocket is not open');
         reject(new Error('WebSocket is not open'));
         return;
       }
@@ -197,10 +224,12 @@ class WebSocketManager {
       try {
         // Register callback for this specific message
         const messageId = data.clientId || `msg-${Date.now()}`;
+        console.log(`Registering callback for message ${messageId}`);
         
         // Set up a timeout to remove the callback if no response
         const timeout = setTimeout(() => {
           if (this.messageCallbacks.has(messageId)) {
+            console.error(`WebSocket response timeout for message ${messageId}`);
             this.messageCallbacks.delete(messageId);
             this.pendingRequests = Math.max(0, this.pendingRequests - 1);
             reject(new Error('WebSocket response timeout'));
@@ -209,13 +238,16 @@ class WebSocketManager {
         
         // Register the callback with timeout cleanup
         this.messageCallbacks.set(messageId, (response) => {
+          console.log(`Received response for message ${messageId}`);
           clearTimeout(timeout);
           resolve(response);
         });
         
         // Send the message
+        console.log(`Sending WebSocket message for ${messageId}:`, data);
         this.socket.send(JSON.stringify(data));
       } catch (error) {
+        console.error('Error sending WebSocket message:', error);
         this.pendingRequests = Math.max(0, this.pendingRequests - 1);
         reject(error);
       }
@@ -335,11 +367,18 @@ class EdgeAIInference {
       if (this.useWebSocket && this.webSocketManager?.isWebSocketAvailable()) {
         try {
           const wsRequest = {
-            modelPath: request.modelPath,
+            modelPaths: Array.isArray(request.modelPath) ? request.modelPath : [request.modelPath],
             threshold: request.thresholdConfidence,
             imageData: request.imageData,
             quantized: request.quantized
           };
+          
+          console.log('Sending WebSocket inference request:', {
+            modelPaths: wsRequest.modelPaths,
+            threshold: wsRequest.threshold,
+            imageSize: wsRequest.imageData.length,
+            quantized: wsRequest.quantized
+          });
           
           // Send request via WebSocket
           const response = await this.webSocketManager.send(wsRequest);
@@ -349,8 +388,26 @@ class EdgeAIInference {
             throw new Error(response.error);
           }
           
+          console.log('WebSocket inference response:', {
+            detectionCount: response.detections?.length || 0,
+            processedAt: response.processedAt,
+            inferenceTime: response.inferenceTime,
+            modelResults: response.modelResults ? Object.keys(response.modelResults) : 'none'
+          });
+          
+          // If we have model results, log them
+          if (response.modelResults) {
+            for (const [model, detections] of Object.entries(response.modelResults)) {
+              console.log(`Model ${model} returned ${(detections as any[]).length} detections`);
+              if ((detections as any[]).length > 0) {
+                console.log('Sample detection:', (detections as any[])[0]);
+              }
+            }
+          }
+          
           return {
             detections: response.detections || [],
+            modelResults: response.modelResults,
             inferenceTime: response.inferenceTime || 0,
             processedAt: response.processedAt || 'server',
             timestamp: response.timestamp || new Date().toISOString()
@@ -384,6 +441,8 @@ class EdgeAIInference {
           quantized: request.quantized
         };
         
+        console.log('Falling back to HTTP API for inference');
+        
         // Make the API call
         const response = await axios.post(apiEndpoint, httpRequest, {
           headers: {
@@ -392,9 +451,16 @@ class EdgeAIInference {
           timeout: 30000 // 30 second timeout for long inference operations
         });
         
+        console.log('HTTP inference response:', {
+          detectionCount: response.data.detections?.length || 0,
+          processedAt: response.data.processedAt,
+          inferenceTime: response.data.inferenceTime
+        });
+        
         // Extract and return the response data
         return {
           detections: response.data.detections || [],
+          modelResults: response.data.modelResults,
           inferenceTime: response.data.inferenceTime || 0,
           processedAt: response.data.processedAt || 'server',
           timestamp: response.data.timestamp || new Date().toISOString()
