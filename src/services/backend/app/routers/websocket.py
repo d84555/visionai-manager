@@ -29,7 +29,7 @@ active_models = {}
 connected_clients = {}
 
 class VideoFrame(BaseModel):
-    modelPath: str
+    modelPaths: List[str]
     threshold: float = 0.5
     imageData: str
     clientId: str
@@ -39,10 +39,24 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
     start_time = time.time()
     
     try:
-        # Get model path and client ID
-        model_path = frame_data.get("modelPath", "")
+        # Get model paths and client ID
+        model_paths = frame_data.get("modelPaths", [])
+        if isinstance(model_paths, str):
+            model_paths = [model_paths]  # Convert single path to list for backwards compatibility
+            
         client_id = frame_data.get("clientId", "unknown")
         threshold = float(frame_data.get("threshold", 0.5))
+        
+        # If no models specified, return empty results
+        if not model_paths:
+            await websocket.send_json({
+                "detections": [],
+                "inferenceTime": 0,
+                "processedAt": "none",
+                "timestamp": datetime.now().isoformat(),
+                "message": "No models specified for inference"
+            })
+            return
         
         # Process image data
         image_data_parts = frame_data.get("imageData", "").split(',')
@@ -54,95 +68,98 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
         image = Image.open(BytesIO(image_data))
         img_width, img_height = image.size
         
-        # Get or load model
-        if model_path in active_models:
-            model = active_models[model_path]
-            print(f"Using cached model: {model_path}")
-        elif TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE and model_path.lower().endswith(('.pt', '.pth')):
-            try:
-                print(f"Loading PyTorch model: {model_path}")
-                # Load PyTorch model
-                model = YOLO(model_path)
-                
-                # Move to device
-                if CUDA_AVAILABLE:
-                    model.to("cuda")
-                else:
-                    model.to("cpu")
+        # Combined detections from all models
+        all_detections = []
+        models_loaded = 0
+        inference_times = []
+        
+        # Process each model
+        for model_path in model_paths:
+            model_start_time = time.time()
+            
+            # Get or load model
+            if model_path in active_models:
+                model = active_models[model_path]
+                print(f"Using cached model: {model_path}")
+            elif TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE and model_path.lower().endswith(('.pt', '.pth')):
+                try:
+                    print(f"Loading PyTorch model: {model_path}")
+                    # Load PyTorch model
+                    model = YOLO(model_path)
                     
-                # Store for reuse
-                active_models[model_path] = model
-                print(f"Model loaded and cached: {model_path}")
-            except Exception as e:
-                print(f"Error loading model: {str(e)}")
-                # Fallback to simulation
-                detections = simulate_detection()
-                inference_time = (time.time() - start_time) * 1000
+                    # Move to device
+                    if CUDA_AVAILABLE:
+                        model.to("cuda")
+                    else:
+                        model.to("cpu")
+                        
+                    # Store for reuse
+                    active_models[model_path] = model
+                    print(f"Model loaded and cached: {model_path}")
+                    models_loaded += 1
+                except Exception as e:
+                    print(f"Error loading model {model_path}: {str(e)}")
+                    continue
+            else:
+                # Skip unsupported models
+                print(f"Unsupported model format or model not found: {model_path}")
+                continue
                 
-                await websocket.send_json({
-                    "detections": [d.dict() for d in detections],
-                    "inferenceTime": inference_time,
-                    "processedAt": "server",
-                    "timestamp": datetime.now().isoformat()
-                })
-                return
-        else:
-            # Unsupported model or no model provided
-            detections = simulate_detection()
-            inference_time = (time.time() - start_time) * 1000
+            # Run inference
+            try:
+                # Set up inference parameters
+                inference_params = {
+                    "source": image,
+                    "conf": threshold,
+                    "verbose": False,
+                }
+                
+                # Add half precision if supported
+                if FP16_SUPPORTED and CUDA_AVAILABLE:
+                    inference_params["half"] = True
+                
+                # Conduct inference
+                results = model.predict(**inference_params)
+                
+                # Convert results to our detection format
+                model_detections = convert_ultralytics_results_to_detections(
+                    results,
+                    img_width=img_width,
+                    img_height=img_height,
+                    conf_threshold=threshold,
+                    model_name=model_path.split('/')[-1]  # Add model name to detections
+                )
+                
+                # Add detections to combined list
+                all_detections.extend(model_detections)
+                
+                # Track inference time for this model
+                model_inference_time = (time.time() - model_start_time) * 1000
+                inference_times.append(model_inference_time)
+                
+            except Exception as e:
+                print(f"Error during inference with model {model_path}: {str(e)}")
+                continue
+        
+        # Calculate total inference time
+        total_inference_time = (time.time() - start_time) * 1000
+        
+        # If we couldn't load any models, use simulation as fallback
+        if not models_loaded and not all_detections:
+            print("No models could be loaded, falling back to simulation")
+            all_detections = simulate_detection()
             
-            await websocket.send_json({
-                "detections": [d.dict() for d in detections],
-                "inferenceTime": inference_time,
-                "processedAt": "server",
-                "timestamp": datetime.now().isoformat()
-            })
-            return
-            
-        # Run inference
-        try:
-            # Set up inference parameters
-            inference_params = {
-                "source": image,
-                "conf": threshold,
-                "verbose": False,
-            }
-            
-            # Add half precision if supported
-            if FP16_SUPPORTED and CUDA_AVAILABLE:
-                inference_params["half"] = True
-            
-            # Conduct inference
-            results = model.predict(**inference_params)
-            
-            # Convert results to our detection format
-            detections = convert_ultralytics_results_to_detections(
-                results,
-                img_width=img_width,
-                img_height=img_height,
-                conf_threshold=threshold
-            )
-            
-            inference_time = (time.time() - start_time) * 1000
-            
-            # Send results back to client
-            await websocket.send_json({
-                "detections": [d.dict() for d in detections],
-                "inferenceTime": inference_time,
-                "processedAt": "edge",
-                "timestamp": datetime.now().isoformat(),
-                "clientId": client_id,
-                "modelPath": model_path
-            })
-            
-        except Exception as e:
-            print(f"Error during inference: {str(e)}")
-            # Send error to client
-            await websocket.send_json({
-                "error": str(e),
-                "timestamp": datetime.now().isoformat(),
-                "clientId": client_id
-            })
+        # Send combined results back to client
+        await websocket.send_json({
+            "detections": [d.dict() for d in all_detections],
+            "inferenceTime": total_inference_time,
+            "modelInferenceTimes": inference_times,
+            "modelsLoaded": models_loaded,
+            "processedAt": "edge" if models_loaded > 0 else "simulation",
+            "timestamp": datetime.now().isoformat(),
+            "clientId": client_id,
+            "modelPaths": model_paths
+        })
             
     except Exception as e:
         print(f"Error processing frame: {str(e)}")

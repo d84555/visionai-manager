@@ -2,107 +2,150 @@
 import { StorageServiceInterface, ModelInfo } from './StorageServiceInterface';
 
 export class SimulatedStorageService implements StorageServiceInterface {
-  private basePath = '/opt/visionai/';
-  private modelsPath = '/opt/visionai/models/';
+  // Simulate model storage using localStorage
+  private readonly MODELS_KEY = 'simulated-models';
+  private readonly ACTIVE_MODELS_KEY = 'active-ai-models';
+
+  constructor() {
+    // Initialize with some demo models if none exist
+    if (!localStorage.getItem(this.MODELS_KEY)) {
+      const initialModels: ModelInfo[] = [
+        { 
+          id: 'yolov8n', 
+          name: 'YOLOv8 Nano', 
+          path: '/models/yolov8n.pt',
+          fileSize: 6800000,
+          uploadDate: new Date(Date.now() - 86400000 * 7).toISOString(),
+          format: 'pt'
+        },
+        { 
+          id: 'yolov8s', 
+          name: 'YOLOv8 Small', 
+          path: '/models/yolov8s.pt',
+          fileSize: 22900000,
+          uploadDate: new Date(Date.now() - 86400000 * 5).toISOString(),
+          format: 'pt'
+        },
+        { 
+          id: 'helmet-det', 
+          name: 'Helmet Detection', 
+          path: '/models/helmet-detection.onnx',
+          fileSize: 14500000,
+          uploadDate: new Date(Date.now() - 86400000 * 2).toISOString(),
+          format: 'onnx'
+        }
+      ];
+      localStorage.setItem(this.MODELS_KEY, JSON.stringify(initialModels));
+    }
+  }
 
   async uploadModel(file: File, name: string): Promise<ModelInfo> {
-    console.log(`[SIMULATED] Saving model to ${this.modelsPath}${name}`);
+    // Generate a unique ID for the model
+    const id = `model-${Date.now()}`;
     
-    const modelId = `custom-${Date.now()}`;
-    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
-    const fileURL = URL.createObjectURL(file);
+    // Use either the provided name or derive it from the file name
+    const displayName = name.trim() || this.getDisplayNameFromFile(file);
     
-    // Format path to match what useVideoFeed is expecting
-    const path = `/custom_models/${name.toLowerCase().replace(/\s+/g, '_')}.onnx`;
+    // Determine the file format from the extension
+    const pathParts = file.name.split('.');
+    const format = pathParts.length > 1 ? pathParts[pathParts.length - 1] : 'unknown';
     
-    const modelInfo: ModelInfo = {
-      id: modelId,
-      name,
-      path: path,
-      type: 'Object Detection',
-      size: `${fileSizeMB} MB`,
-      uploadedAt: new Date().toISOString(),
-      cameras: ['All Cameras']
+    const model: ModelInfo = {
+      id,
+      name: displayName,
+      path: `/models/${file.name}`, // In a real implementation, this would be the path where the file is stored
+      fileSize: file.size,
+      uploadDate: new Date().toISOString(),
+      format
     };
 
-    // Store in localStorage
-    const customModels = await this.listModels();
-    customModels.push(modelInfo);
-    localStorage.setItem('custom-ai-models', JSON.stringify(customModels));
-    
-    // Store file URL reference with the correct path format
-    localStorage.setItem(`fs-model-${modelId}`, JSON.stringify({
-      metadata: modelInfo,
-      fileUrl: fileURL,
-      fileExists: true,
-      lastModified: new Date().toISOString()
-    }));
-    
-    // Also store a direct path-to-URL mapping for easier lookup
-    localStorage.setItem(`model-url-${path}`, fileURL);
+    // Read the current models
+    const existingModelsStr = localStorage.getItem(this.MODELS_KEY) || '[]';
+    const existingModels: ModelInfo[] = JSON.parse(existingModelsStr);
 
-    console.log(`[SIMULATED] Model ${name} stored with path ${path} and URL ${fileURL}`);
-    return modelInfo;
+    // Add the new model
+    existingModels.push(model);
+
+    // Save the updated models list
+    localStorage.setItem(this.MODELS_KEY, JSON.stringify(existingModels));
+
+    // Simulate some network latency
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    return model;
+  }
+
+  // Helper function to get a display name from file
+  private getDisplayNameFromFile(file: File): string {
+    // Remove extension and replace special characters
+    const nameParts = file.name.split('.');
+    const extension = nameParts.pop() || '';
+    const baseName = nameParts.join('.');
+    
+    // Clean up the name to be display-friendly
+    return baseName.replace(/[-_]/g, ' ').trim() || `Model-${new Date().getTime()}`;
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    const storedModels = localStorage.getItem('custom-ai-models');
-    return storedModels ? JSON.parse(storedModels) : [];
+    // Read the models from localStorage
+    const modelsStr = localStorage.getItem(this.MODELS_KEY) || '[]';
+    const models: ModelInfo[] = JSON.parse(modelsStr);
+
+    // Simulate some network latency
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    return models;
   }
 
   async deleteModel(modelId: string): Promise<void> {
-    const models = await this.listModels();
-    const modelToDelete = models.find(model => model.id === modelId);
-    
-    if (modelToDelete && modelToDelete.path) {
-      // Remove the path-to-URL mapping
-      localStorage.removeItem(`model-url-${modelToDelete.path}`);
-    }
-    
-    const updatedModels = models.filter(model => model.id !== modelId);
-    localStorage.setItem('custom-ai-models', JSON.stringify(updatedModels));
-    localStorage.removeItem(`fs-model-${modelId}`);
+    // Read the current models
+    const existingModelsStr = localStorage.getItem(this.MODELS_KEY) || '[]';
+    const existingModels: ModelInfo[] = JSON.parse(existingModelsStr);
+
+    // Filter out the model to delete
+    const updatedModels = existingModels.filter(model => model.id !== modelId);
+
+    // Save the updated models list
+    localStorage.setItem(this.MODELS_KEY, JSON.stringify(updatedModels));
+
+    // Simulate some network latency
+    await new Promise(resolve => setTimeout(resolve, 300));
   }
 
   async setActiveModel(modelName: string, modelPath: string): Promise<void> {
-    const modelData = { name: modelName, path: modelPath };
-    localStorage.setItem('active-ai-model', JSON.stringify(modelData));
+    // Save the active model in localStorage
+    const activeModel = { name: modelName, path: modelPath };
+    localStorage.setItem(this.ACTIVE_MODELS_KEY, JSON.stringify([activeModel]));
+    
+    // Simulate some network latency
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+
+  async setActiveModels(models: { name: string; path: string }[]): Promise<void> {
+    // Save the active models in localStorage
+    localStorage.setItem(this.ACTIVE_MODELS_KEY, JSON.stringify(models));
+    
+    // Simulate some network latency
+    await new Promise(resolve => setTimeout(resolve, 200));
   }
 
   async getActiveModel(): Promise<{ name: string; path: string } | null> {
-    const storedModel = localStorage.getItem('active-ai-model');
-    return storedModel ? JSON.parse(storedModel) : null;
+    // Get the active model from localStorage
+    const activeModelsStr = localStorage.getItem(this.ACTIVE_MODELS_KEY);
+    if (!activeModelsStr) return null;
+    
+    const activeModels = JSON.parse(activeModelsStr);
+    return activeModels.length > 0 ? activeModels[0] : null;
+  }
+
+  async getActiveModels(): Promise<{ name: string; path: string }[]> {
+    // Get the active models from localStorage
+    const activeModelsStr = localStorage.getItem(this.ACTIVE_MODELS_KEY);
+    return activeModelsStr ? JSON.parse(activeModelsStr) : [];
   }
 
   async getModelFileUrl(modelPath: string): Promise<string | null> {
-    // First check the direct path-to-URL mapping
-    const directUrl = localStorage.getItem(`model-url-${modelPath}`);
-    if (directUrl) {
-      console.log(`[SIMULATED] Found direct URL mapping for ${modelPath}: ${directUrl}`);
-      return directUrl;
-    }
-    
-    // Then try the old method as fallback
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith('fs-model-')) {
-        try {
-          const modelData = JSON.parse(localStorage.getItem(key) || '{}');
-          if (modelData?.metadata?.path === modelPath && modelData.fileUrl) {
-            console.log(`[SIMULATED] Found model URL in fs-model data for ${modelPath}: ${modelData.fileUrl}`);
-            
-            // Also create a direct mapping for future lookups
-            localStorage.setItem(`model-url-${modelPath}`, modelData.fileUrl);
-            
-            return modelData.fileUrl;
-          }
-        } catch (e) {
-          console.error("Failed to parse model data:", e);
-        }
-      }
-    }
-    
-    console.warn(`[SIMULATED] No URL found for model path: ${modelPath}`);
-    return null;
+    // In a simulated environment, we don't have actual file URLs, so we'll return the path as is
+    return modelPath;
   }
 }

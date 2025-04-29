@@ -18,12 +18,15 @@ export class APIStorageService implements StorageServiceInterface {
   }
 
   async uploadModel(file: File, name: string): Promise<ModelInfo> {
+    // Use the original file name if no custom name is provided
+    const modelName = name.trim() !== '' ? name : this.getDisplayNameFromFile(file);
+    
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('name', name);
+    formData.append('name', modelName);  // Use the determined name
     
     try {
-      console.log(`Uploading model to ${this.getApiBaseUrl()}/models/upload`);
+      console.log(`Uploading model to ${this.getApiBaseUrl()}/models/upload with name: ${modelName}`);
       const response = await fetch(`${this.getApiBaseUrl()}/models/upload`, {
         method: 'POST',
         body: formData,
@@ -42,6 +45,17 @@ export class APIStorageService implements StorageServiceInterface {
       console.error('Failed to upload model:', error);
       throw error;
     }
+  }
+
+  // Helper function to get a display name from file
+  private getDisplayNameFromFile(file: File): string {
+    // Remove extension and replace special characters
+    const nameParts = file.name.split('.');
+    const extension = nameParts.pop() || '';
+    const baseName = nameParts.join('.');
+    
+    // Clean up the name to be display-friendly
+    return baseName.replace(/[-_]/g, ' ').trim() || `Model-${new Date().getTime()}`;
   }
 
   async listModels(): Promise<ModelInfo[]> {
@@ -102,9 +116,32 @@ export class APIStorageService implements StorageServiceInterface {
       
       console.log("Active model set successfully");
       // Cache the active model in localStorage for quick access
-      localStorage.setItem('active-ai-model', JSON.stringify({ name: modelName, path: modelPath }));
+      localStorage.setItem('active-ai-models', JSON.stringify([{ name: modelName, path: modelPath }]));
     } catch (error) {
       console.error('Failed to set active model:', error);
+      throw error;
+    }
+  }
+
+  async setActiveModels(models: { name: string; path: string }[]): Promise<void> {
+    try {
+      console.log(`Setting multiple active models:`, models);
+      const response = await fetch(`${this.getApiBaseUrl()}/models/select-multiple`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ models })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
+        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
+      }
+      
+      console.log("Multiple active models set successfully");
+      // Cache the active models in localStorage for quick access
+      localStorage.setItem('active-ai-models', JSON.stringify(models));
+    } catch (error) {
+      console.error('Failed to set active models:', error);
       throw error;
     }
   }
@@ -127,18 +164,52 @@ export class APIStorageService implements StorageServiceInterface {
       console.log("Active model:", activeModel);
       
       // Cache the active model in localStorage for quick access
-      localStorage.setItem('active-ai-model', JSON.stringify(activeModel));
+      localStorage.setItem('active-ai-models', JSON.stringify([activeModel]));
       return activeModel;
     } catch (error) {
       console.error('Failed to get active model:', error);
       
       // Try to get from localStorage if API fails
-      const cachedModel = localStorage.getItem('active-ai-model');
-      if (cachedModel) {
-        return JSON.parse(cachedModel);
+      const cachedModels = localStorage.getItem('active-ai-models');
+      if (cachedModels) {
+        const models = JSON.parse(cachedModels);
+        return models.length > 0 ? models[0] : null;
       }
       
       throw error;
+    }
+  }
+
+  async getActiveModels(): Promise<{ name: string; path: string }[]> {
+    try {
+      console.log(`Getting active models from ${this.getApiBaseUrl()}/models/active-multiple`);
+      const response = await fetch(`${this.getApiBaseUrl()}/models/active-multiple`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log("No active models set");
+          return [];
+        }
+        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
+        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
+      }
+      
+      const activeModels = await response.json();
+      console.log("Active models:", activeModels);
+      
+      // Cache the active models in localStorage for quick access
+      localStorage.setItem('active-ai-models', JSON.stringify(activeModels));
+      return activeModels;
+    } catch (error) {
+      console.error('Failed to get active models:', error);
+      
+      // Try to get from localStorage if API fails
+      const cachedModels = localStorage.getItem('active-ai-models');
+      if (cachedModels) {
+        return JSON.parse(cachedModels);
+      }
+      
+      return [];
     }
   }
 
@@ -165,3 +236,4 @@ export class APIStorageService implements StorageServiceInterface {
     }
   }
 }
+

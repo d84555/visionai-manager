@@ -6,21 +6,26 @@ import { useEffect, useState } from 'react';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
-import { AlertCircle, Cpu } from 'lucide-react';
+import { AlertCircle, Cpu, Plus, X } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
 
 interface ModelSelectorProps {
-  selectedModel: { name: string; path: string } | null;
+  selectedModels: { name: string; path: string }[];
   availableModels: { id: string; name: string; path: string }[];
-  onModelChange: (modelId: string) => void;
+  onModelChange: (modelIds: string[]) => void;
 }
 
 export const ModelSelector: React.FC<ModelSelectorProps> = ({
-  selectedModel,
+  selectedModels,
   availableModels,
   onModelChange,
 }) => {
   const [models, setModels] = useState<{ id: string; name: string; path: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [showAddModel, setShowAddModel] = useState(false);
+  const [modelToAdd, setModelToAdd] = useState<string | null>(null);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -86,44 +91,151 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     return null;
   };
 
+  // Handler for model selection changes
+  const handleModelToggle = (modelId: string, checked: boolean) => {
+    // Get the model corresponding to the ID
+    const model = displayModels.find(m => m.id === modelId);
+    if (!model) return;
+    
+    // Update the list of selected models
+    const selectedModelIds = selectedModels.map(m => {
+      const foundModel = displayModels.find(dm => dm.name === m.name && dm.path === m.path);
+      return foundModel?.id || '';
+    }).filter(id => id !== '');
+    
+    // Add or remove the model based on checkbox state
+    let newSelectedIds: string[];
+    
+    if (checked) {
+      // Add the model if it's not already selected
+      newSelectedIds = [...selectedModelIds, modelId];
+    } else {
+      // Remove the model if it's currently selected
+      newSelectedIds = selectedModelIds.filter(id => id !== modelId);
+    }
+    
+    // Call the parent's handler with the updated model IDs
+    onModelChange(newSelectedIds);
+  };
+
+  const handleAddModel = () => {
+    if (modelToAdd) {
+      const selectedModelIds = selectedModels.map(m => {
+        const foundModel = displayModels.find(dm => dm.name === m.name && dm.path === m.path);
+        return foundModel?.id || '';
+      }).filter(id => id !== '');
+      
+      // Add the new model if it's not already selected
+      if (!selectedModelIds.includes(modelToAdd)) {
+        onModelChange([...selectedModelIds, modelToAdd]);
+      }
+      
+      // Reset selection state
+      setModelToAdd(null);
+      setShowAddModel(false);
+    }
+  };
+
+  const handleRemoveModel = (modelId: string) => {
+    const selectedModelIds = selectedModels.map(m => {
+      const foundModel = displayModels.find(dm => dm.name === m.name && dm.path === m.path);
+      return foundModel?.id || '';
+    }).filter(id => id !== '');
+    
+    // Remove the model from the selection
+    const newSelectedIds = selectedModelIds.filter(id => id !== modelId);
+    onModelChange(newSelectedIds);
+  };
+
   return (
     <div className="flex flex-col gap-2">
-      <Label htmlFor="model-selector">AI Model for Object Detection</Label>
-      <Select 
-        onValueChange={onModelChange}
-        value={selectedModel ? displayModels.find(m => m.name === selectedModel.name)?.id || "none" : "none"}
-      >
-        <SelectTrigger className="w-full">
-          <SelectValue placeholder="Select a model for detection" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="none">No detection (Clear model)</SelectItem>
-          {isLoading ? (
-            <SelectItem value="loading" disabled>Loading models...</SelectItem>
-          ) : displayModels.length > 0 ? (
-            displayModels.map(model => (
-              <SelectItem key={model.id} value={model.id} className="flex items-center justify-between py-3">
-                <div className="flex items-center space-x-2">
-                  <span>{model.name}</span>
-                  {getModelFormatBadge(model.path)}
-                  {isPytorchFormat(model.path) && (
-                    <AlertCircle className="w-3 h-3 ml-1 text-amber-600 hidden" />
-                  )}
-                </div>
-              </SelectItem>
-            ))
-          ) : (
-            <SelectItem value="no-models" disabled>No models available. Please upload a model.</SelectItem>
-          )}
-        </SelectContent>
-      </Select>
-      <p className="text-xs text-muted-foreground">
-        {isLoading ? 'Loading available models...' : 
-          displayModels.length > 0 ? 
-            'Select an AI model for object detection. ONNX (.onnx) and PyTorch (.pt/.pth) models are supported.' : 
-            'No models available. Please upload a model in Settings > AI Models.'}
-      </p>
-      {selectedModel && isPytorchFormat(selectedModel.path) && (
+      <Label htmlFor="model-selector">AI Models for Object Detection</Label>
+      
+      {/* Selected Models Display */}
+      <div className="flex flex-wrap gap-2 mb-2">
+        {selectedModels.length === 0 ? (
+          <div className="text-sm text-muted-foreground p-2 border border-dashed rounded-md w-full text-center">
+            No models selected. Detection will be disabled.
+          </div>
+        ) : (
+          selectedModels.map((model, index) => {
+            const modelId = displayModels.find(m => m.name === model.name && m.path === model.path)?.id;
+            return (
+              <div key={index} className="flex items-center bg-secondary/30 border rounded-md px-2 py-1">
+                <span className="text-sm">{model.name}</span>
+                {getModelFormatBadge(model.path)}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 ml-2"
+                  onClick={() => modelId && handleRemoveModel(modelId)}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            );
+          })
+        )}
+      </div>
+      
+      {/* Add Model Button or Select */}
+      {!showAddModel ? (
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="flex items-center gap-1 w-full mb-2"
+          onClick={() => setShowAddModel(true)}
+        >
+          <Plus className="h-4 w-4" /> Add Model
+        </Button>
+      ) : (
+        <div className="space-y-2">
+          <Select 
+            onValueChange={setModelToAdd}
+            value={modelToAdd || ""}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select a model to add" />
+            </SelectTrigger>
+            <SelectContent>
+              {isLoading ? (
+                <SelectItem value="loading" disabled>Loading models...</SelectItem>
+              ) : displayModels.length > 0 ? (
+                <ScrollArea className="h-[200px]">
+                  {displayModels
+                    .filter(model => !selectedModels.some(sm => 
+                      sm.name === model.name && sm.path === model.path))
+                    .map(model => (
+                      <SelectItem key={model.id} value={model.id} className="flex items-center justify-between py-3">
+                        <div className="flex items-center space-x-2">
+                          <span>{model.name}</span>
+                          {getModelFormatBadge(model.path)}
+                        </div>
+                      </SelectItem>
+                    ))}
+                </ScrollArea>
+              ) : (
+                <SelectItem value="no-models" disabled>No models available. Please upload a model.</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+          
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleAddModel} disabled={!modelToAdd} className="flex-1">
+              Add Model
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              setShowAddModel(false);
+              setModelToAdd(null);
+            }} className="flex-1">
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Warning for PyTorch models */}
+      {selectedModels.some(model => isPytorchFormat(model.path)) && (
         <div className="mt-1 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 flex items-center">
           <Cpu className="w-3.5 h-3.5 mr-1.5 inline" />
           <span>
@@ -131,6 +243,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           </span>
         </div>
       )}
+      
+      <p className="text-xs text-muted-foreground">
+        {isLoading ? 'Loading available models...' : 
+          displayModels.length > 0 ? 
+            'Add AI models for object detection. Multiple models can be used simultaneously.' : 
+            'No models available. Please upload a model in Settings > AI Models.'}
+      </p>
     </div>
   );
 };
+

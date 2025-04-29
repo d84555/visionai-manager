@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Camera, VideoIcon, Loader, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -29,7 +28,7 @@ interface VideoFeedProps {
   };
   isPinned?: boolean;
   onPinToggle?: () => void;
-  activeModel?: { name: string; path: string };
+  activeModels?: { name: string; path: string }[];
   streamType?: 'main' | 'sub';
   fps?: number;
 }
@@ -41,11 +40,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   camera,
   isPinned = false,
   onPinToggle,
-  activeModel,
+  activeModels = [],
   streamType = 'main',
   fps = 10
 }) => {
-  const [selectedModel, setSelectedModel] = useState<{name: string; path: string} | null>(null);
+  const [selectedModels, setSelectedModels] = useState<{name: string; path: string}[]>([]);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
 
   useEffect(() => {
@@ -62,11 +61,20 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
         
         setAvailableModels(formattedCustomModels);
         
-        const savedModel = SettingsService.getActiveModel();
-        if (savedModel) {
-          setSelectedModel(savedModel);
-        } else if (activeModel) {
-          setSelectedModel(activeModel);
+        // Get saved active models
+        try {
+          const savedModels = await storageService.getActiveModels();
+          if (savedModels && savedModels.length > 0) {
+            setSelectedModels(savedModels);
+          } else if (activeModels && activeModels.length > 0) {
+            setSelectedModels(activeModels);
+          }
+        } catch (error) {
+          console.error('Failed to load active models:', error);
+          // If there's an error getting active models, try to use the provided activeModels
+          if (activeModels && activeModels.length > 0) {
+            setSelectedModels(activeModels);
+          }
         }
       } catch (error) {
         console.error('Failed to load models:', error);
@@ -75,7 +83,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     };
     
     loadModels();
-  }, [activeModel]);
+  }, [activeModels]);
 
   const {
     videoUrl,
@@ -106,21 +114,33 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     initialVideoUrl,
     autoStart,
     camera,
-    activeModel: selectedModel || activeModel,
+    activeModels: selectedModels,
     streamType,
     fps
   });
 
-  const handleModelChange = (modelId: string) => {
-    if (modelId === "none") {
-      setSelectedModel(null);
-      return;
-    }
+  const handleModelChange = async (modelIds: string[]) => {
+    const models = modelIds.map(id => {
+      const model = availableModels.find(m => m.id === id);
+      return model ? { name: model.name, path: model.path } : null;
+    }).filter((m): m is { name: string; path: string } => m !== null);
     
-    const model = availableModels.find(m => m.id === modelId);
-    if (model) {
-      setSelectedModel({ name: model.name, path: model.path });
-      SettingsService.setActiveModel(model.name, model.path);
+    setSelectedModels(models);
+    
+    try {
+      const storageService = StorageServiceFactory.getService();
+      await storageService.setActiveModels(models);
+      
+      if (models.length === 0) {
+        toast.info('All detection models have been removed');
+      } else if (models.length === 1) {
+        toast.success(`Model "${models[0].name}" set as active`);
+      } else {
+        toast.success(`${models.length} models selected for detection`);
+      }
+    } catch (error) {
+      console.error('Failed to save active models:', error);
+      toast.error('Failed to save model selection');
     }
   };
 
@@ -207,6 +227,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       </CardHeader>
       <CardContent className="p-6">
         <div className="space-y-4">
+          {/* Model selection - placed at the top */}
+          <ModelSelector
+            selectedModels={selectedModels}
+            availableModels={availableModels}
+            onModelChange={handleModelChange}
+          />
+
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
               <Label htmlFor="video-url">Video Stream URL</Label>
@@ -264,12 +291,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             isProcessing={isProcessing || isModelLoading}
           />
 
-          <ModelSelector
-            selectedModel={selectedModel}
-            availableModels={availableModels}
-            onModelChange={handleModelChange}
-          />
-
           <div className="video-feed mt-4 relative" ref={containerRef}>
             {isProcessing ? (
               <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
@@ -320,14 +341,14 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             )}
           </div>
           
-          {isStreaming && detections.length === 0 && !selectedModel && !activeModel && (
+          {isStreaming && detections.length === 0 && selectedModels.length === 0 && (
             <div className="flex items-center justify-center p-4 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 rounded-md">
               <AlertTriangle className="mr-2" size={16} />
-              <span className="text-sm">No AI model selected. Select a model to enable object detection.</span>
+              <span className="text-sm">No AI models selected. Select one or more models to enable object detection.</span>
             </div>
           )}
           
-          {isStreaming && detections.length === 0 && (selectedModel || activeModel) && (
+          {isStreaming && detections.length === 0 && selectedModels.length > 0 && (
             <div className="flex items-center justify-center p-4 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 rounded-md">
               <AlertTriangle className="mr-2" size={16} />
               <span className="text-sm">Running object detection...</span>

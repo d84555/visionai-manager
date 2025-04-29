@@ -1,327 +1,244 @@
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Query
+from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
 import os
-import json
-import time
-import shutil
 import uuid
 from datetime import datetime
+import json
+from pydantic import BaseModel
+from pathlib import Path
 
-# Define router
-router = APIRouter(prefix="/models", tags=["models"])
+# Models directory - adjust as needed for your deployment
+MODELS_DIR = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"))
+ACTIVE_MODELS_FILE = os.path.join(MODELS_DIR, "active_models.json")
 
-# Models
-class ModelInfo(BaseModel):
-    id: str
-    name: str
-    type: str
-    path: str
-    size: Optional[int] = None
-    created: Optional[str] = None
-
-class ActiveModelResponse(BaseModel):
-    name: str
-    path: str
-
-class HealthResponse(BaseModel):
-    status: str
-    timestamp: str
-    services: Dict[str, str]
-
-# Configure models directory
-MODELS_DIR = os.environ.get("MODELS_DIR", "/opt/visionai/models")
+# Create models directory if it doesn't exist
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-# Store active model information
-ACTIVE_MODEL_FILE = os.path.join(MODELS_DIR, "active_model.json")
+# Create Router
+router = APIRouter(prefix="/models", tags=["models"])
 
-@router.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint that verifies system status"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "services": {
-            "api": "online",
-            "inference": "online",
-            "storage": "online"
-        }
-    }
+class ModelRequest(BaseModel):
+    name: str
+    path: str
 
-@router.get("/list", response_model=List[ModelInfo])
-async def list_models():
-    """List available models in the models directory"""
-    try:
-        models = []
-        # First check main models directory
-        if os.path.exists(MODELS_DIR):
-            print(f"Checking models directory: {MODELS_DIR}")
-            for filename in os.listdir(MODELS_DIR):
-                if filename.endswith(('.pt', '.pth', '.onnx', '.tflite', '.pb')):
-                    file_path = os.path.join(MODELS_DIR, filename)
-                    model_id = os.path.splitext(filename)[0]
-                    model_name = model_id.replace('_', ' ').title()
-                    model_type = os.path.splitext(filename)[1][1:].upper()
-                    
-                    # Get file info
-                    try:
-                        stat = os.stat(file_path)
-                        size = stat.st_size
-                        created = datetime.fromtimestamp(stat.st_ctime).isoformat()
-                    except:
-                        size = 0
-                        created = datetime.now().isoformat()
-                    
-                    models.append(
-                        ModelInfo(
-                            id=model_id,
-                            name=model_name,
-                            type=model_type,
-                            path=file_path,
-                            size=size,
-                            created=created
-                        )
-                    )
-        
-        # Look for demo models (pre-packaged)
-        demo_dir = os.path.join(MODELS_DIR, "demo")
-        if os.path.exists(demo_dir):
-            print(f"Checking demo models directory: {demo_dir}")
-            for filename in os.listdir(demo_dir):
-                if filename.endswith(('.pt', '.pth', '.onnx', '.tflite', '.pb')):
-                    file_path = os.path.join(demo_dir, filename)
-                    model_id = "demo_" + os.path.splitext(filename)[0]
-                    model_name = "Demo: " + os.path.splitext(filename)[0].replace('_', ' ').title()
-                    model_type = os.path.splitext(filename)[1][1:].upper() + " (Demo)"
-                    
-                    # Get file info
-                    try:
-                        stat = os.stat(file_path)
-                        size = stat.st_size
-                        created = datetime.fromtimestamp(stat.st_ctime).isoformat()
-                    except:
-                        size = 0
-                        created = datetime.now().isoformat()
-                    
-                    models.append(
-                        ModelInfo(
-                            id=model_id,
-                            name=model_name,
-                            type=model_type,
-                            path=file_path,
-                            size=size,
-                            created=created
-                        )
-                    )
-        
-        # If no models found, provide some simulated test models
-        if not models:
-            print("No models found, providing sample models")
-            models = [
-                ModelInfo(
-                    id="yolov8n",
-                    name="YOLOv8 Nano",
-                    type="PYTORCH",
-                    path="/opt/visionai/models/yolov8n.pt",
-                    size=6879267,
-                    created=datetime.now().isoformat()
-                ),
-                ModelInfo(
-                    id="yolov8s",
-                    name="YOLOv8 Small",
-                    type="PYTORCH",
-                    path="/opt/visionai/models/yolov8s.pt",
-                    size=21331434,
-                    created=datetime.now().isoformat()
-                ),
-                ModelInfo(
-                    id="yolo_nas_s",
-                    name="YOLO-NAS Small",
-                    type="ONNX",
-                    path="/opt/visionai/models/yolo_nas_s.onnx",
-                    size=15784932,
-                    created=datetime.now().isoformat()
-                )
-            ]
-        
-        print(f"Found {len(models)} models")
-        return models
-        
-    except Exception as e:
-        print(f"Error listing models: {str(e)}")
-        return []
+class ModelListResponse(BaseModel):
+    id: str
+    name: str
+    path: str
+    uploadDate: Optional[str] = None
+    fileSize: Optional[int] = None
 
-@router.post("/upload", response_model=ModelInfo)
-async def upload_model(
-    file: UploadFile = File(...),
-    name: str = Form(...)
-):
-    """Upload a new model file"""
-    print(f"Received model upload request: {name}, file: {file.filename}")
+class MultipleModelsRequest(BaseModel):
+    models: List[ModelRequest]
+
+def get_models() -> List[Dict[str, Any]]:
+    """Get list of available models"""
+    models = []
     
     try:
-        # Generate a safe filename from the original name
-        original_filename = file.filename
-        if not original_filename:
-            raise HTTPException(status_code=400, detail="No filename provided")
+        # Check if directory exists
+        if not os.path.exists(MODELS_DIR):
+            print(f"Creating models directory: {MODELS_DIR}")
+            os.makedirs(MODELS_DIR, exist_ok=True)
+            return []
         
-        # Extract extension and verify it's supported
-        ext = os.path.splitext(original_filename)[1].lower()
-        if ext not in ['.pt', '.pth', '.onnx', '.tflite', '.pb']:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Unsupported model format: {ext}. Supported formats are .pt, .pth, .onnx, .tflite, .pb"
-            )
+        # Scan models directory
+        for filename in os.listdir(MODELS_DIR):
+            filepath = os.path.join(MODELS_DIR, filename)
+            
+            # Skip directories and non-model files
+            if os.path.isdir(filepath):
+                continue
+            
+            if any(filename.lower().endswith(ext) for ext in ['.pt', '.pth', '.onnx', '.tflite', '.pb']):
+                # Get file stats
+                file_stat = os.stat(filepath)
+                
+                # Format model data
+                model_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, filename))
+                
+                # Clean up display name (remove extension)
+                name_parts = filename.split('.')
+                if len(name_parts) > 1:
+                    display_name = '.'.join(name_parts[:-1])
+                else:
+                    display_name = filename
+                    
+                # Replace underscores/dashes with spaces for display
+                display_name = display_name.replace('_', ' ').replace('-', ' ')
+                
+                model_info = {
+                    "id": model_id,
+                    "name": display_name,
+                    "path": filepath,
+                    "uploadDate": datetime.fromtimestamp(file_stat.st_mtime).isoformat(),
+                    "fileSize": file_stat.st_size
+                }
+                models.append(model_info)
+    except Exception as e:
+        print(f"Error scanning models directory: {str(e)}")
         
-        # Create a safe model ID from the provided name
-        model_id = f"custom-{int(time.time())}"
-        
-        # Generate the filename and file path
-        filename = f"{model_id}{ext}"
-        file_path = os.path.join(MODELS_DIR, filename)
-        
-        # Create models directory if it doesn't exist
+    print(f"Found {len(models)} models")
+    return models
+
+@router.get("/list")
+async def list_models() -> List[Dict[str, Any]]:
+    """List all available models"""
+    return get_models()
+
+@router.post("/upload")
+async def upload_model(file: UploadFile = File(...), name: str = Form("")):
+    """Upload a new AI model"""
+    try:
+        # Ensure the models directory exists
         os.makedirs(MODELS_DIR, exist_ok=True)
         
-        # Save the uploaded file
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # If no name provided, use the original filename
+        if not name:
+            name = file.filename
         
-        # Get file info
-        stat = os.stat(file_path)
-        size = stat.st_size
-        created = datetime.now().isoformat()
+        # Use the original file extension
+        if file.filename and '.' in file.filename:
+            file_extension = file.filename.split('.')[-1]
+            # If name doesn't end with the extension, append it
+            if not name.endswith(f".{file_extension}"):
+                name = f"{name}.{file_extension}"
         
-        # Create the model info
-        model_info = ModelInfo(
-            id=model_id,
-            name=name,
-            type=ext[1:].upper(),
-            path=file_path,
-            size=size,
-            created=created
-        )
+        # Create a safe filename
+        safe_filename = name.replace(' ', '_')
+        filepath = os.path.join(MODELS_DIR, safe_filename)
         
-        print(f"Model uploaded successfully: {model_info}")
-        return model_info
+        # Write the file
+        with open(filepath, "wb") as f:
+            content = await file.read()
+            f.write(content)
+            
+        # Get file stats
+        file_stat = os.stat(filepath)
         
-    except HTTPException as e:
-        print(f"HTTP error during upload: {e.detail}")
-        raise e
+        # Generate UUID based on filepath for consistency
+        model_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, safe_filename))
+        
+        # Clean up display name (remove extension)
+        display_name = safe_filename
+        if '.' in display_name:
+            display_name = '.'.join(display_name.split('.')[:-1])
+        
+        # Replace underscores with spaces for display
+        display_name = display_name.replace('_', ' ')
+        
+        return {
+            "id": model_id,
+            "name": name.replace('_', ' ') if name else display_name,
+            "path": filepath,
+            "uploadDate": datetime.fromtimestamp(file_stat.st_mtime).isoformat(),
+            "fileSize": file_stat.st_size
+        }
     except Exception as e:
         print(f"Error uploading model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to upload model: {str(e)}")
 
-@router.delete("/{model_id}", response_model=dict)
+@router.delete("/{model_id}")
 async def delete_model(model_id: str):
-    """Delete a model by ID"""
+    """Delete a model by its ID"""
     try:
-        # Check if it's a demo model (cannot delete those)
-        if model_id.startswith("demo_"):
-            raise HTTPException(status_code=400, detail="Cannot delete demo models")
+        models = get_models()
         
-        # Look for the model in the models directory
-        file_found = False
-        for filename in os.listdir(MODELS_DIR):
-            if os.path.splitext(filename)[0] == model_id:
-                file_path = os.path.join(MODELS_DIR, filename)
-                # Delete the file
-                os.remove(file_path)
-                file_found = True
-                break
+        # Find the model with the given ID
+        model_to_delete = next((model for model in models if model["id"] == model_id), None)
         
-        if not file_found:
-            raise HTTPException(status_code=404, detail=f"Model with ID {model_id} not found")
-        
-        # Check if this was the active model, and clear that if so
-        if os.path.exists(ACTIVE_MODEL_FILE):
-            with open(ACTIVE_MODEL_FILE, "r") as f:
-                active_model = json.load(f)
-            if os.path.splitext(os.path.basename(active_model["path"]))[0] == model_id:
-                os.remove(ACTIVE_MODEL_FILE)
-        
-        return {"status": "success", "message": f"Model {model_id} deleted successfully"}
-        
-    except HTTPException as e:
-        raise e
+        if not model_to_delete:
+            raise HTTPException(status_code=404, detail="Model not found")
+            
+        # Delete the file
+        filepath = model_to_delete["path"]
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            return {"message": f"Model {model_id} deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Model file not found")
     except Exception as e:
+        print(f"Error deleting model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete model: {str(e)}")
 
-@router.post("/select", response_model=dict)
-async def select_model(model: ActiveModelResponse):
-    """Set the active model for inference"""
+@router.post("/select")
+async def select_model(model: ModelRequest):
+    """Select a model as the active one"""
     try:
-        # Store the active model information
-        with open(ACTIVE_MODEL_FILE, "w") as f:
-            json.dump({"name": model.name, "path": model.path}, f)
+        # Save as a list with a single model for consistency
+        with open(ACTIVE_MODELS_FILE, 'w') as f:
+            json.dump([{"name": model.name, "path": model.path}], f)
         
-        # Also save to active_models cache in websocket.py
-        try:
-            from .websocket import active_models
-            # Pre-load the model if possible
-            from .inference import YOLO, TORCH_AVAILABLE, ULTRALYTICS_AVAILABLE, CUDA_AVAILABLE
-            
-            if (TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE and 
-                model.path.lower().endswith(('.pt', '.pth')) and 
-                model.path not in active_models):
-                try:
-                    print(f"Preloading model: {model.path}")
-                    # Load PyTorch model
-                    model_obj = YOLO(model.path)
-                    
-                    # Move to device
-                    if CUDA_AVAILABLE:
-                        model_obj.to("cuda")
-                    else:
-                        model_obj.to("cpu")
-                        
-                    # Store for reuse
-                    active_models[model.path] = model_obj
-                    print(f"Model preloaded successfully: {model.path}")
-                except Exception as e:
-                    print(f"Error preloading model: {str(e)}")
-        except (ImportError, AttributeError) as e:
-            print(f"Could not access active models cache: {str(e)}")
-        
-        return {"status": "success", "message": f"Model {model.name} set as active"}
-        
+        return {"message": "Active model set successfully"}
     except Exception as e:
+        print(f"Error setting active model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to set active model: {str(e)}")
 
-@router.get("/active", response_model=ActiveModelResponse)
-async def get_active_model():
-    """Get the active model for inference"""
+@router.post("/select-multiple")
+async def select_multiple_models(request: MultipleModelsRequest):
+    """Select multiple models for active use"""
     try:
-        # Check if active model file exists
-        if not os.path.exists(ACTIVE_MODEL_FILE):
-            raise HTTPException(status_code=404, detail="No active model set")
+        # Save the list of models
+        with open(ACTIVE_MODELS_FILE, 'w') as f:
+            models_list = [{"name": model.name, "path": model.path} for model in request.models]
+            json.dump(models_list, f)
         
-        # Read the active model information
-        with open(ACTIVE_MODEL_FILE, "r") as f:
-            model = json.load(f)
-        
-        return ActiveModelResponse(name=model["name"], path=model["path"])
-        
-    except HTTPException as e:
-        raise e
+        return {"message": f"Set {len(request.models)} active models successfully"}
     except Exception as e:
+        print(f"Error setting active models: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to set active models: {str(e)}")
+
+@router.get("/active")
+async def get_active_model():
+    """Get the currently active model"""
+    try:
+        if not os.path.exists(ACTIVE_MODELS_FILE):
+            raise HTTPException(status_code=404, detail="No active model set")
+            
+        with open(ACTIVE_MODELS_FILE, 'r') as f:
+            active_models = json.load(f)
+            
+        # Return the first model for backwards compatibility
+        if active_models and len(active_models) > 0:
+            return active_models[0]
+        else:
+            raise HTTPException(status_code=404, detail="No active model set")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="No active model set")
+    except Exception as e:
+        print(f"Error getting active model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get active model: {str(e)}")
 
-@router.get("/file-url", response_model=Dict[str, str])
-async def get_file_url(path: str):
-    """Get a URL for accessing a model file"""
+@router.get("/active-multiple")
+async def get_active_models():
+    """Get all currently active models"""
+    try:
+        if not os.path.exists(ACTIVE_MODELS_FILE):
+            return []
+            
+        with open(ACTIVE_MODELS_FILE, 'r') as f:
+            active_models = json.load(f)
+            
+        return active_models
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        print(f"Error getting active models: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get active models: {str(e)}")
+
+@router.get("/file-url")
+async def get_model_file_url(path: str = Query(...)):
+    """Get URL for accessing a model file"""
     try:
         # Check if file exists
         if not os.path.exists(path):
-            raise HTTPException(status_code=404, detail=f"File not found: {path}")
-        
-        # In a real implementation, this would generate a signed URL or similar
-        # Here we just return a placeholder
-        return {"url": f"file://{path}"}
-        
-    except HTTPException as e:
-        raise e
+            raise HTTPException(status_code=404, detail="Model file not found")
+            
+        # In production, this would return a proper URL
+        # For now we just return the path which can be used locally
+        return {"url": path}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate URL: {str(e)}")
+        print(f"Error getting model file URL: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get model file URL: {str(e)}")

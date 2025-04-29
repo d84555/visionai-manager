@@ -1,10 +1,23 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { toast } from 'sonner';
-import EdgeAIInference, { Detection, BackendDetection } from '@/services/EdgeAIInference';
-import { convertToPlayableFormat } from '@/utils/ffmpegUtils';
-import SettingsService from '@/services/SettingsService';
 
-interface UseVideoFeedProps {
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { convertDavToMP4 } from '../utils/ffmpegUtils';
+import { toast } from 'sonner';
+
+interface Detection {
+  id: string;
+  label: string;
+  confidence: number;
+  bbox: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    width: number;
+    height: number;
+  };
+}
+
+interface VideoFeedProps {
   initialVideoUrl?: string;
   autoStart?: boolean;
   camera?: {
@@ -15,523 +28,398 @@ interface UseVideoFeedProps {
       sub: string;
     };
   };
-  activeModel?: { name: string; path: string };
+  activeModels?: { name: string; path: string }[];
   streamType?: 'main' | 'sub';
   fps?: number;
 }
 
-export const useVideoFeed = ({
-  initialVideoUrl = '',
+export const useVideoFeed = ({ 
+  initialVideoUrl = '', 
   autoStart = false,
-  camera,
-  activeModel,
+  camera = undefined,
+  activeModels = [],
   streamType = 'main',
-  fps = 10 // Default to 10 frames per second for detection
-}: UseVideoFeedProps) => {
-  const [videoUrl, setVideoUrl] = useState(initialVideoUrl);
-  const [isStreaming, setIsStreaming] = useState(autoStart);
-  const [isPlaying, setIsPlaying] = useState(autoStart);
+  fps = 10
+}: VideoFeedProps) => {
+  const [videoUrl, setVideoUrl] = useState(initialVideoUrl || '');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
   const [detections, setDetections] = useState<Detection[]>([]);
-  const [resolution, setResolution] = useState({ width: 640, height: 360 });
+  const [resolution, setResolution] = useState({ width: 640, height: 480 });
   const [isProcessing, setIsProcessing] = useState(false);
   const [hasUploadedFile, setHasUploadedFile] = useState(false);
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [inferenceLocation, setInferenceLocation] = useState<'edge' | 'server' | null>(null);
   const [inferenceTime, setInferenceTime] = useState<number | null>(null);
+  const [actualFps, setActualFps] = useState<number | null>(null);
   const [isHikvisionFormat, setIsHikvisionFormat] = useState(false);
   const [isModelLoading, setIsModelLoading] = useState(false);
-  const [actualFps, setActualFps] = useState<number | null>(null);
-  const [droppedFrames, setDroppedFrames] = useState(0);
-  const [consecutiveErrors, setConsecutiveErrors] = useState(0);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  const lastDetectionTimeRef = useRef<number>(0);
+  const socketRef = useRef<WebSocket | null>(null);
   const frameCountRef = useRef<number>(0);
-  const droppedFrameCountRef = useRef<number>(0);
-  const lastFpsUpdateTimeRef = useRef<number>(0);
-  const detectionInProgressRef = useRef<boolean>(false);
-  const consecutiveErrorsRef = useRef<number>(0);
-  
-  // Calculate time between frames based on FPS
-  const frameIntervalMs = 1000 / fps;
+  const lastFrameTimeRef = useRef<number>(Date.now());
+  const processingRef = useRef<boolean>(false);
+  const requestAnimationFrameIdRef = useRef<number | null>(null);
 
-  // Optimize performance settings based on device capabilities
-  useEffect(() => {
-    // Configure EdgeAIInference for performance
-    EdgeAIInference.setPerformanceSettings({
-      maxPendingRequests: 2,  // Allow 2 concurrent requests
-      minRequestInterval: Math.floor(frameIntervalMs), // Based on desired FPS
-      useQuantized: true      // Enable quantized models if available
-    });
-  }, [fps, frameIntervalMs]);
+  // Initialize WebSocket connection
+  const initWebSocket = useCallback(() => {
+    try {
+      // Close existing connection if any
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+      
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = process.env.NODE_ENV === 'production' 
+        ? window.location.host
+        : 'localhost:8000';
+      
+      const wsUrl = `${wsProtocol}//${wsHost}/ws/inference`;
+      console.log(`Connecting to WebSocket at ${wsUrl}`);
+      
+      const socket = new WebSocket(wsUrl);
+      
+      socket.onopen = () => {
+        console.log('WebSocket connection established');
+      };
+      
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.detections) {
+            // Format received detections
+            const formattedDetections = data.detections.map((d: any) => ({
+              id: d.id,
+              label: d.label,
+              confidence: d.confidence,
+              bbox: {
+                x1: d.bbox.x1,
+                y1: d.bbox.y1,
+                x2: d.bbox.x2,
+                y2: d.bbox.y2,
+                width: d.bbox.width,
+                height: d.bbox.height
+              }
+            }));
+            
+            setDetections(formattedDetections);
+            
+            // Update inference stats
+            if (data.inferenceTime) {
+              setInferenceTime(data.inferenceTime);
+            }
+            
+            // Set inference location
+            if (data.processedAt) {
+              setInferenceLocation(data.processedAt === 'edge' ? 'edge' : 'server');
+            }
+            
+            // Release the processing lock
+            processingRef.current = false;
+          } else if (data.status === 'connected') {
+            console.log('Connected to inference service with client ID:', data.clientId);
+          } else if (data.error) {
+            console.error('Inference error:', data.error);
+            toast.error(`Inference error: ${data.error}`);
+            processingRef.current = false;
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+          processingRef.current = false;
+        }
+      };
+      
+      socket.onclose = () => {
+        console.log('WebSocket connection closed');
+      };
+      
+      socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        toast.error('Connection to inference service failed');
+      };
+      
+      socketRef.current = socket;
+    } catch (error) {
+      console.error('Error initializing WebSocket:', error);
+      toast.error('Failed to connect to inference service');
+    }
+  }, []);
 
-  const detectObjects = useCallback(async () => {
-    if (!activeModel && !camera) {
-      setDetections([]);
+  // Start sending frames for processing
+  const startFrameProcessing = useCallback(() => {
+    if (!videoRef.current || !socketRef.current || !isStreaming || processingRef.current) {
       return;
     }
     
-    // Skip if detection already in progress
-    if (detectionInProgressRef.current) {
-      droppedFrameCountRef.current++;
+    // Skip if no models are selected or if not playing
+    if (activeModels.length === 0 || !isPlaying) {
+      if (requestAnimationFrameIdRef.current !== null) {
+        cancelAnimationFrame(requestAnimationFrameIdRef.current);
+        requestAnimationFrameIdRef.current = null;
+      }
       return;
     }
+    
+    // Skip if the video is not properly loaded
+    if (
+      videoRef.current.readyState !== 4 || 
+      videoRef.current.videoWidth === 0 || 
+      videoRef.current.videoHeight === 0
+    ) {
+      requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
+      return;
+    }
+    
+    // Calculate FPS
+    frameCountRef.current += 1;
+    const now = Date.now();
+    const elapsed = now - lastFrameTimeRef.current;
+    
+    if (elapsed >= 1000) {
+      const calculatedFps = Math.round((frameCountRef.current * 1000) / elapsed);
+      setActualFps(calculatedFps);
+      frameCountRef.current = 0;
+      lastFrameTimeRef.current = now;
+    }
+    
+    // Only process frames at the specified FPS rate
+    const frameInterval = 1000 / fps;
+    const timeSinceLastFrame = now - lastFrameTimeRef.current;
+    
+    if (timeSinceLastFrame < frameInterval && frameCountRef.current > 0) {
+      requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
+      return;
+    }
+    
+    // Mark as processing to prevent multiple concurrent frames
+    processingRef.current = true;
     
     try {
-      const modelToUse = activeModel;
+      // Create canvas for grabbing video frame
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      const ctx = canvas.getContext('2d');
       
-      if (!videoRef.current || videoRef.current.paused) {
-        console.log("Video is paused or not available for detection");
+      if (!ctx) {
+        console.error('Failed to get canvas context');
+        processingRef.current = false;
+        requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
         return;
       }
       
-      // Rate limiting based on specified FPS
-      const now = Date.now();
-      if (now - lastDetectionTimeRef.current < frameIntervalMs) {
-        droppedFrameCountRef.current++;
+      // Draw the current video frame to the canvas
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      
+      // Get the image data as a Base64 string
+      const imageData = canvas.toDataURL('image/jpeg', 0.7);
+      
+      // Get the model paths from the active models
+      const modelPaths = activeModels.map(model => model.path);
+      
+      // Skip if no models are selected
+      if (modelPaths.length === 0) {
+        processingRef.current = false;
+        requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
         return;
       }
-      lastDetectionTimeRef.current = now;
       
-      // For FPS calculation
-      frameCountRef.current++;
-      if (now - lastFpsUpdateTimeRef.current >= 1000) {
-        setActualFps(frameCountRef.current);
-        setDroppedFrames(droppedFrameCountRef.current);
-        frameCountRef.current = 0;
-        droppedFrameCountRef.current = 0;
-        lastFpsUpdateTimeRef.current = now;
-      }
-      
-      // Mark detection as started
-      detectionInProgressRef.current = true;
-      
-      try {
-        if (!canvasRef.current) {
-          const canvas = document.createElement('canvas');
-          canvas.width = videoRef.current.videoWidth || 640;
-          canvas.height = videoRef.current.videoHeight || 360;
-          canvasRef.current = canvas;
-        }
-        
-        const ctx = canvasRef.current.getContext('2d', { 
-          alpha: false,  // Optimization: disable alpha channel
-          willReadFrequently: true // Optimization: optimize for frequent readback
-        });
-        
-        if (ctx && videoRef.current) {
-          // Ensure canvas matches video dimensions exactly
-          canvasRef.current.width = videoRef.current.videoWidth || 640;
-          canvasRef.current.height = videoRef.current.videoHeight || 360;
-          
-          // Draw the current video frame to the canvas
-          ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-          
-          // Use lower JPEG quality to reduce payload size
-          const imageData = canvasRef.current.toDataURL('image/jpeg', 0.7);
-          
-          if (!modelToUse) {
-            console.warn("No model specified for inference");
-            detectionInProgressRef.current = false;
-            return;
-          }
-          
-          const request = {
-            imageData: imageData,
-            cameraId: camera?.id || videoUrl || "unknown",
-            modelName: modelToUse.name || "custom_model",
-            modelPath: modelToUse.path || "",
-            thresholdConfidence: 0.5
-          };
-          
-          const result = await EdgeAIInference.performInference(request);
-          
-          // Reset consecutive errors on success
-          consecutiveErrorsRef.current = 0;
-          
-          if (result.detections && result.detections.length > 0) {
-            // Create normalized detections with unique IDs
-            const normalizedDetections = result.detections.map((detection: BackendDetection, index) => {
-              // Create a unique ID for React
-              const uniqueId = `${index}-${Date.now()}`;
-              
-              // Get detection properties with proper defaults
-              const processedDetection: Detection = {
-                id: uniqueId,
-                label: detection.label || detection.class || 'Object',
-                class: detection.class || detection.label || 'Object',
-                confidence: detection.confidence || 0
-              };
-              
-              // Handle YOLO-style center+dimensions format (keep as is)
-              if (detection.x !== undefined && detection.y !== undefined && 
-                  detection.width !== undefined && detection.height !== undefined) {
-                processedDetection.x = detection.x;
-                processedDetection.y = detection.y;
-                processedDetection.width = detection.width;
-                processedDetection.height = detection.height;
-              }
-              
-              // Process bbox coordinates if available [x1, y1, x2, y2]
-              if (Array.isArray(detection.bbox) && detection.bbox.length === 4) {
-                processedDetection.bbox = [...detection.bbox];
-                
-                // Ensure all values are valid numbers
-                processedDetection.bbox = processedDetection.bbox.map(val => 
-                  isNaN(val) ? 0 : val
-                );
-                
-                // Ensure coordinates are properly ordered (x1 < x2, y1 < y2)
-                if (processedDetection.bbox[2] < processedDetection.bbox[0]) {
-                  [processedDetection.bbox[0], processedDetection.bbox[2]] = 
-                    [processedDetection.bbox[2], processedDetection.bbox[0]];
-                }
-                if (processedDetection.bbox[3] < processedDetection.bbox[1]) {
-                  [processedDetection.bbox[1], processedDetection.bbox[3]] = 
-                    [processedDetection.bbox[3], processedDetection.bbox[1]];
-                }
-                
-                // If we don't have center coordinates but have bbox, calculate center coords
-                if (processedDetection.x === undefined) {
-                  const [x1, y1, x2, y2] = processedDetection.bbox;
-                  processedDetection.x = (x1 + x2) / 2;
-                  processedDetection.y = (y1 + y2) / 2;
-                  processedDetection.width = x2 - x1;
-                  processedDetection.height = y2 - y1;
-                }
-              } 
-              // If no valid bbox data but we have center coords, calculate bbox
-              else if (processedDetection.x !== undefined && processedDetection.bbox === undefined) {
-                const halfWidth = processedDetection.width! / 2;
-                const halfHeight = processedDetection.height! / 2;
-                
-                processedDetection.bbox = [
-                  processedDetection.x - halfWidth,    // x1
-                  processedDetection.y - halfHeight,   // y1
-                  processedDetection.x + halfWidth,    // x2
-                  processedDetection.y + halfHeight    // y2
-                ];
-              }
-              
-              return processedDetection;
-            });
-            
-            // Filter out detections with very low confidence
-            const filteredDetections = normalizedDetections.filter(d => 
-              d.confidence > 0.1 // Lower threshold to show more detections for debugging
-            );
-            
-            setDetections(filteredDetections);
-            setInferenceLocation(result.processedAt);
-            setInferenceTime(result.inferenceTime);
-            
-            // Dispatch detection event for other components
-            window.dispatchEvent(new CustomEvent('ai-detection', { 
-              detail: { 
-                detections: filteredDetections,
-                modelName: request.modelName,
-                timestamp: new Date(),
-                source: camera?.id || "video-feed" 
-              } 
-            }));
-          } else {
-            setDetections([]);
-          }
-          
-        }
-      } catch (error) {
-        // Skip errors related to frame dropping - those are expected
-        if (error.message && (
-            error.message.includes('Frame dropped') || 
-            error.message.includes('Too many pending requests'))) {
-          droppedFrameCountRef.current++;
-        } else {
-          // Increment consecutive errors
-          consecutiveErrorsRef.current++;
-          setConsecutiveErrors(consecutiveErrorsRef.current);
-          
-          console.error("Edge inference error:", error);
-          
-          // Only show toast after multiple consecutive errors
-          if (consecutiveErrorsRef.current >= 5) {
-            toast.error("AI inference failed", {
-              description: "Check if the Edge Computing node is running and the model is valid"
-            });
-            setInferenceLocation("server");
-            consecutiveErrorsRef.current = 0; // Reset after showing toast
-          }
-          
-          setDetections([]);
-        }
-      } finally {
-        // Mark detection as finished
-        detectionInProgressRef.current = false;
-      }
+      // Send the frame for processing
+      socketRef.current.send(JSON.stringify({
+        modelPaths: modelPaths,
+        imageData: imageData,
+        threshold: 0.5
+      }));
     } catch (error) {
-      console.error("Detection wrapper error:", error);
-      detectionInProgressRef.current = false;
+      console.error('Error processing frame:', error);
+      processingRef.current = false;
     }
-  }, [activeModel, camera, videoUrl, fps, frameIntervalMs]);
-
-  const scheduleNextDetection = useCallback(() => {
-    if (!isStreaming || !isPlaying) return;
     
-    // Use requestAnimationFrame for smoother timing
-    animationFrameRef.current = requestAnimationFrame(() => {
-      detectObjects()
-        .finally(() => {
-          // Schedule next detection
-          scheduleNextDetection();
-        });
-    });
-  }, [detectObjects, isPlaying, isStreaming]);
+    // Schedule next frame
+    requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
+  }, [isStreaming, isPlaying, fps, activeModels]);
 
-  const startStream = async () => {
-    if (!videoUrl && !originalFile) {
-      toast.error('Please enter a valid video URL or upload a file');
+  // Start streaming video
+  const startStream = useCallback(async () => {
+    if (!videoUrl && !hasUploadedFile) {
+      toast.error('Please enter a video URL or upload a file');
       return;
     }
     
-    setIsStreaming(true);
-    setIsPlaying(true);
+    // Reset state
+    setDetections([]);
+    setInferenceLocation(null);
+    setInferenceTime(null);
     
-    if (activeModel?.path.includes('/custom_models/')) {
-      setIsModelLoading(true);
+    // Handle Hikvision DAV format for uploaded files
+    if (hasUploadedFile && originalFile && originalFile.name.endsWith('.dav')) {
+      setIsProcessing(true);
+      setIsHikvisionFormat(true);
+      
       try {
-        console.log(`Using custom model from API server: ${activeModel.path}`);
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Convert DAV to MP4
+        const mp4Url = await convertDavToMP4(originalFile);
+        setVideoUrl(mp4Url);
+        
+        // Model loading can proceed in parallel with conversion
+        if (activeModels.length > 0) {
+          setIsModelLoading(true);
+        }
+        
+        // Initialize WebSocket connection
+        initWebSocket();
+        
+        // Start streaming
+        setIsStreaming(true);
+        setIsPlaying(true);
       } catch (error) {
-        console.error("Error loading custom model:", error);
+        console.error('Error converting DAV file:', error);
+        toast.error('Failed to convert Hikvision DAV file');
       } finally {
+        setIsProcessing(false);
         setIsModelLoading(false);
       }
-    }
-    
-    if (videoRef.current) {
-      try {
-        await videoRef.current.play();
-        setIsPlaying(true);
-      } catch (err) {
-        console.error("Video play error:", err);
-        toast.error('Could not play video', {
-          description: 'The video format may not be supported directly. Attempting to process...'
-        });
+    } else {
+      // Standard video streaming
+      if (activeModels.length > 0) {
+        setIsModelLoading(true);
         
-        if (originalFile) {
-          await handleFileUpload(originalFile);
-        }
-      }
-    }
-    
-    if (!autoStart) {
-      toast.success('Video stream started', {
-        description: 'Object detection is now active'
-      });
-    }
-    
-    if (activeModel) {
-      // Cancel any existing animation frame
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
+        // Simulate model loading time
+        setTimeout(() => {
+          setIsModelLoading(false);
+        }, 1500);
       }
       
-      // Reset FPS tracking
-      frameCountRef.current = 0;
-      droppedFrameCountRef.current = 0;
-      lastFpsUpdateTimeRef.current = Date.now();
-      consecutiveErrorsRef.current = 0;
+      // Initialize WebSocket connection
+      initWebSocket();
       
-      // Start detection loop using requestAnimationFrame
-      scheduleNextDetection();
+      // Start streaming
+      setIsStreaming(true);
+      setIsPlaying(true);
     }
-  };
+  }, [videoUrl, hasUploadedFile, originalFile, initWebSocket, activeModels]);
 
-  const stopStream = () => {
+  // Stop streaming
+  const stopStream = useCallback(() => {
     setIsStreaming(false);
-    setDetections([]);
     setIsPlaying(false);
+    setDetections([]);
+    setInferenceLocation(null);
+    setInferenceTime(null);
     setActualFps(null);
-    setDroppedFrames(0);
-    setConsecutiveErrors(0);
     
-    // Cancel animation frame if active
-    if (animationFrameRef.current !== null) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
+    // Cancel any pending animation frame
+    if (requestAnimationFrameIdRef.current !== null) {
+      cancelAnimationFrame(requestAnimationFrameIdRef.current);
+      requestAnimationFrameIdRef.current = null;
     }
     
-    if (videoRef.current) {
+    // Close WebSocket connection
+    if (socketRef.current) {
+      socketRef.current.close();
+      socketRef.current = null;
+    }
+  }, []);
+
+  // Toggle play/pause
+  const togglePlayPause = useCallback(() => {
+    if (!videoRef.current) return;
+    
+    if (isPlaying) {
       videoRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      videoRef.current.play();
+      setIsPlaying(true);
     }
-    
-    if (!autoStart) {
-      toast.info('Video stream stopped');
-    }
-  };
+  }, [isPlaying]);
 
-  const togglePlayPause = async () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        try {
-          await videoRef.current.play();
-          setIsPlaying(true);
-        } catch (err) {
-          console.error("Video play error in togglePlayPause:", err);
-          toast.error('Could not play video', {
-            description: 'The video may be in an unsupported format or the stream is unavailable'
-          });
-        }
-      }
-    }
-  };
-
-  const handleFileUpload = async (file: File) => {
-    if (hasUploadedFile && videoUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(videoUrl);
-    }
-    
+  // Handle file upload
+  const handleFileUpload = useCallback(async (file: File) => {
     setOriginalFile(file);
     setHasUploadedFile(true);
     
-    const isHikvision = file.name.toLowerCase().endsWith('.dav') || 
-                        file.type === 'video/x-dav' || 
-                        file.type === 'application/octet-stream';
-    
-    setIsHikvisionFormat(isHikvision);
-    
-    if (isHikvision) {
-      toast.info('Hikvision video format detected', {
-        description: 'Using specialized processing for Hikvision format'
-      });
+    // Check if it's a Hikvision DAV file
+    if (file.name.endsWith('.dav')) {
+      setIsHikvisionFormat(true);
+      setVideoUrl('');  // Clear URL as we'll replace it after conversion
+    } else {
+      // Regular video file
+      setIsHikvisionFormat(false);
+      setVideoUrl(URL.createObjectURL(file));
     }
     
-    try {
-      setIsProcessing(true);
-      toast.info('Processing video file...', {
-        description: 'This may take a moment depending on file size'
-      });
-      
-      const convertedVideoUrl = await convertToPlayableFormat(file);
-      setVideoUrl(convertedVideoUrl);
-      
-      localStorage.setItem(`video-file-${Date.now()}`, JSON.stringify({
-        originalName: file.name,
-        size: file.size,
-        type: file.type,
-        blobUrl: convertedVideoUrl,
-        storedAt: SettingsService.localStorageConfig.basePath + 'videos/' + file.name,
-        createdAt: new Date().toISOString()
-      }));
-      
-      toast.success('Video file processed successfully', {
-        description: 'Click Start to begin playback and detection'
-      });
-    } catch (error) {
-      console.error("Error processing video:", error);
-      toast.error('Failed to process video format', {
-        description: 'Attempting direct playback as fallback'
-      });
-      
-      const localUrl = URL.createObjectURL(file);
-      setVideoUrl(localUrl);
-    } finally {
-      setIsProcessing(false);
-    }
-    
+    // Stop any existing stream
     if (isStreaming) {
       stopStream();
     }
-  };
+  }, [isStreaming, stopStream]);
 
-  const handleVideoMetadata = () => {
-    if (videoRef.current) {
-      const width = videoRef.current.videoWidth;
-      const height = videoRef.current.videoHeight;
-      console.log(`Video metadata loaded: ${width}x${height}`);
-      setResolution({
-        width: width,
-        height: height
-      });
-    }
-  };
-
-  const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
-    console.error("Video error:", e);
-    
-    toast.error('Failed to load video', {
-      description: 'The video format may not be supported. Attempting alternative processing...'
+  // Handle video metadata loaded event
+  const handleVideoMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.target as HTMLVideoElement;
+    setResolution({
+      width: video.videoWidth,
+      height: video.videoHeight
     });
-    
-    if (originalFile && !isProcessing) {
-      handleFileUpload(originalFile);
-    } else {
-      stopStream();
-    }
-  };
+  }, []);
 
+  // Handle video error
+  const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    console.error('Video error:', e);
+    toast.error('Failed to load video');
+    stopStream();
+  }, [stopStream]);
+
+  // Auto-start if requested
   useEffect(() => {
-    // Update detection when activeModel changes
-    if (isStreaming && activeModel && isPlaying) {
-      // Cancel any existing animation frame
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
+    if (autoStart && (initialVideoUrl || camera)) {
+      // If camera is provided, use its stream URL
+      if (camera) {
+        setVideoUrl(camera.streamUrl[streamType]);
       }
       
-      // Reset FPS tracking
-      frameCountRef.current = 0;
-      droppedFrameCountRef.current = 0;
-      lastFpsUpdateTimeRef.current = Date.now();
+      // Start after a short delay to allow setup
+      const timer = setTimeout(() => {
+        startStream();
+      }, 500);
       
-      // Start detection loop using requestAnimationFrame
-      scheduleNextDetection();
+      return () => clearTimeout(timer);
+    }
+  }, [autoStart, initialVideoUrl, camera, streamType, startStream]);
+
+  // Start/stop frame processing based on streaming state
+  useEffect(() => {
+    if (isStreaming && isPlaying) {
+      startFrameProcessing();
+    } else if (requestAnimationFrameIdRef.current !== null) {
+      cancelAnimationFrame(requestAnimationFrameIdRef.current);
+      requestAnimationFrameIdRef.current = null;
     }
     
     return () => {
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
+      if (requestAnimationFrameIdRef.current !== null) {
+        cancelAnimationFrame(requestAnimationFrameIdRef.current);
+        requestAnimationFrameIdRef.current = null;
       }
     };
-  }, [isStreaming, activeModel, isPlaying, scheduleNextDetection]);
+  }, [isStreaming, isPlaying, startFrameProcessing]);
 
-  useEffect(() => {
-    const updateSize = () => {
-      if (containerRef.current) {
-        const containerWidth = containerRef.current.offsetWidth;
-        const aspectRatio = resolution.height / resolution.width;
-        setResolution({
-          width: containerWidth,
-          height: containerWidth * aspectRatio
-        });
-      }
-    };
-
-    window.addEventListener('resize', updateSize);
-    updateSize();
-
-    return () => window.removeEventListener('resize', updateSize);
-  }, [isStreaming, resolution.width, resolution.height]);
-
+  // Clean up resources on unmount
   useEffect(() => {
     return () => {
-      if (hasUploadedFile && videoUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(videoUrl);
+      if (socketRef.current) {
+        socketRef.current.close();
       }
       
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
+      if (requestAnimationFrameIdRef.current !== null) {
+        cancelAnimationFrame(requestAnimationFrameIdRef.current);
       }
     };
-  }, [hasUploadedFile, videoUrl]);
+  }, []);
 
   return {
     videoUrl,
@@ -545,7 +433,6 @@ export const useVideoFeed = ({
     inferenceLocation,
     inferenceTime,
     actualFps,
-    droppedFrames,
     isHikvisionFormat,
     setIsHikvisionFormat,
     isModelLoading,
