@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Dict, List, Any
 import json
@@ -17,7 +16,8 @@ except ImportError:
     TORCH_AVAILABLE = False
 
 # Import models and detection functions
-from .inference import InferenceResult, Detection, process_yolo_output, optimize_pytorch_model
+# Fix import to include only functions that exist in inference.py
+from .inference import InferenceResult, Detection, optimize_pytorch_model
 from .inference import YOLO, TORCH_AVAILABLE, ULTRALYTICS_AVAILABLE, CUDA_AVAILABLE, FP16_SUPPORTED
 from .inference import simulate_detection, convert_ultralytics_results_to_detections
 

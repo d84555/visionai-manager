@@ -1,4 +1,3 @@
-
 import axios from 'axios';
 import { toast } from 'sonner';
 
@@ -54,7 +53,7 @@ class WebSocketManager {
   private messageCallbacks: Map<string, (data: any) => void> = new Map();
   private clientId: string | null = null;
   private pendingRequests = 0;
-  private maxPendingRequests = 3; // Maximum number of in-flight requests
+  public maxPendingRequests = 3; // Maximum number of in-flight requests
 
   constructor(private url: string) {}
 

@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -7,8 +6,19 @@ import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-# Import routers
-from app.routers import models, inference, websocket
+# Import routers with error handling
+try:
+    from app.routers import models, inference
+    # Try to import websocket module, but don't fail if it can't be imported
+    try:
+        from app.routers import websocket
+        WEBSOCKET_AVAILABLE = True
+    except ImportError as e:
+        print(f"WARNING: Could not import websocket module: {e}")
+        WEBSOCKET_AVAILABLE = False
+except Exception as e:
+    print(f"Error importing router modules: {e}")
+    sys.exit(1)
 
 # Create thread pool for concurrent processing
 # Adjust max_workers based on CPU cores and available memory
@@ -36,7 +46,12 @@ app.state.inference_executor = inference_executor
 # Include routers
 app.include_router(models.router)
 app.include_router(inference.router)
-app.include_router(websocket.router)
+# Only include websocket router if available
+if WEBSOCKET_AVAILABLE:
+    from app.routers import websocket
+    app.include_router(websocket.router)
+else:
+    print("WebSocket functionality disabled due to import errors")
 
 # Root endpoint
 @app.get("/", tags=["status"])
