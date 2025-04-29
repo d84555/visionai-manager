@@ -100,54 +100,96 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
       // Draw each detection
       detections.forEach((detection) => {
         try {
-          // Determine which format we're dealing with
-          let x1, y1, x2, y2, width, height;
+          // Pre-initialize all variables to avoid "Cannot access before initialization" errors
+          let canvasX: number | null = null;
+          let canvasY: number | null = null;
+          let canvasWidth: number | null = null;
+          let canvasHeight: number | null = null;
+          let color: string = 'red'; // Default color
           
-          // Process different bbox formats
-          if (detection.bbox) {
-            // Array format [x1, y1, x2, y2]
-            if (Array.isArray(detection.bbox) && detection.bbox.length >= 4) {
-              [x1, y1, x2, y2] = detection.bbox;
-              width = x2 - x1;
-              height = y2 - y1;
-            } 
-            // Object format with x1,y1,x2,y2
-            else if (typeof detection.bbox === 'object') {
-              ({ x1, y1, x2, y2 } = detection.bbox as BoundingBox);
-              width = x2 - x1;
-              height = y2 - y1;
-            }
-          } 
-          // Center format with x,y,width,height
-          else if (detection.x !== undefined && detection.y !== undefined && 
-                  detection.width !== undefined && detection.height !== undefined) {
-            const halfWidth = detection.width / 2;
-            const halfHeight = detection.height / 2;
-            x1 = detection.x - halfWidth;
-            y1 = detection.y - halfHeight;
-            x2 = detection.x + halfWidth;
-            y2 = detection.y + halfHeight;
-            width = detection.width;
-            height = detection.height;
+          // Get color based on model or class name
+          const modelName = detection.model || detection.label.toLowerCase();
+          color = modelColors[modelName] || modelColors['default'];
+          if (!modelColors[modelName]) {
+            color = getColorForModel(modelName);
+            modelColors[modelName] = color;
           }
           
-          if (x1 === undefined || y1 === undefined || width === undefined || height === undefined) {
+          // Determine which format we're dealing with and calculate display coordinates
+          if (detection.x !== undefined && detection.y !== undefined && 
+              detection.width !== undefined && detection.height !== undefined) {
+            // Center format with x,y,width,height
+            const centerX = detection.x;
+            const centerY = detection.y;
+            const width = detection.width;
+            const height = detection.height;
+            
+            const halfWidth = width / 2;
+            const halfHeight = height / 2;
+            
+            // Convert normalized values to canvas pixels
+            canvasX = (centerX - halfWidth) * canvas.width;
+            canvasY = (centerY - halfHeight) * canvas.height;
+            canvasWidth = width * canvas.width;
+            canvasHeight = height * canvas.height;
+          }
+          else if (detection.bbox) {
+            // Initialize values to safe defaults
+            let x1 = 0;
+            let y1 = 0;
+            let x2 = 0;
+            let y2 = 0;
+            
+            // Array format [x1, y1, x2, y2]
+            if (Array.isArray(detection.bbox)) {
+              const bbox = detection.bbox;
+              
+              // Access by index instead of destructuring
+              if (bbox.length >= 4) {
+                x1 = bbox[0];
+                y1 = bbox[1];
+                x2 = bbox[2];
+                y2 = bbox[3];
+              } else {
+                console.warn('Invalid bbox array length:', bbox.length);
+                return; // Skip this detection
+              }
+            } 
+            // Object format with x1,y1,x2,y2
+            else if (typeof detection.bbox === 'object' && detection.bbox !== null) {
+              const bbox = detection.bbox;
+              
+              // Check properties exist before using them
+              if (!('x1' in bbox) || !('y1' in bbox) || !('x2' in bbox) || !('y2' in bbox)) {
+                console.warn('Incomplete bbox object', bbox);
+                return; // Skip this detection
+              }
+              
+              // Safe property access
+              x1 = bbox.x1;
+              y1 = bbox.y1;
+              x2 = bbox.x2;
+              y2 = bbox.y2;
+            } else {
+              console.warn('Invalid bbox format');
+              return; // Skip this detection
+            }
+            
+            // Convert normalized values to canvas pixels
+            canvasX = x1 * canvas.width;
+            canvasY = y1 * canvas.height;
+            canvasWidth = (x2 - x1) * canvas.width;
+            canvasHeight = (y2 - y1) * canvas.height;
+          } else {
             console.warn('Invalid detection format:', detection);
             return; // Skip this detection
           }
           
-          // Convert normalized coordinates to canvas pixels
-          const canvasX = x1 * canvas.width;
-          const canvasY = y1 * canvas.height;
-          const canvasWidth = width * canvas.width;
-          const canvasHeight = height * canvas.height;
-          
-          // Get color based on model or class name
-          const modelName = detection.model || detection.label.toLowerCase();
-          let color = modelColors[modelName] || modelColors['default'];
-          if (!modelColors[modelName]) {
-            color = getColorForModel(modelName);
-            modelColors[modelName] = color;
+          // Skip invalid boxes
+          if (canvasX === null || canvasY === null || canvasWidth === null || canvasHeight === null || 
+              canvasWidth < 1 || canvasHeight < 1 || 
+              isNaN(canvasX) || isNaN(canvasY) || isNaN(canvasWidth) || isNaN(canvasHeight)) {
+            return; // Skip drawing this detection
           }
           
           // Draw bounding box

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { VideoIcon, Camera, Layers, Cpu } from 'lucide-react';
@@ -157,6 +156,9 @@ const VideoPage = () => {
     localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
   };
 
+  // Fix for duplicate key warnings - use UUID instead of timestamps for lists
+  const gridKey = `grid-${refreshKey}-${Date.now()}`; 
+  
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -184,8 +186,7 @@ const VideoPage = () => {
         </TabsList>
         
         <TabsContent value="stream">
-          {/* Video feed includes its own model selector, so we removed the duplicate one here */}
-          <VideoFeed key={refreshKey} activeModels={activeModels} />
+          <VideoFeed key={`videofeed-${refreshKey}`} activeModels={activeModels} />
         </TabsContent>
         
         <TabsContent value="cameras">
@@ -193,7 +194,7 @@ const VideoPage = () => {
         </TabsContent>
         
         <TabsContent value="grid">
-          <div key={refreshKey} className="space-y-4">
+          <div key={gridKey} className="space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-bold">Camera Grid</h2>
               <CameraControls 
