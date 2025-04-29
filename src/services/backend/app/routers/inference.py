@@ -14,6 +14,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import queue
 import concurrent.futures
+import uuid
 
 # Import conditionally - this will fail gracefully if onnxruntime is not installed
 try:
@@ -80,14 +81,19 @@ except ImportError:
 
 # Models for request/response
 class Detection(BaseModel):
+    id: str = ""  # Added ID field for unique identification
     label: str
     confidence: float
-    bbox: List[float]  # [x1, y1, x2, y2] normalized coordinates
+    bbox: List[float] = []  # [x1, y1, x2, y2] normalized coordinates
+    x: Optional[float] = None  # Optional center x coordinate
+    y: Optional[float] = None  # Optional center y coordinate
+    width: Optional[float] = None  # Optional width
+    height: Optional[float] = None  # Optional height
     
     # Validate that bbox is properly formatted
     @field_validator('bbox')
     def validate_bbox(cls, v):
-        if len(v) != 4:
+        if v and len(v) != 4:
             raise ValueError('Bounding box must contain exactly 4 values: [x1, y1, x2, y2]')
         return v
 
@@ -333,25 +339,31 @@ def optimize_pytorch_model(model, sample_input=None, enable_quantization=False):
 
 def simulate_detection():
     """Simulate object detections when model loading fails"""
+    # Generate unique IDs for simulated detections
+    id1 = str(uuid.uuid4())
+    id2 = str(uuid.uuid4())
+    
     # Always return a list for detections
     return [
         Detection(
+            id=id1,
             label="person",
             confidence=0.92,
             bbox=[0.2, 0.3, 0.5, 0.8]
         ),
         Detection(
+            id=id2,
             label="car",
             confidence=0.87,
             bbox=[0.6, 0.5, 0.9, 0.7]
         )
     ]
 
-def convert_ultralytics_results_to_detections(results, img_width, img_height, conf_threshold=0.5):
+def convert_ultralytics_results_to_detections(results, img_width, img_height, conf_threshold=0.5, model_name="unknown"):
     """Convert Ultralytics YOLO results to Detection objects"""
     detections = []
     
-    print(f"Processing ultralytics results: {len(results)}")
+    print(f"Processing ultralytics results from model {model_name}: {len(results)} batches")
     
     if len(results) > 0:
         # Get the first result (batch)
@@ -360,7 +372,7 @@ def convert_ultralytics_results_to_detections(results, img_width, img_height, co
         
         # Extract boxes, confidence scores and class predictions
         boxes = result.boxes
-        print(f"Found {len(boxes)} boxes")
+        print(f"Found {len(boxes)} boxes from model {model_name}")
         
         # Get original image dimensions from the result
         try:
@@ -379,6 +391,9 @@ def convert_ultralytics_results_to_detections(results, img_width, img_height, co
         
         # Process each detection
         for i, box in enumerate(boxes):
+            # Generate a unique ID for this detection
+            detection_id = str(uuid.uuid4())
+            
             # Get box coordinates (already in x1,y1,x2,y2 format)
             xyxy = box.xyxy[0].cpu().numpy()  # Convert to numpy array
             x1, y1, x2, y2 = xyxy
@@ -400,18 +415,29 @@ def convert_ultralytics_results_to_detections(results, img_width, img_height, co
             # Get class label
             label = result.names.get(cls, f"class_{cls}")
             
-            # Create detection object
+            # Calculate center point and dimensions for YOLO format compatibility
+            center_x = (x1_norm + x2_norm) / 2
+            center_y = (y1_norm + y2_norm) / 2
+            width = x2_norm - x1_norm
+            height = y2_norm - y1_norm
+            
+            # Create detection object with both bbox and center formats
             detection = Detection(
+                id=f"{model_name}_{detection_id}",
                 label=label,
                 confidence=conf,
-                bbox=[x1_norm, y1_norm, x2_norm, y2_norm]
+                bbox=[x1_norm, y1_norm, x2_norm, y2_norm],
+                x=center_x,
+                y=center_y,
+                width=width,
+                height=height
             )
             
             detections.append(detection)
             
             # Log first few detections for debugging
             if i < 3:
-                print(f"Detection {i}: {label} ({conf:.2f}) at [{x1_norm:.2f}, {y1_norm:.2f}, {x2_norm:.2f}, {y2_norm:.2f}]")
+                print(f"Model {model_name}, Detection {i}: {label} ({conf:.2f}) at [{x1_norm:.2f}, {y1_norm:.2f}, {x2_norm:.2f}, {y2_norm:.2f}]")
     
     return detections
 

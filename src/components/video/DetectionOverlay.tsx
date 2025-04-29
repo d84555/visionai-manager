@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { Detection } from '@/services/EdgeAIInference';
 
@@ -47,8 +48,10 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         }
       }
       
-      // Log detection labels to diagnose any issues with multi-model detection
+      // Log detection labels with model information to diagnose any issues
       const detectionLabels = detections.map(det => det.label);
+      const uniqueModels = new Set(detections.map(det => det.label.split(':')[0]));
+      console.log(`Detection models (${uniqueModels.size}): ${Array.from(uniqueModels).join(', ')}`);
       console.log("Detection labels:", detectionLabels);
       
       // Sort by confidence before limiting
@@ -295,3 +298,4 @@ function getModelColor(modelName: string): string {
   // Return default color if no match
   return colorMap.default;
 }
+
