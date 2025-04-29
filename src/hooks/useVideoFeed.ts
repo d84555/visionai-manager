@@ -74,7 +74,7 @@ export const useVideoFeed = ({
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsHost = process.env.NODE_ENV === 'production' 
         ? window.location.host
-        : 'localhost:8000';
+        : window.location.host;
       
       const wsUrl = `${wsProtocol}//${wsHost}/ws/inference`;
       console.log(`Connecting to WebSocket at ${wsUrl}`);
@@ -90,21 +90,56 @@ export const useVideoFeed = ({
           const data = JSON.parse(event.data);
           
           if (data.detections) {
-            // Format received detections
-            const formattedDetections = data.detections.map((d: any) => ({
-              id: d.id,
-              label: d.label,
-              confidence: d.confidence,
-              bbox: {
-                x1: d.bbox.x1,
-                y1: d.bbox.y1,
-                x2: d.bbox.x2,
-                y2: d.bbox.y2,
-                width: d.bbox.width,
-                height: d.bbox.height
-              }
-            }));
+            console.log("WebSocket received detection data:", data);
             
+            // Format received detections - handle both flat array and per-model results
+            let formattedDetections: Detection[] = [];
+            
+            // Handle case when detections is a flat array
+            if (Array.isArray(data.detections)) {
+              formattedDetections = data.detections.map((d: any) => ({
+                id: d.id || `det-${Math.random().toString(36).substring(2, 9)}`,
+                label: d.label || d.class || 'Unknown',
+                confidence: d.confidence || 0,
+                bbox: {
+                  x1: d.bbox?.x1 || 0,
+                  y1: d.bbox?.y1 || 0,
+                  x2: d.bbox?.x2 || 0,
+                  y2: d.bbox?.y2 || 0,
+                  width: d.bbox?.width || 0,
+                  height: d.bbox?.height || 0
+                }
+              }));
+            }
+            
+            // Check if we have model-specific results (this is the new format we want to support)
+            if (data.modelResults) {
+              console.log("Multi-model results found:", data.modelResults);
+              
+              // Process each model's results
+              Object.entries(data.modelResults).forEach(([modelName, modelDetections]) => {
+                if (Array.isArray(modelDetections)) {
+                  const modelFormattedDetections = (modelDetections as any[]).map((d: any) => ({
+                    id: d.id || `${modelName}-${Math.random().toString(36).substring(2, 9)}`,
+                    label: d.label || d.class || modelName,
+                    confidence: d.confidence || 0,
+                    bbox: {
+                      x1: d.bbox?.x1 || 0,
+                      y1: d.bbox?.y1 || 0,
+                      x2: d.bbox?.x2 || 0,
+                      y2: d.bbox?.y2 || 0,
+                      width: d.bbox?.width || 0,
+                      height: d.bbox?.height || 0
+                    }
+                  }));
+                  
+                  // Add this model's detections to the combined results
+                  formattedDetections = [...formattedDetections, ...modelFormattedDetections];
+                }
+              });
+            }
+            
+            // Set the combined detections from all models
             setDetections(formattedDetections);
             
             // Update inference stats
@@ -226,6 +261,9 @@ export const useVideoFeed = ({
         requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
         return;
       }
+      
+      // Log what models we're sending for detection
+      console.log(`Sending frame for inference with models: ${activeModels.map(m => m.name).join(', ')}`);
       
       // Send the frame for processing
       socketRef.current.send(JSON.stringify({

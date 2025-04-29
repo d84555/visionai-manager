@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { Detection } from '@/services/EdgeAIInference';
 
@@ -48,6 +47,10 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         }
       }
       
+      // Log detection labels to diagnose any issues with multi-model detection
+      const detectionLabels = detections.map(det => det.label);
+      console.log("Detection labels:", detectionLabels);
+      
       // Sort by confidence before limiting
       const sortedDetections = [...detections].sort((a, b) => 
         (b.confidence || 0) - (a.confidence || 0)
@@ -57,6 +60,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
       const limitedDetections = sortedDetections.slice(0, 50);
       setVisibleDetections(limitedDetections);
     } else {
+      console.log("No detections to display");
       setVisibleDetections([]);
     }
   }, [detections]);
@@ -133,25 +137,33 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           if (finalBoxWidth < 10) finalBoxWidth = 10;
           if (finalBoxHeight < 10) finalBoxHeight = 10;
           
+          // Extract model name from label if possible for color-coding
+          const modelName = detection.label ? detection.label.split(':')[0].toLowerCase() : '';
+          const borderColor = getModelColor(modelName);
+          
           return (
             <div
               key={`detection-${detection.id || index}`}
-              className="absolute border-2 border-avianet-red"
+              className={`absolute border-2`}
               style={{
                 left: `${displayX}px`,
                 top: `${displayY}px`,
                 width: `${finalBoxWidth}px`,
                 height: `${finalBoxHeight}px`,
+                borderColor: borderColor,
                 pointerEvents: 'none',
                 zIndex: 50,
                 transition: 'none' // Remove any transition that might cause lag
               }}
             >
               <span 
-                className={`absolute top-0 left-0 bg-avianet-red text-white ${
+                className={`absolute top-0 left-0 text-white ${
                   minimal ? 'text-[8px] px-1' : 'text-xs px-1 py-0.5'
                 } max-w-full overflow-hidden text-ellipsis whitespace-nowrap z-10`}
-                style={{ pointerEvents: 'none' }}
+                style={{ 
+                  pointerEvents: 'none',
+                  backgroundColor: borderColor
+                }}
               >
                 {minimal ? 
                   detection.label || detection.class || 'Object' : 
@@ -201,25 +213,33 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
           if (finalBoxWidth < 10) finalBoxWidth = 10;
           if (finalBoxHeight < 10) finalBoxHeight = 10;
           
+          // Extract model name from label if possible for color-coding
+          const modelName = detection.label ? detection.label.split(':')[0].toLowerCase() : '';
+          const borderColor = getModelColor(modelName);
+          
           return (
             <div
               key={`detection-${detection.id || index}`}
-              className="absolute border-2 border-avianet-red"
+              className="absolute border-2"
               style={{
                 left: `${displayX}px`,
                 top: `${displayY}px`,
                 width: `${finalBoxWidth}px`,
                 height: `${finalBoxHeight}px`,
+                borderColor: borderColor,
                 pointerEvents: 'none',
                 zIndex: 50,
                 transition: 'none'
               }}
             >
               <span 
-                className={`absolute top-0 left-0 bg-avianet-red text-white ${
+                className={`absolute top-0 left-0 text-white ${
                   minimal ? 'text-[8px] px-1' : 'text-xs px-1 py-0.5'
                 } max-w-full overflow-hidden text-ellipsis whitespace-nowrap z-10`}
-                style={{ pointerEvents: 'none' }}
+                style={{ 
+                  pointerEvents: 'none',
+                  backgroundColor: borderColor
+                }}
               >
                 {minimal ? 
                   detection.label || detection.class || 'Object' : 
@@ -236,3 +256,42 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
     </>
   );
 };
+
+// Helper function to get a color based on the model name
+function getModelColor(modelName: string): string {
+  // Default color for unknown models
+  if (!modelName) return '#FF0000'; // Red
+  
+  // Normalize the model name to handle case differences
+  const normalizedName = modelName.toLowerCase();
+  
+  // Map of model names to colors
+  const colorMap: Record<string, string> = {
+    'coverall': '#FF4500', // Orange-red
+    'helmet': '#1E90FF',   // Dodger blue
+    'person': '#32CD32',   // Lime green
+    'face': '#FFD700',     // Gold
+    'mask': '#8A2BE2',     // Blue violet
+    'vest': '#FF8C00',     // Dark orange
+    'glove': '#00CED1',    // Dark turquoise
+    'yolov8': '#FF0000',   // Red (default for YOLOv8)
+    'default': '#FF0000'   // Default red
+  };
+  
+  // Try to find an exact match first
+  for (const [key, color] of Object.entries(colorMap)) {
+    if (normalizedName === key) {
+      return color;
+    }
+  }
+  
+  // Otherwise, check if the model name contains any of our keys
+  for (const [key, color] of Object.entries(colorMap)) {
+    if (normalizedName.includes(key)) {
+      return color;
+    }
+  }
+  
+  // Return default color if no match
+  return colorMap.default;
+}

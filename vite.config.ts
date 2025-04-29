@@ -10,14 +10,15 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
     host: "::",
     port: 8080,
     proxy: {
-      // Add proxying for WebSocket connections if needed
-      '/api/ws': {
-        target: 'ws://localhost:3001',
+      // Add proxying for WebSocket connections
+      '/ws': {
+        target: 'ws://localhost:8000',
         ws: true,
+        changeOrigin: true,
       },
       // Add proxy for local FFmpeg access if needed
       '/api/ffmpeg': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:8000',
         changeOrigin: true,
       }
     }
