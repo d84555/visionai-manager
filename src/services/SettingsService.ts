@@ -4,6 +4,7 @@ import { CacheService } from './CacheService';
 interface GridLayout {
   layout: '1x1' | '2x2' | '3x3' | '4x4';
   streamType: 'main' | 'sub';
+  pinnedCameraIds?: string[]; // Added for MultiCameraGrid
 }
 
 export interface SmtpConfig {
@@ -17,6 +18,15 @@ export interface SmtpConfig {
 }
 
 export interface SyslogConfig {
+  server: string;
+  port: number;
+  protocol: 'UDP' | 'TCP';
+  facility: string;
+  appName: string;
+}
+
+// Adding this for SyslogConfig component
+export interface SyslogSettings {
   server: string;
   port: number;
   protocol: 'UDP' | 'TCP';
@@ -64,6 +74,16 @@ export interface FFmpegSettings {
   useLocalBinary: boolean;
 }
 
+// Interface for custom AI models
+export interface ModelInfo {
+  id: string;
+  name: string;
+  path: string;
+  size?: string;
+  uploadedAt: string;
+  cameras?: string[];
+}
+
 class SettingsService {
   // Default paths for various storage locations
   localStorageConfig: StorageConfig = {
@@ -82,6 +102,34 @@ class SettingsService {
     if (savedConfig) {
       this.localStorageConfig = { ...this.localStorageConfig, ...JSON.parse(savedConfig) };
     }
+  }
+
+  // Custom models management
+  getCustomModels(): ModelInfo[] {
+    const modelsStr = localStorage.getItem('custom-ai-models');
+    return modelsStr ? JSON.parse(modelsStr) : [];
+  }
+
+  async uploadCustomModel(file: File, modelName: string): Promise<ModelInfo> {
+    // Create a model info object
+    const modelInfo: ModelInfo = {
+      id: `custom-${Date.now()}`,
+      name: modelName,
+      path: `/models/${file.name}`,
+      size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+      uploadedAt: new Date().toISOString(),
+      cameras: ['All Cameras']
+    };
+
+    // Save to localStorage
+    const existingModels = this.getCustomModels();
+    localStorage.setItem('custom-ai-models', JSON.stringify([...existingModels, modelInfo]));
+    
+    // In a real app, we would upload the file to a server here
+    console.log(`Simulating upload of ${file.name} as ${modelName}`);
+    
+    // Return the created model info
+    return modelInfo;
   }
 
   // SMTP Configuration

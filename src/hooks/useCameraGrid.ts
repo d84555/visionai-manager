@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { Camera } from '@/services/CameraService';
 import CameraService from '@/services/CameraService';
-import SettingsService from '@/services/SettingsService';
+import SettingsService, { ModelInfo } from '@/services/SettingsService';
 import { toast } from 'sonner';
 
 export const useCameraGrid = () => {
@@ -57,7 +57,8 @@ export const useCameraGrid = () => {
       { id: 'yolov11-l', name: 'YOLOv11 Large', path: '/models/yolov11-l.onnx' }
     ];
     
-    const customModels = SettingsService.getCustomModels().map(model => ({
+    // Use proper ModelInfo interface
+    const customModels = (SettingsService.getSetting('custom-ai-models') || []).map((model: ModelInfo) => ({
       id: model.id,
       name: model.name,
       path: model.path

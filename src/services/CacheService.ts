@@ -1,66 +1,53 @@
 
 /**
- * Simple cache service for managing in-memory caches across the application
+ * Simple cache service for application data
  */
-class CacheServiceClass {
-  private caches: Map<string, Map<string, any>> = new Map();
-
+export class CacheService {
+  private static caches: Record<string, Map<string, any>> = {};
+  
   /**
-   * Get a value from a specific cache
-   * @param cacheName The name of the cache
-   * @param key The key to retrieve
+   * Store an item in a specific cache
+   * @param cacheName Name of the cache to use
+   * @param key Key to store the value under
+   * @param value Value to store
+   */
+  static set(cacheName: string, key: string, value: any): void {
+    if (!this.caches[cacheName]) {
+      this.caches[cacheName] = new Map();
+    }
+    
+    this.caches[cacheName].set(key, value);
+  }
+  
+  /**
+   * Retrieve an item from a specific cache
+   * @param cacheName Name of the cache to use
+   * @param key Key to retrieve
    * @returns The cached value or undefined if not found
    */
-  get<T>(cacheName: string, key: string): T | undefined {
-    const cache = this.caches.get(cacheName);
-    if (!cache) return undefined;
-    return cache.get(key) as T;
+  static get(cacheName: string, key: string): any {
+    return this.caches[cacheName]?.get(key);
   }
-
+  
   /**
-   * Set a value in a specific cache
-   * @param cacheName The name of the cache
-   * @param key The key to store the value under
-   * @param value The value to cache
+   * Clear a specific cache
+   * @param cacheName Name of the cache to clear
    */
-  set<T>(cacheName: string, key: string, value: T): void {
-    if (!this.caches.has(cacheName)) {
-      this.caches.set(cacheName, new Map());
-    }
-    this.caches.get(cacheName)?.set(key, value);
-  }
-
-  /**
-   * Remove a specific entry from a cache
-   * @param cacheName The name of the cache
-   * @param key The key to remove
-   */
-  remove(cacheName: string, key: string): void {
-    const cache = this.caches.get(cacheName);
-    if (cache) {
-      cache.delete(key);
+  static clearCache(cacheName: string): void {
+    if (this.caches[cacheName]) {
+      this.caches[cacheName].clear();
     }
   }
-
-  /**
-   * Clear all entries in a specific cache
-   * @param cacheName The name of the cache to clear
-   */
-  clearCache(cacheName: string): void {
-    const cache = this.caches.get(cacheName);
-    if (cache) {
-      cache.clear();
-    }
-  }
-
+  
   /**
    * Clear all caches
    */
-  clearAllCaches(): void {
-    this.caches.forEach(cache => cache.clear());
-    console.log('All caches cleared');
+  static clearAllCaches(): void {
+    Object.keys(this.caches).forEach(cacheName => {
+      this.caches[cacheName].clear();
+    });
+    
+    // Reset caches object
+    this.caches = {};
   }
 }
-
-// Export a singleton instance
-export const CacheService = new CacheServiceClass();

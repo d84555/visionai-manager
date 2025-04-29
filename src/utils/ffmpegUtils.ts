@@ -1,6 +1,6 @@
 import SettingsService from '@/services/SettingsService';
 import { toast } from 'sonner';
-import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
 
 // Initialize FFmpeg status
 let isFFmpegLoaded = false;
@@ -12,6 +12,16 @@ const supportedFormats = {
   // Hikvision often uses these formats
   'video/x-dav': true,
   'application/octet-stream': true, // For various proprietary formats
+};
+
+// Create FFmpeg instance
+const createFFmpeg = (options: any) => {
+  return new FFmpeg(options);
+};
+
+// Fetch file helper function (replacement for fetchFile from older versions)
+const fetchFile = async (file: File) => {
+  return new Uint8Array(await file.arrayBuffer());
 };
 
 // Track ffmpeg loaded status

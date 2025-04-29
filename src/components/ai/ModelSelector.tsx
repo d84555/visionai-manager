@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import {
   Card,
@@ -83,7 +82,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   
   useEffect(() => {
     const modelSettings = SettingsService.getSettings('model');
-    SettingsService.saveSettings('model', {
+    SettingsService.updateSettings('model', {
       ...modelSettings,
       autoApplyModel: autoApply
     });

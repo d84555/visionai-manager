@@ -47,6 +47,7 @@ const CameraGridPosition: React.FC<CameraGridPositionProps> = ({
   // If we have a camera assigned to this position
   if (camera) {
     const activeModel = getCameraModel(camera.id);
+    const activeModels = activeModel ? [activeModel] : []; // Convert single model to array for VideoFeed
     
     return (
       <div
@@ -66,7 +67,7 @@ const CameraGridPosition: React.FC<CameraGridPositionProps> = ({
             autoStart={isPlaying}
             isPinned={isFullscreen}
             onPinToggle={() => onFullscreen(positionId)}
-            activeModel={activeModel}
+            activeModels={activeModels}
             streamType={streamType}
           />
         </div>
