@@ -34,6 +34,36 @@ export interface StorageConfig {
   maxStorageGB: number;
 }
 
+// Define interfaces for the settings types
+export interface ModelSettings {
+  confidenceThreshold: number;
+  detectionFrequency: number;
+  maxDetections: number;
+  useHighResolution: boolean;
+  autoApplyModel: boolean;
+}
+
+export interface VideoSettings {
+  defaultStreamUrl: string;
+  autoStart: boolean;
+  showOverlays: boolean;
+  showLabels: boolean;
+}
+
+export interface AlertSettings {
+  enableNotifications: boolean;
+  soundAlerts: boolean;
+  minimumConfidence: number;
+  automaticDismiss: boolean;
+}
+
+export interface FFmpegSettings {
+  corePath: string;
+  customPath: boolean;
+  localBinaryPath: string;
+  useLocalBinary: boolean;
+}
+
 class SettingsService {
   // Default paths for various storage locations
   localStorageConfig: StorageConfig = {
@@ -138,6 +168,71 @@ class SettingsService {
       localStorage.setItem(key, JSON.stringify(value));
     } else {
       localStorage.setItem(key, value);
+    }
+  }
+
+  // Settings management methods for different sections
+  getSettings(section: string): any {
+    return this.getSetting(`settings-${section}`) || this.getDefaultSettings(section);
+  }
+
+  updateSettings(section: string, settings: any): void {
+    this.setSetting(`settings-${section}`, settings);
+  }
+
+  saveAllSettings(allSettings: Record<string, any>): void {
+    Object.entries(allSettings).forEach(([section, settings]) => {
+      this.setSetting(`settings-${section}`, settings);
+    });
+  }
+
+  // Default settings for each section
+  private getDefaultSettings(section: string): any {
+    switch (section) {
+      case 'model':
+        return {
+          confidenceThreshold: 70,
+          detectionFrequency: 3,
+          maxDetections: 10,
+          useHighResolution: false,
+          autoApplyModel: true,
+        };
+      case 'video':
+        return {
+          defaultStreamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+          autoStart: false,
+          showOverlays: true,
+          showLabels: true,
+        };
+      case 'alerts':
+        return {
+          enableNotifications: true,
+          soundAlerts: false,
+          minimumConfidence: 85,
+          automaticDismiss: false,
+        };
+      case 'ffmpeg':
+        return {
+          corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+          customPath: false,
+          localBinaryPath: '/usr/bin/ffmpeg',
+          useLocalBinary: false
+        };
+      case 'syslog':
+        return {
+          server: '',
+          port: 514,
+          protocol: 'UDP',
+          facility: 'local0',
+          appName: 'AvianetVision'
+        };
+      case 'gridLayout':
+        return {
+          layout: '2x2',
+          streamType: 'main'
+        };
+      default:
+        return {};
     }
   }
 
