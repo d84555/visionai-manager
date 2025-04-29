@@ -48,6 +48,18 @@ async def root():
 async def health():
     return {"status": "healthy"}
 
+# Debug endpoint to list available routes
+@app.get("/routes", tags=["status"])
+async def list_routes():
+    routes = []
+    for route in app.routes:
+        routes.append({
+            "path": route.path,
+            "name": route.name,
+            "methods": list(route.methods) if hasattr(route, "methods") else None
+        })
+    return {"routes": routes}
+
 # If running as a script, start Uvicorn server
 if __name__ == "__main__":
     import uvicorn

@@ -2,7 +2,7 @@
 import { StorageServiceInterface, ModelInfo } from './StorageServiceInterface';
 
 export class APIStorageService implements StorageServiceInterface {
-  private apiBaseUrl = 'http://localhost:8000/api';  // Update this to match your FastAPI server URL
+  private apiBaseUrl = 'http://localhost:8000';  // Updated to remove /api prefix
 
   async uploadModel(file: File, name: string): Promise<ModelInfo> {
     const formData = new FormData();

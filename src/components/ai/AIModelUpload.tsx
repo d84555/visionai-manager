@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Brain, Upload, Trash2, Camera } from 'lucide-react';
+import { Brain, Upload, Trash2, Camera, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import SettingsService from '@/services/SettingsService';
 
@@ -38,6 +39,7 @@ const AIModelUpload: React.FC = () => {
   const [modelFile, setModelFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [assignTarget, setAssignTarget] = useState<string | null>(null);
+  const [isPyTorch, setIsPyTorch] = useState(false);
   
   useEffect(() => {
     const customModels = SettingsService.getCustomModels();
@@ -79,7 +81,12 @@ const AIModelUpload: React.FC = () => {
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setModelFile(e.target.files[0]);
+      const file = e.target.files[0];
+      setModelFile(file);
+      
+      // Check if the file is a PyTorch model
+      const isPyTorchFile = file.name.endsWith('.pt') || file.name.endsWith('.pth');
+      setIsPyTorch(isPyTorchFile);
     }
   };
   
@@ -99,30 +106,45 @@ const AIModelUpload: React.FC = () => {
     try {
       const fileSizeMB = (modelFile.size / (1024 * 1024)).toFixed(1);
       
-      const uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName);
-      
-      const newModel: AIModel = {
-        id: `custom-${Date.now()}`,
-        name: modelName,
-        type: modelType === 'object-detection' ? 'Object Detection' : 
-              modelType === 'face-recognition' ? 'Face Recognition' : 
-              modelType === 'anomaly-detection' ? 'Anomaly Detection' : 'Behavior Analysis',
-        size: `${fileSizeMB} MB`,
-        cameras: ['All Cameras'],
-        uploaded: new Date()
-      };
-      
-      setUploadedModels(prev => [...prev, newModel]);
-      
-      setModelName('');
-      setModelFile(null);
-      setModelType('object-detection');
-      
-      toast.success('AI Model Uploaded', {
-        description: `${newModel.name} has been successfully uploaded and is ready to use.`
-      });
+      try {
+        const uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName);
+        
+        const newModel: AIModel = {
+          id: `custom-${Date.now()}`,
+          name: modelName,
+          type: modelType === 'object-detection' ? 'Object Detection' : 
+                modelType === 'face-recognition' ? 'Face Recognition' : 
+                modelType === 'anomaly-detection' ? 'Anomaly Detection' : 'Behavior Analysis',
+          size: `${fileSizeMB} MB`,
+          cameras: ['All Cameras'],
+          uploaded: new Date()
+        };
+        
+        setUploadedModels(prev => [...prev, newModel]);
+        
+        setModelName('');
+        setModelFile(null);
+        setModelType('object-detection');
+        
+        toast.success('AI Model Uploaded', {
+          description: `${newModel.name} has been successfully uploaded and is ready to use.`
+        });
+      } catch (error: any) {
+        console.error('Error uploading model:', error);
+        
+        if (isPyTorch) {
+          toast.error('Error uploading PyTorch model. This feature is in beta.', {
+            description: 'Try using an ONNX format model instead for better compatibility.',
+            duration: 5000
+          });
+        } else {
+          toast.error('Failed to upload model', {
+            description: error.message || 'Please try again or contact support if the issue persists.'
+          });
+        }
+      }
     } catch (error) {
-      console.error('Error uploading model:', error);
+      console.error('Error in upload process:', error);
       toast.error('Failed to upload model', {
         description: 'Please try again or contact support if the issue persists.'
       });
@@ -221,8 +243,17 @@ const AIModelUpload: React.FC = () => {
                 disabled={isUploading}
               />
               <p className="text-xs text-muted-foreground">
-                Supported formats: ONNX, TFLite, PyTorch, TensorFlow
+                Supported formats: ONNX (recommended), TFLite, PyTorch (beta), TensorFlow
               </p>
+              {isPyTorch && (
+                <div className="mt-2 flex items-start gap-2 p-2 bg-amber-50 border border-amber-200 rounded-md">
+                  <AlertCircle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-800">
+                    <p className="font-medium">PyTorch model detected</p>
+                    <p>PyTorch model support is in beta. For best results, consider converting your model to ONNX format.</p>
+                  </div>
+                </div>
+              )}
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
