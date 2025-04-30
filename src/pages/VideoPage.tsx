@@ -156,8 +156,9 @@ const VideoPage = () => {
     localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
   };
 
-  // Fix for duplicate key warnings - use UUID instead of timestamps for lists
-  const gridKey = `grid-${refreshKey}-${Date.now()}`; 
+  // Fix for duplicate key warnings - use completely unique keys
+  const gridKey = `grid-${refreshKey}-${crypto.randomUUID?.() || Math.random().toString(36)}`;
+  const videoFeedKey = `videofeed-${refreshKey}-${crypto.randomUUID?.() || Math.random().toString(36)}`;
   
   return (
     <div className="space-y-6">
@@ -186,7 +187,7 @@ const VideoPage = () => {
         </TabsList>
         
         <TabsContent value="stream">
-          <VideoFeed key={`videofeed-${refreshKey}`} activeModels={activeModels} />
+          <VideoFeed key={videoFeedKey} activeModels={activeModels} />
         </TabsContent>
         
         <TabsContent value="cameras">

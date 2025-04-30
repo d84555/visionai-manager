@@ -1,5 +1,6 @@
 
 import React, { useRef, useEffect } from 'react';
+import { extractBboxCoordinates, getModelColor } from '@/utils/detectionUtils';
 
 interface BoundingBox {
   x1: number;
@@ -27,27 +28,6 @@ interface CanvasDetectionOverlayProps {
   videoRef: React.RefObject<HTMLVideoElement>;
   minimal?: boolean;
 }
-
-// Generate a consistent color based on model name or label
-const getColorForModel = (modelName: string): string => {
-  // Simple hash function to generate a consistent color
-  const hash = modelName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  
-  // Generate a hue value between 0 and 360 based on the hash
-  const hue = hash % 360;
-  
-  // Use a high saturation and lightness for visibility
-  return `hsl(${hue}, 100%, 50%)`;
-};
-
-// Model colors cache
-const modelColors: Record<string, string> = {
-  'helmet': 'red',
-  'person': 'blue',
-  'coverall': 'green',
-  'vest': 'orange',
-  'default': 'yellow'
-};
 
 export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ detections, videoRef, minimal = false }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -98,96 +78,34 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
       }
       
       // Draw each detection
-      detections.forEach((detection) => {
+      detections.forEach((detection, index) => {
         try {
-          // Pre-initialize all variables to avoid "Cannot access before initialization" errors
-          let canvasX: number | null = null;
-          let canvasY: number | null = null;
-          let canvasWidth: number | null = null;
-          let canvasHeight: number | null = null;
-          let color: string = 'red'; // Default color
+          // Pre-initialize all possible variables for safety
+          let canvasX = 0;
+          let canvasY = 0;
+          let canvasWidth = 0;
+          let canvasHeight = 0;
+          let color = 'red'; // Default color
+          let validCoordinates = false;
           
           // Get color based on model or class name
-          const modelName = detection.model || detection.label.toLowerCase();
-          color = modelColors[modelName] || modelColors['default'];
-          if (!modelColors[modelName]) {
-            color = getColorForModel(modelName);
-            modelColors[modelName] = color;
-          }
+          const modelName = detection.model || detection.label || '';
+          color = getModelColor(modelName);
           
-          // Determine which format we're dealing with and calculate display coordinates
-          if (detection.x !== undefined && detection.y !== undefined && 
-              detection.width !== undefined && detection.height !== undefined) {
-            // Center format with x,y,width,height
-            const centerX = detection.x;
-            const centerY = detection.y;
-            const width = detection.width;
-            const height = detection.height;
-            
-            const halfWidth = width / 2;
-            const halfHeight = height / 2;
-            
-            // Convert normalized values to canvas pixels
-            canvasX = (centerX - halfWidth) * canvas.width;
-            canvasY = (centerY - halfHeight) * canvas.height;
-            canvasWidth = width * canvas.width;
-            canvasHeight = height * canvas.height;
-          }
-          else if (detection.bbox) {
-            // Initialize values to safe defaults
-            let x1 = 0;
-            let y1 = 0;
-            let x2 = 0;
-            let y2 = 0;
-            
-            // Array format [x1, y1, x2, y2]
-            if (Array.isArray(detection.bbox)) {
-              const bbox = detection.bbox;
-              
-              // Access by index instead of destructuring
-              if (bbox.length >= 4) {
-                x1 = bbox[0];
-                y1 = bbox[1];
-                x2 = bbox[2];
-                y2 = bbox[3];
-              } else {
-                console.warn('Invalid bbox array length:', bbox.length);
-                return; // Skip this detection
-              }
-            } 
-            // Object format with x1,y1,x2,y2
-            else if (typeof detection.bbox === 'object' && detection.bbox !== null) {
-              const bbox = detection.bbox;
-              
-              // Check properties exist before using them
-              if (!('x1' in bbox) || !('y1' in bbox) || !('x2' in bbox) || !('y2' in bbox)) {
-                console.warn('Incomplete bbox object', bbox);
-                return; // Skip this detection
-              }
-              
-              // Safe property access
-              x1 = bbox.x1;
-              y1 = bbox.y1;
-              x2 = bbox.x2;
-              y2 = bbox.y2;
-            } else {
-              console.warn('Invalid bbox format');
-              return; // Skip this detection
-            }
-            
-            // Convert normalized values to canvas pixels
-            canvasX = x1 * canvas.width;
-            canvasY = y1 * canvas.height;
-            canvasWidth = (x2 - x1) * canvas.width;
-            canvasHeight = (y2 - y1) * canvas.height;
-          } else {
-            console.warn('Invalid detection format:', detection);
-            return; // Skip this detection
+          // Extract bbox coordinates safely using our utility
+          const bbox = extractBboxCoordinates(detection);
+          
+          if (bbox.valid) {
+            // Convert normalized values (0-1) to canvas pixels
+            canvasX = bbox.x1 * canvas.width;
+            canvasY = bbox.y1 * canvas.height;
+            canvasWidth = (bbox.x2 - bbox.x1) * canvas.width;
+            canvasHeight = (bbox.y2 - bbox.y1) * canvas.height;
+            validCoordinates = true;
           }
           
           // Skip invalid boxes
-          if (canvasX === null || canvasY === null || canvasWidth === null || canvasHeight === null || 
-              canvasWidth < 1 || canvasHeight < 1 || 
+          if (!validCoordinates || canvasWidth < 1 || canvasHeight < 1 || 
               isNaN(canvasX) || isNaN(canvasY) || isNaN(canvasWidth) || isNaN(canvasHeight)) {
             return; // Skip drawing this detection
           }
@@ -201,8 +119,8 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
           if (!minimal) {
             // Prepare label text
             const labelText = detection.model 
-              ? `${detection.label} (${Math.round(detection.confidence * 100)}%)`
-              : `${detection.label} (${Math.round(detection.confidence * 100)}%)`;
+              ? `${detection.label} (${Math.round((detection.confidence || 0) * 100)}%)`
+              : `${detection.label} (${Math.round((detection.confidence || 0) * 100)}%)`;
             
             // Draw label background
             ctx.fillStyle = color;

@@ -1,3 +1,4 @@
+
 /**
  * Utility functions for working with detection objects
  */
@@ -59,16 +60,15 @@ export function extractBboxCoordinates(detection: any): {
   y2: number; 
   valid: boolean;
 } {
+  const result = {
+    x1: 0,
+    y1: 0,
+    x2: 0,
+    y2: 0,
+    valid: false
+  };
+  
   try {
-    // Default result with invalid flag
-    const result = {
-      x1: 0,
-      y1: 0,
-      x2: 0,
-      y2: 0,
-      valid: false
-    };
-    
     // Handle YOLO-style center+dimensions format
     if (detection.x !== undefined && detection.y !== undefined && 
         detection.width !== undefined && detection.height !== undefined) {
@@ -90,6 +90,7 @@ export function extractBboxCoordinates(detection: any): {
     if (detection.bbox) {
       // Array format [x1, y1, x2, y2]
       if (Array.isArray(detection.bbox) && detection.bbox.length >= 4) {
+        // Explicitly access by index rather than destructuring
         result.x1 = detection.bbox[0];
         result.y1 = detection.bbox[1];
         result.x2 = detection.bbox[2];
@@ -101,6 +102,7 @@ export function extractBboxCoordinates(detection: any): {
       // Object format with {x1, y1, x2, y2}
       if (typeof detection.bbox === 'object' && detection.bbox !== null) {
         const bbox = detection.bbox;
+        // Check each property individually
         if ('x1' in bbox && 'y1' in bbox && 'x2' in bbox && 'y2' in bbox) {
           result.x1 = bbox.x1;
           result.y1 = bbox.y1;
@@ -114,14 +116,8 @@ export function extractBboxCoordinates(detection: any): {
     
     return result; // Returns with valid=false
   } catch (error) {
-    console.error('Error extracting bounding box coordinates:', error);
-    return {
-      x1: 0,
-      y1: 0,
-      x2: 0,
-      y2: 0,
-      valid: false
-    };
+    console.error('Error extracting bounding box coordinates:', error, detection);
+    return result; // Returns with valid=false in case of error
   }
 }
 
@@ -152,5 +148,52 @@ export function convertToDisplayCoordinates(
   } catch (error) {
     console.error('Error converting coordinates:', error);
     return { x: 0, y: 0, width: 0, height: 0, valid: false };
+  }
+}
+
+// Safe rendering check - validates if a detection can be safely rendered
+export function canSafelyRenderDetection(detection: any): boolean {
+  if (!detection) return false;
+  
+  try {
+    // Check for required properties
+    if (!detection.label) return false;
+    
+    // Validate center+dimensions format
+    if (detection.x !== undefined && detection.y !== undefined && 
+        detection.width !== undefined && detection.height !== undefined) {
+      // Check for valid numeric values
+      if (isNaN(detection.x) || isNaN(detection.y) || 
+          isNaN(detection.width) || isNaN(detection.height)) {
+        return false;
+      }
+      return true;
+    }
+    
+    // Validate bbox format
+    if (detection.bbox) {
+      // Array format
+      if (Array.isArray(detection.bbox)) {
+        if (detection.bbox.length < 4) return false;
+        // Check all values are numbers
+        return detection.bbox.slice(0, 4).every(val => typeof val === 'number' && !isNaN(val));
+      }
+      
+      // Object format
+      if (typeof detection.bbox === 'object' && detection.bbox !== null) {
+        const bbox = detection.bbox;
+        // Check all required properties exist and are numbers
+        return ['x1', 'y1', 'x2', 'y2'].every(prop => 
+          prop in bbox && typeof bbox[prop] === 'number' && !isNaN(bbox[prop])
+        );
+      }
+      
+      return false;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Error validating detection:', error);
+    return false;
   }
 }
