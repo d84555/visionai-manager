@@ -42,7 +42,7 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
     commonjsOptions: {
       transformMixedEsModules: true, // Handle both ES modules and CommonJS
     },
-    sourcemap: true, // Enable source maps for production builds too
+    sourcemap: true, // Always enable source maps for debugging
     minify: mode !== 'development', // Only minify in non-dev environments
   },
   define: {

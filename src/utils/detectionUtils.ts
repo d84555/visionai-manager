@@ -73,11 +73,15 @@ export function extractBboxCoordinates(detection: any): {
   if (!detection) return result;
   
   try {
+    console.log('Extracting bbox from detection:', detection);
+    
     // Handle YOLO-style center+dimensions format
     if (typeof detection.x === 'number' && 
         typeof detection.y === 'number' && 
         typeof detection.width === 'number' && 
         typeof detection.height === 'number') {
+      
+      console.log('Using center+dimensions format');
       
       // Store in local variables first
       const x = detection.x;
@@ -91,14 +95,19 @@ export function extractBboxCoordinates(detection: any): {
       result.x2 = x + (width / 2);
       result.y2 = y + (height / 2);
       result.valid = true;
+      
+      console.log('Extracted bbox (center format):', result);
       return result;
     }
     
     // Handle bbox formats
     if (detection.bbox) {
+      console.log('Detection has bbox property:', detection.bbox);
+      
       // Array format [x1, y1, x2, y2]
       if (Array.isArray(detection.bbox) && detection.bbox.length >= 4) {
         const bboxArray = detection.bbox;
+        console.log('Using array bbox format:', bboxArray);
         
         // Check all values are valid numbers
         if (typeof bboxArray[0] === 'number' && 
@@ -115,6 +124,7 @@ export function extractBboxCoordinates(detection: any): {
           result.x2 = bboxArray[2];
           result.y2 = bboxArray[3];
           result.valid = true;
+          console.log('Extracted bbox (array format):', result);
           return result;
         }
       }
@@ -122,6 +132,7 @@ export function extractBboxCoordinates(detection: any): {
       // Object format with {x1, y1, x2, y2}
       if (typeof detection.bbox === 'object' && detection.bbox !== null) {
         const bbox = detection.bbox;
+        console.log('Using object bbox format:', bbox);
         
         // Check each property individually without destructuring
         if (typeof bbox.x1 === 'number' && 
@@ -138,11 +149,13 @@ export function extractBboxCoordinates(detection: any): {
           result.x2 = bbox.x2;
           result.y2 = bbox.y2;
           result.valid = true;
+          console.log('Extracted bbox (object format):', result);
           return result;
         }
       }
     }
     
+    console.log('Failed to extract valid bbox coordinates');
     return result; // Returns with valid=false
   } catch (error) {
     console.error('Error extracting bounding box coordinates:', error);
@@ -181,6 +194,7 @@ export function convertToDisplayCoordinates(
         typeof bbox.y2 !== 'number' ||
         typeof displayWidth !== 'number' || 
         typeof displayHeight !== 'number') {
+      console.log('Invalid inputs for coordinate conversion');
       return result;
     }
     
@@ -189,6 +203,12 @@ export function convertToDisplayCoordinates(
     const y = bbox.y1 * displayHeight;
     const width = (bbox.x2 - bbox.x1) * displayWidth;
     const height = (bbox.y2 - bbox.y1) * displayHeight;
+    
+    console.log('Converting coordinates:', {
+      normalized: { x1: bbox.x1, y1: bbox.y1, x2: bbox.x2, y2: bbox.y2 },
+      display: { x, y, width, height },
+      displayDimensions: { width: displayWidth, height: displayHeight }
+    });
     
     // Assign calculated values
     result.x = x;
@@ -213,8 +233,11 @@ export function canSafelyRenderDetection(detection: any): boolean {
   if (!detection) return false;
   
   try {
+    console.log('Checking if detection can be safely rendered:', detection);
+    
     // Check for required properties
     if (typeof detection.label !== 'string' && typeof detection.class !== 'string') {
+      console.log('Detection missing required label or class property');
       return false;
     }
     
@@ -228,8 +251,10 @@ export function canSafelyRenderDetection(detection: any): boolean {
           typeof detection.height !== 'number' ||
           isNaN(detection.x) || isNaN(detection.y) || 
           isNaN(detection.width) || isNaN(detection.height)) {
+        console.log('Detection has invalid center+dimensions coordinates');
         return false;
       }
+      console.log('Detection has valid center+dimensions format');
       return true;
     }
     
@@ -237,14 +262,19 @@ export function canSafelyRenderDetection(detection: any): boolean {
     if (detection.bbox) {
       // Array format
       if (Array.isArray(detection.bbox)) {
-        if (detection.bbox.length < 4) return false;
+        if (detection.bbox.length < 4) {
+          console.log('Detection bbox array has less than 4 elements');
+          return false;
+        }
         
         // Check all values are valid numbers - without destructuring
         for (let i = 0; i < 4; i++) {
           if (typeof detection.bbox[i] !== 'number' || isNaN(detection.bbox[i])) {
+            console.log(`Detection bbox array has invalid value at index ${i}`);
             return false;
           }
         }
+        console.log('Detection has valid bbox array format');
         return true;
       }
       
@@ -258,18 +288,44 @@ export function canSafelyRenderDetection(detection: any): boolean {
           const prop = props[i];
           const value = (bbox as any)[prop];
           if (typeof value !== 'number' || isNaN(value)) {
+            console.log(`Detection bbox object has invalid value for ${prop}`);
             return false;
           }
         }
+        console.log('Detection has valid bbox object format');
         return true;
       }
       
+      console.log('Detection bbox has unsupported format');
       return false;
     }
     
+    console.log('Detection has no valid coordinate format');
     return false;
   } catch (error) {
     console.error('Error validating detection:', error);
+    return false;
+  }
+}
+
+// Add a new utility function to check WebSocket and frame processing status
+export function checkWebSocketStatus(): boolean {
+  try {
+    // Find any WebSocket connections
+    const sockets = window.performance.getEntriesByType('resource')
+      .filter((entry: any) => entry.initiatorType === 'fetch' || entry.name.includes('ws'));
+    
+    console.log('Active network connections:', sockets.length);
+    
+    // Check if any WebSockets are active
+    const wsActive = sockets.some((entry: any) => 
+      entry.name.includes('ws') || entry.name.includes('websocket'));
+    
+    console.log('WebSocket active:', wsActive);
+    
+    return wsActive;
+  } catch (error) {
+    console.error('Error checking WebSocket status:', error);
     return false;
   }
 }

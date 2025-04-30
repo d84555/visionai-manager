@@ -33,8 +33,13 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
 }) => {
   const [visibleDetections, setVisibleDetections] = useState<Detection[]>([]);
   
-  // Process detections when they change
+  // Add logging for incoming detections
   useEffect(() => {
+    console.log('DetectionOverlay received detections:', detections.length);
+    if (detections.length > 0) {
+      console.log('Sample detection:', detections[0]);
+    }
+    
     try {
       // Safety check for null/undefined detections
       if (!detections || !Array.isArray(detections)) {
@@ -54,11 +59,15 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
           try {
             if (canSafelyRenderDetection(det)) {
               safeDetections.push(det);
+            } else {
+              console.log('Skipping unsafe detection:', det);
             }
           } catch (err) {
             console.error("Invalid detection format:", err);
           }
         }
+        
+        console.log(`Filtered to ${safeDetections.length} safe detections`);
         
         // Sort by confidence
         const sortedDetections = [...safeDetections];
@@ -71,8 +80,10 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
         
         // Limit to max 50 detections
         const limitedDetections = sortedDetections.slice(0, 50);
+        console.log(`Setting ${limitedDetections.length} visible detections`);
         setVisibleDetections(limitedDetections);
       } else {
+        console.log('No detections to display');
         setVisibleDetections([]);
       }
     } catch (error) {
@@ -99,13 +110,15 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
     const displayWidth = videoBounds.width;
     const displayHeight = videoBounds.height;
     
+    console.log('Rendering detection overlay with dimensions:', displayWidth, displayHeight);
+    
     return (
       <>
         {visibleDetections.map((detection, index) => {
           if (!detection) return null;
           
           // Create a stable unique key 
-          const uniqueKey = `detection-${index}-${Date.now()}`;
+          const uniqueKey = `detection-${index}-${detection.id || ''}-${Date.now()}`;
           
           return (
             <DetectionBox 
@@ -164,6 +177,12 @@ const DetectionBox: React.FC<{
       validCoordinates = true;
     }
     
+    console.log(`Detection ${index} coordinates:`, {
+      normalized: { x1: bbox.x1, y1: bbox.y1, x2: bbox.x2, y2: bbox.y2 },
+      display: { x: displayX, y: displayY, width: displayBoxWidth, height: displayBoxHeight },
+      valid: validCoordinates
+    });
+    
     // Skip invalid boxes
     if (!validCoordinates || 
         displayBoxWidth < 1 || 
@@ -172,6 +191,7 @@ const DetectionBox: React.FC<{
         isNaN(displayY) || 
         isNaN(displayBoxWidth) || 
         isNaN(displayBoxHeight)) {
+      console.log(`Detection ${index} has invalid coordinates, skipping render`);
       return null;
     }
     
@@ -194,16 +214,14 @@ const DetectionBox: React.FC<{
     
     return (
       <div
-        className="absolute border-2"
+        className="absolute border-2 pointer-events-none"
         style={{
           left: `${displayX}px`,
           top: `${displayY}px`,
           width: `${finalBoxWidth}px`,
           height: `${finalBoxHeight}px`,
           borderColor: borderColor,
-          pointerEvents: 'none',
-          zIndex: 50,
-          transition: 'none'
+          zIndex: 50
         }}
       >
         <span 

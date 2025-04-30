@@ -1,4 +1,3 @@
-
 import axios from 'axios';
 import { toast } from 'sonner';
 
@@ -109,6 +108,10 @@ class WebSocketManager {
 
         this.socket.onmessage = (event) => {
           try {
+            // Log raw message first for debugging
+            console.log('Raw WebSocket message received:', event.data);
+            
+            // Then parse
             const data = JSON.parse(event.data);
             console.log('WebSocket received message:', data);
             
@@ -243,9 +246,36 @@ class WebSocketManager {
           resolve(response);
         });
         
-        // Send the message
-        console.log(`Sending WebSocket message for ${messageId}:`, data);
-        this.socket.send(JSON.stringify(data));
+        // Ensure proper serialization and safe debug logging of message
+        let messageToSend;
+        try {
+          // Prepare message with proper serialization
+          messageToSend = JSON.stringify(data);
+          
+          // Log message size for debugging
+          console.log(`Sending WebSocket message (size: ${messageToSend.length}) for ${messageId}`);
+          
+          // For large messages, don't log the full content
+          if (messageToSend.length > 1000) {
+            console.log('Message too large to log fully, logging metadata:', {
+              messageId,
+              modelPaths: data.modelPaths,
+              hasImageData: !!data.imageData,
+              imageDataLength: data.imageData?.length || 0,
+              threshold: data.threshold
+            });
+          } else {
+            console.log(`Full message for ${messageId}:`, data);
+          }
+          
+          this.socket.send(messageToSend);
+        } catch (sendError) {
+          console.error('Error serializing or sending WebSocket message:', sendError);
+          this.pendingRequests = Math.max(0, this.pendingRequests - 1);
+          clearTimeout(timeout);
+          this.messageCallbacks.delete(messageId);
+          reject(sendError);
+        }
       } catch (error) {
         console.error('Error sending WebSocket message:', error);
         this.pendingRequests = Math.max(0, this.pendingRequests - 1);
@@ -525,6 +555,20 @@ class EdgeAIInference {
       minRequestInterval: this.minRequestInterval,
       useQuantizedModels: this.useQuantizedModels
     });
+  }
+
+  // New method to check WebSocket connection health
+  checkConnectionHealth(): { 
+    websocketAvailable: boolean; 
+    websocketConnected: boolean; 
+    pendingRequests: number; 
+  } {
+    return {
+      websocketAvailable: this.webSocketManager?.isWebSocketAvailable() || false,
+      websocketConnected: this.useWebSocket && !!this.webSocketManager && 
+                          this.webSocketManager.isConnected || false,
+      pendingRequests: this.webSocketManager?.pendingRequests || this.pendingHttpRequests
+    };
   }
 }
 

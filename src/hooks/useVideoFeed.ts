@@ -214,6 +214,12 @@ export const useVideoFeed = ({
   // Start sending frames for processing
   const startFrameProcessing = useCallback(() => {
     if (!videoRef.current || !socketRef.current || !isStreaming || processingRef.current) {
+      console.log('Skipping frame processing:', {
+        videoReady: !!videoRef.current,
+        socketReady: !!socketRef.current,
+        isStreaming,
+        alreadyProcessing: processingRef.current
+      });
       return;
     }
     
@@ -222,6 +228,10 @@ export const useVideoFeed = ({
     
     // Skip if no models are selected or if not playing
     if (currentActiveModels.length === 0 || !isPlaying) {
+      console.log('No active models or video paused, skipping frame processing', {
+        modelCount: currentActiveModels.length,
+        isPlaying
+      });
       if (requestAnimationFrameIdRef.current !== null) {
         cancelAnimationFrame(requestAnimationFrameIdRef.current);
         requestAnimationFrameIdRef.current = null;
@@ -235,6 +245,11 @@ export const useVideoFeed = ({
       videoRef.current.videoWidth === 0 || 
       videoRef.current.videoHeight === 0
     ) {
+      console.log('Video not ready for frame processing', {
+        readyState: videoRef.current.readyState,
+        width: videoRef.current.videoWidth,
+        height: videoRef.current.videoHeight
+      });
       requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
       return;
     }
@@ -464,14 +479,17 @@ export const useVideoFeed = ({
   // Start/stop frame processing based on streaming state
   useEffect(() => {
     if (isStreaming && isPlaying) {
+      console.log('Starting frame processing loop with active models:', activeModelsRef.current);
       startFrameProcessing();
     } else if (requestAnimationFrameIdRef.current !== null) {
+      console.log('Stopping frame processing loop');
       cancelAnimationFrame(requestAnimationFrameIdRef.current);
       requestAnimationFrameIdRef.current = null;
     }
     
     return () => {
       if (requestAnimationFrameIdRef.current !== null) {
+        console.log('Cleaning up frame processing on component unmount');
         cancelAnimationFrame(requestAnimationFrameIdRef.current);
         requestAnimationFrameIdRef.current = null;
       }

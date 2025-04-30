@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect } from 'react';
 import { extractBboxCoordinates, getModelColor } from '@/utils/detectionUtils';
 
@@ -36,16 +35,30 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // Log detections received by canvas overlay
+  useEffect(() => {
+    console.log(`CanvasDetectionOverlay received ${detections.length} detections`);
+    if (detections.length > 0) {
+      console.log('First detection:', detections[0]);
+    }
+  }, [detections]);
+
   // Main effect for drawing detections
   useEffect(() => {
     // IMPORTANT: Pre-initialize all variables to avoid temporal dead zone issues
     const canvas = canvasRef.current;
     const video = videoRef.current;
     
-    if (!canvas || !video) return;
+    if (!canvas || !video) {
+      console.log('Canvas or video ref not available');
+      return;
+    }
     
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      console.error('Failed to get canvas context');
+      return;
+    }
     
     // Function to update canvas dimensions
     const updateCanvasDimensions = () => {
@@ -57,6 +70,8 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({
       const rect = video.getBoundingClientRect();
       const width = rect.width;
       const height = rect.height;
+      
+      console.log('Updating canvas dimensions:', { width, height, videoWidth, videoHeight });
       
       if (width && height) {
         canvas.width = width;
@@ -78,8 +93,11 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({
       
       // Safety check for detections
       if (!Array.isArray(detections) || detections.length === 0) {
+        console.log('No detections to draw on canvas');
         return;
       }
+      
+      console.log(`Drawing ${detections.length} detections on canvas`);
       
       // Draw each detection with proper error handling
       for (let i = 0; i < detections.length; i++) {
@@ -109,11 +127,19 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({
             canvasWidth = (bbox.x2 - bbox.x1) * canvas.width;
             canvasHeight = (bbox.y2 - bbox.y1) * canvas.height;
             validCoordinates = true;
+            
+            console.log(`Detection ${i} canvas coordinates:`, {
+              x: canvasX, 
+              y: canvasY, 
+              width: canvasWidth, 
+              height: canvasHeight
+            });
           }
           
           // Skip invalid boxes
           if (!validCoordinates || canvasWidth < 1 || canvasHeight < 1 || 
               isNaN(canvasX) || isNaN(canvasY) || isNaN(canvasWidth) || isNaN(canvasHeight)) {
+            console.log(`Detection ${i} has invalid canvas coordinates, skipping`);
             continue;
           }
           
@@ -178,6 +204,7 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({
       ref={canvasRef}
       className="absolute inset-0 pointer-events-none"
       style={{ zIndex: 10 }}
+      data-testid="detection-canvas"
     />
   );
 };
