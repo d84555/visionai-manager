@@ -1,24 +1,37 @@
-
 import axios from 'axios';
 import { StorageServiceInterface, ModelInfo } from './StorageServiceInterface';
 
 export default class APIStorageService implements StorageServiceInterface {
   private baseUrl: string;
   
-  constructor(baseUrl = '/api') {
-    this.baseUrl = baseUrl;
+  constructor(baseUrl = '') {
+    // Default to relative path (same origin) instead of absolute URL
+    this.baseUrl = baseUrl || '/api';
   }
 
-  async uploadModel(file: File, name: string): Promise<ModelInfo> {
+  async uploadModel(file: File, name: string, options?: any): Promise<ModelInfo> {
     try {
+      console.log(`Uploading model ${name} to ${this.baseUrl}/models/upload`);
       const formData = new FormData();
       formData.append('file', file);
       formData.append('name', name);
       
+      // Add options to formData if provided
+      if (options) {
+        if (options.enablePyTorchSupport) {
+          formData.append('enablePyTorchSupport', 'true');
+        }
+        if (options.convertToOnnx) {
+          formData.append('convertToOnnx', 'true');
+        }
+      }
+      
       const response = await axios.post(`${this.baseUrl}/models/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
-        }
+        },
+        // Add timeout and better error handling
+        timeout: 30000
       });
       
       const result = response.data;
@@ -33,6 +46,18 @@ export default class APIStorageService implements StorageServiceInterface {
       };
     } catch (error) {
       console.error('Error uploading model:', error);
+      
+      // Enhance error reporting
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 404) {
+          throw new Error('Model upload endpoint not found. Please check server configuration.');
+        } else if (error.code === 'ECONNABORTED') {
+          throw new Error('Upload timed out. The model may be too large or the server is unresponsive.');
+        } else if (error.response) {
+          throw new Error(`Server error: ${error.response.status} - ${error.response.data?.message || 'Unknown error'}`);
+        }
+      }
+      
       throw error;
     }
   }
@@ -142,10 +167,17 @@ export default class APIStorageService implements StorageServiceInterface {
   }
   
   private getFormatFromPath(path: string): string {
-    if (path.toLowerCase().endsWith('.onnx')) {
+    if (!path) return 'unknown';
+    
+    const pathLower = path.toLowerCase();
+    if (pathLower.endsWith('.onnx')) {
       return 'onnx';
-    } else if (path.toLowerCase().endsWith('.pt') || path.toLowerCase().endsWith('.pth')) {
+    } else if (pathLower.endsWith('.pt') || pathLower.endsWith('.pth')) {
       return 'pytorch';
+    } else if (pathLower.endsWith('.tflite')) {
+      return 'tflite'; 
+    } else if (pathLower.endsWith('.pb')) {
+      return 'tensorflow';
     } else {
       return 'unknown';
     }

@@ -3,48 +3,63 @@ import { StorageServiceInterface } from './StorageServiceInterface';
 import SimulatedStorageService from './SimulatedStorageService';
 import APIStorageService from './APIStorageService';
 
-export type StorageMode = 'simulated' | 'api';
+export default class StorageServiceFactory {
+  private static mode: 'api' | 'simulated' = 'api';
+  private static apiInstance: APIStorageService | null = null;
+  private static simulatedInstance: SimulatedStorageService | null = null;
 
-class StorageServiceFactory {
-  private static instance: StorageServiceInterface;
-  private static currentMode: StorageMode = 'api';
+  public static setMode(mode: 'api' | 'simulated'): void {
+    this.mode = mode;
+    localStorage.setItem('storage-mode', mode);
+    console.log(`Storage mode set to ${mode}`);
+  }
 
-  static getService(): StorageServiceInterface {
-    if (!this.instance) {
-      // Initialize with saved mode or default
-      const savedMode = localStorage.getItem('avianet-storage-mode');
-      if (savedMode === 'simulated' || savedMode === 'api') {
-        this.currentMode = savedMode;
+  public static getMode(): 'api' | 'simulated' {
+    // Try to load from localStorage, default to 'api' if not found
+    const savedMode = localStorage.getItem('storage-mode');
+    if (savedMode && (savedMode === 'api' || savedMode === 'simulated')) {
+      this.mode = savedMode as 'api' | 'simulated';
+    }
+    return this.mode;
+  }
+
+  public static getService(): StorageServiceInterface {
+    const currentMode = this.getMode();
+    
+    if (currentMode === 'api') {
+      if (!this.apiInstance) {
+        this.apiInstance = new APIStorageService();
       }
-      
-      this.instance = this.createService(this.currentMode);
-    }
-    return this.instance;
-  }
-
-  static setMode(mode: StorageMode): void {
-    if (mode !== this.currentMode) {
-      this.currentMode = mode;
-      this.instance = this.createService(mode);
-      
-      // Store the selected mode in localStorage for persistence
-      localStorage.setItem('avianet-storage-mode', mode);
-      
-      console.log(`Storage mode switched to: ${mode}`);
-    }
-  }
-
-  static getMode(): StorageMode {
-    return this.currentMode;
-  }
-
-  private static createService(mode: StorageMode): StorageServiceInterface {
-    if (mode === 'simulated') {
-      return new SimulatedStorageService();
+      return this.apiInstance;
     } else {
-      return new APIStorageService();
+      if (!this.simulatedInstance) {
+        this.simulatedInstance = new SimulatedStorageService();
+      }
+      return this.simulatedInstance;
     }
+  }
+  
+  // Helper to check if API is available
+  public static async isApiAvailable(): Promise<boolean> {
+    try {
+      const response = await fetch('/api/health');
+      return response.ok;
+    } catch (error) {
+      console.warn('API health check failed:', error);
+      return false;
+    }
+  }
+  
+  // Auto-fallback to simulated mode if API is not available
+  public static async autoSelectMode(): Promise<'api' | 'simulated'> {
+    const apiAvailable = await this.isApiAvailable();
+    if (!apiAvailable && this.mode === 'api') {
+      console.warn('API not available, falling back to simulated mode');
+      this.setMode('simulated');
+    } else if (apiAvailable && this.mode === 'simulated') {
+      console.info('API available, using API mode');
+      this.setMode('api');
+    }
+    return this.mode;
   }
 }
-
-export default StorageServiceFactory;

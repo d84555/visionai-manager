@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,15 +18,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Brain, Upload, Trash2, Camera, AlertCircle, Info } from 'lucide-react';
+import { Brain, Upload, Trash2, Camera, AlertCircle, Info, RefreshCw, Server, CloudOff } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import SettingsService from '@/services/SettingsService';
+import SettingsService, { ModelInfo } from '@/services/SettingsService';
 import { 
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger
 } from '@/components/ui/tooltip';
+import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 
 interface AIModel {
   id: string;
@@ -47,8 +47,28 @@ const AIModelUpload: React.FC = () => {
   const [assignTarget, setAssignTarget] = useState<string | null>(null);
   const [isPyTorch, setIsPyTorch] = useState(false);
   const [forceAllowPyTorch, setForceAllowPyTorch] = useState(false);
+  const [apiAvailable, setApiAvailable] = useState<boolean>(false);
+  const [isCheckingApi, setIsCheckingApi] = useState<boolean>(false);
   
   useEffect(() => {
+    loadModels();
+    checkApiAvailability();
+  }, []);
+  
+  const checkApiAvailability = async () => {
+    setIsCheckingApi(true);
+    try {
+      const response = await fetch('/api/health');
+      setApiAvailable(response.ok);
+    } catch (error) {
+      console.warn('API health check failed:', error);
+      setApiAvailable(false);
+    } finally {
+      setIsCheckingApi(false);
+    }
+  };
+  
+  const loadModels = () => {
     const customModels = SettingsService.getCustomModels();
     const formattedModels = customModels.map(model => ({
       id: model.id,
@@ -56,7 +76,7 @@ const AIModelUpload: React.FC = () => {
       type: 'Object Detection', // Default type for existing models
       size: model.size || 'Unknown size',
       cameras: model.cameras || ['All Cameras'],
-      uploaded: new Date(model.uploadedAt)
+      uploaded: new Date(model.uploadedAt || new Date())
     }));
     
     const mockModels = [
@@ -84,7 +104,7 @@ const AIModelUpload: React.FC = () => {
     }
     
     setUploadedModels(allModels);
-  }, []);
+  };
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -126,10 +146,38 @@ const AIModelUpload: React.FC = () => {
       try {
         // Add extra params for PyTorch models
         const uploadOptions = isPyTorch ? { enablePyTorchSupport: true } : undefined;
-        const uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName, uploadOptions);
+        
+        let uploadResult;
+        
+        // Try API upload first if API is available
+        if (apiAvailable) {
+          try {
+            const storageService = StorageServiceFactory.getService();
+            uploadResult = await storageService.uploadModel(modelFile, modelName, uploadOptions);
+            
+            toast.success('AI Model Uploaded via API', {
+              description: `${modelName} has been successfully uploaded to the Edge Computing Node.`,
+            });
+          } catch (apiError) {
+            console.warn('API upload failed, falling back to simulated upload:', apiError);
+            // Fall back to local simulated upload
+            uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName, uploadOptions);
+            
+            toast.success('AI Model Uploaded (Simulation)', {
+              description: `${modelName} has been simulated as uploaded. (API unavailable)`,
+            });
+          }
+        } else {
+          // API not available, use simulated storage
+          uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName, uploadOptions);
+          
+          toast.success('AI Model Uploaded (Simulation)', {
+            description: `${modelName} has been simulated as uploaded. (API unavailable)`,
+          });
+        }
         
         const newModel: AIModel = {
-          id: `custom-${Date.now()}`,
+          id: uploadResult.id || `custom-${Date.now()}`,
           name: modelName,
           type: modelType === 'object-detection' ? 'Object Detection' : 
                 modelType === 'face-recognition' ? 'Face Recognition' : 
@@ -145,10 +193,6 @@ const AIModelUpload: React.FC = () => {
         setModelFile(null);
         setModelType('object-detection');
         setForceAllowPyTorch(false);
-        
-        toast.success('AI Model Uploaded', {
-          description: `${newModel.name} has been successfully uploaded and is ready to use.`
-        });
       } catch (error: any) {
         console.error('Error uploading model:', error);
         
@@ -264,9 +308,17 @@ const AIModelUpload: React.FC = () => {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center">
-            <Upload className="mr-2 text-avianet-red" size={18} />
-            Upload AI Model
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center">
+              <Upload className="mr-2 text-avianet-red" size={18} />
+              Upload AI Model
+            </div>
+            {!apiAvailable && (
+              <Badge variant="outline" className="flex items-center gap-1 bg-amber-50 text-amber-800">
+                <CloudOff className="h-3.5 w-3.5" /> 
+                {isCheckingApi ? 'Checking API...' : 'API Unavailable - Using Browser Storage'}
+              </Badge>
+            )}
           </CardTitle>
           <CardDescription>
             Upload new AI models to enhance detection capabilities
@@ -274,6 +326,31 @@ const AIModelUpload: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            {!apiAvailable && (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-md">
+                  <AlertCircle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-amber-800">
+                    <p className="font-medium">API Unavailable</p>
+                    <p>The Edge Computing API is unavailable. Models will be stored locally in your browser. 
+                    Real deployment would require a running Edge Computing node.</p>
+                    <div className="mt-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={checkApiAvailability}
+                        className="flex items-center gap-1"
+                        disabled={isCheckingApi}
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${isCheckingApi ? 'animate-spin' : ''}`} />
+                        Retry API Connection
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             <div className="space-y-2">
               <Label htmlFor="model-file">Select Model File</Label>
               <Input 

@@ -1,3 +1,4 @@
+
 import { CacheService } from './CacheService';
 
 interface GridLayout {
@@ -95,7 +96,7 @@ class SettingsService {
   // Default paths for various storage locations
   localStorageConfig: StorageConfig = {
     mode: 'api',
-    apiUrl: 'http://localhost:8000',
+    apiUrl: '/api', // Changed from http://localhost:8000 to relative path
     recordingsPath: '/recordings',
     modelsPath: '/models',
     settingsPath: '/config',
@@ -119,6 +120,8 @@ class SettingsService {
 
   // Helper method to determine the model format from file extension
   private getModelFormat(filename: string): string {
+    if (!filename) return 'unknown';
+    
     const extension = filename.split('.').pop()?.toLowerCase() || '';
     
     if (extension === 'onnx') return 'onnx';
@@ -137,7 +140,7 @@ class SettingsService {
       throw new Error('PyTorch models require special handling. Enable PyTorch support to continue.');
     }
     
-    // Create a model info object
+    // Create a model info object for local storage
     const modelInfo: ModelInfo = {
       id: `custom-${Date.now()}`,
       name: modelName,
@@ -148,15 +151,20 @@ class SettingsService {
       format: format
     };
 
-    // Save to localStorage
-    const existingModels = this.getCustomModels();
-    localStorage.setItem('custom-ai-models', JSON.stringify([...existingModels, modelInfo]));
-    
-    // In a real app, we would upload the file to a server here
-    console.log(`Simulating upload of ${file.name} as ${modelName} (${format} format)`);
-    
-    // Return the created model info
-    return modelInfo;
+    try {
+      // Add to local storage regardless of API success to ensure UI consistency
+      const existingModels = this.getCustomModels();
+      localStorage.setItem('custom-ai-models', JSON.stringify([...existingModels, modelInfo]));
+      
+      console.log(`Model ${modelName} (${format} format) simulated upload successful`);
+      
+      // In a real app with API mode, we would return the API response here
+      // For now, just return the created model info
+      return modelInfo;
+    } catch (error) {
+      console.error('Error in uploadCustomModel:', error);
+      throw error;
+    }
   }
 
   // Delete a model by ID
@@ -365,7 +373,7 @@ class SettingsService {
     // Reset the storage config to defaults
     this.localStorageConfig = {
       mode: 'api',
-      apiUrl: 'http://localhost:8000',
+      apiUrl: '/api',
       recordingsPath: '/recordings',
       modelsPath: '/models',
       settingsPath: '/config',
