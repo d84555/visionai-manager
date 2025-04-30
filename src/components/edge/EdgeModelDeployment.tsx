@@ -137,6 +137,7 @@ const EdgeModelDeployment: React.FC<EdgeModelDeploymentProps> = ({
     // Simulate removal process
     setTimeout(() => {
       onModelRemoved(modelName);
+      toast.success(`${modelName} has been removed from the edge device`);
     }, 1500);
   };
   

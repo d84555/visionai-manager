@@ -6,10 +6,11 @@ import { useEffect, useState } from 'react';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
-import { AlertCircle, Cpu, Plus, X } from 'lucide-react';
+import { AlertCircle, Cpu, Plus, X, Settings } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
+import { useNavigate } from 'react-router-dom';
 
 interface ModelSelectorProps {
   selectedModels: { name: string; path: string }[];
@@ -26,6 +27,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModel, setShowAddModel] = useState(false);
   const [modelToAdd, setModelToAdd] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const loadModels = async () => {
@@ -147,9 +149,25 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     onModelChange(newSelectedIds);
   };
 
+  const navigateToSettings = () => {
+    navigate('/settings');
+  };
+
   return (
     <div className="flex flex-col gap-2">
-      <Label htmlFor="model-selector">AI Models for Object Detection</Label>
+      <div className="flex justify-between items-center mb-2">
+        <Label htmlFor="model-selector">AI Models for Object Detection</Label>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={navigateToSettings} 
+          className="flex items-center gap-1"
+          title="Manage models in Settings"
+        >
+          <Settings className="h-4 w-4" />
+          Manage
+        </Button>
+      </div>
       
       {/* Selected Models Display */}
       <div className="flex flex-wrap gap-2 mb-2">
@@ -215,7 +233,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                     ))}
                 </ScrollArea>
               ) : (
-                <SelectItem value="no-models" disabled>No models available. Please upload a model.</SelectItem>
+                <SelectItem value="no-models" disabled>No models available. Please upload a model in Settings.</SelectItem>
               )}
             </SelectContent>
           </Select>

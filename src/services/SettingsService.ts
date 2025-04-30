@@ -1,4 +1,3 @@
-
 import { CacheService } from './CacheService';
 
 interface GridLayout {
@@ -131,6 +130,32 @@ class SettingsService {
     
     // Return the created model info
     return modelInfo;
+  }
+
+  // Delete a model by ID
+  deleteCustomModel(modelId: string): boolean {
+    const existingModels = this.getCustomModels();
+    const filteredModels = existingModels.filter(model => model.id !== modelId);
+    
+    // If no models were removed, return false
+    if (existingModels.length === filteredModels.length) {
+      return false;
+    }
+    
+    // Save the updated models list
+    localStorage.setItem('custom-ai-models', JSON.stringify(filteredModels));
+    
+    // Check if the deleted model was active and reset if needed
+    const activeModels = this.getActiveModels();
+    const modelToDelete = existingModels.find(model => model.id === modelId);
+    
+    if (modelToDelete && activeModels.some(m => m.path === modelToDelete.path)) {
+      // Filter out the deleted model from active models
+      const updatedActiveModels = activeModels.filter(m => m.path !== modelToDelete.path);
+      this.setActiveModels(updatedActiveModels);
+    }
+    
+    return true;
   }
 
   // SMTP Configuration

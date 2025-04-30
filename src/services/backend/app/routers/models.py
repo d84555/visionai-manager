@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Query
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
@@ -155,10 +154,33 @@ async def delete_model(model_id: str):
         # Delete the file
         filepath = model_to_delete["path"]
         if os.path.exists(filepath):
+            # Check active models before deleting
+            active_models = []
+            if os.path.exists(ACTIVE_MODELS_FILE):
+                try:
+                    with open(ACTIVE_MODELS_FILE, 'r') as f:
+                        active_models = json.load(f)
+                except Exception as e:
+                    print(f"Error reading active models: {str(e)}")
+                    active_models = []
+            
+            # Check if the model is active
+            is_active = any(m.get('path', '') == filepath for m in active_models)
+            
+            # Now delete the file
             os.remove(filepath)
+            
+            # Update active models if needed
+            if is_active:
+                new_active_models = [m for m in active_models if m.get('path', '') != filepath]
+                with open(ACTIVE_MODELS_FILE, 'w') as f:
+                    json.dump(new_active_models, f)
+                
             return {"message": f"Model {model_id} deleted successfully"}
         else:
             raise HTTPException(status_code=404, detail="Model file not found")
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error deleting model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete model: {str(e)}")

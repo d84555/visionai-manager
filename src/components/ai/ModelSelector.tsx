@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import {
   Card,
@@ -215,27 +214,42 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   
   const handleDeleteModel = async (modelId: string) => {
     try {
-      const modelToDelete = availableModels.find(model => model.id === modelId);
-      if (!modelToDelete || !modelToDelete.id.startsWith('custom-')) {
-        toast.error('Only custom models can be deleted');
-        return;
+      // Check if this is a custom model (starts with 'custom-')
+      const isCustomModel = modelId.startsWith('custom-');
+      
+      if (!isCustomModel) {
+        // First try the storage service approach for API-based models
+        const storageService = StorageServiceFactory.getService();
+        await storageService.deleteModel(modelId);
+      } else {
+        // For custom models, use the SettingsService directly
+        const deleted = SettingsService.deleteCustomModel(modelId);
+        
+        if (!deleted) {
+          toast.error('Model not found or could not be deleted');
+          return;
+        }
       }
       
-      const storageService = StorageServiceFactory.getService();
-      await storageService.deleteModel(modelId);
-      
       toast.success('Model Removed', {
-        description: `${modelToDelete.name} has been successfully removed from the Edge Computing node.`
+        description: `Model has been successfully removed.`
       });
       
+      // Reload the models list
       loadModels();
       
-      if (activeModel && availableModels.find(m => m.id === modelId)?.path === activeModel.path) {
+      // Check if the active model was deleted
+      const currentActiveModel = SettingsService.getActiveModel();
+      const deletedModel = availableModels.find(m => m.id === modelId);
+      
+      if (currentActiveModel && deletedModel && 
+          currentActiveModel.path === deletedModel.path) {
+        // Reset active model if it was deleted
         setActiveModel(undefined);
       }
     } catch (error) {
       console.error('Error deleting model:', error);
-      toast.error('Failed to delete model from Edge Computing node');
+      toast.error('Failed to delete model');
     }
   };
   

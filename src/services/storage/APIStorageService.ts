@@ -1,239 +1,153 @@
 
+import axios from 'axios';
 import { StorageServiceInterface, ModelInfo } from './StorageServiceInterface';
 
-export class APIStorageService implements StorageServiceInterface {
-  private apiBaseUrl = 'http://localhost:8000';  // Updated to remove /api prefix
-
-  // Helper method to determine API base URL
-  private getApiBaseUrl(): string {
-    // Check if we're running in development or production
-    const isProduction = window.location.hostname.endsWith('lovableproject.com');
-    
-    if (isProduction) {
-      // Use relative URL to avoid CORS issues on production
-      return '';
-    }
-    
-    return this.apiBaseUrl;
+export default class APIStorageService implements StorageServiceInterface {
+  private baseUrl: string;
+  
+  constructor(baseUrl = '/api') {
+    this.baseUrl = baseUrl;
   }
 
   async uploadModel(file: File, name: string): Promise<ModelInfo> {
-    // Use the original file name if no custom name is provided
-    const modelName = name.trim() !== '' ? name : this.getDisplayNameFromFile(file);
-    
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('name', modelName);  // Use the determined name
-    
     try {
-      console.log(`Uploading model to ${this.getApiBaseUrl()}/models/upload with name: ${modelName}`);
-      const response = await fetch(`${this.getApiBaseUrl()}/models/upload`, {
-        method: 'POST',
-        body: formData,
-        // No Content-Type header needed - browser sets it with boundary for FormData
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('name', name);
+      
+      const response = await axios.post(`${this.baseUrl}/models/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
       });
       
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
-        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
-      }
+      const result = response.data;
       
-      const result = await response.json();
-      console.log("Upload successful:", result);
-      return result;
+      return {
+        id: result.id,
+        name: result.name,
+        path: result.path,
+        fileSize: result.fileSize,
+        uploadDate: result.uploadDate,
+        format: this.getFormatFromPath(result.path)
+      };
     } catch (error) {
-      console.error('Failed to upload model:', error);
+      console.error('Error uploading model:', error);
       throw error;
     }
   }
-
-  // Helper function to get a display name from file
-  private getDisplayNameFromFile(file: File): string {
-    // Remove extension and replace special characters
-    const nameParts = file.name.split('.');
-    const extension = nameParts.pop() || '';
-    const baseName = nameParts.join('.');
-    
-    // Clean up the name to be display-friendly
-    return baseName.replace(/[-_]/g, ' ').trim() || `Model-${new Date().getTime()}`;
-  }
-
+  
   async listModels(): Promise<ModelInfo[]> {
     try {
-      console.log(`Fetching models from ${this.getApiBaseUrl()}/models/list`);
-      const response = await fetch(`${this.getApiBaseUrl()}/models/list`, {
-        headers: {
-          'Cache-Control': 'no-cache'
-        }
-      });
-      
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
-        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
-      }
-      
-      const models = await response.json();
-      console.log("Models retrieved:", models);
-      return models;
+      const response = await axios.get(`${this.baseUrl}/models/list`);
+      return response.data.map((model: any) => ({
+        id: model.id,
+        name: model.name,
+        path: model.path,
+        fileSize: model.fileSize,
+        uploadDate: model.uploadDate,
+        format: this.getFormatFromPath(model.path)
+      }));
     } catch (error) {
-      console.error('Failed to list models:', error);
+      console.error('Error listing models:', error);
       throw error;
     }
   }
-
+  
   async deleteModel(modelId: string): Promise<void> {
     try {
-      console.log(`Deleting model ${modelId}`);
-      const response = await fetch(`${this.getApiBaseUrl()}/models/${modelId}`, {
-        method: 'DELETE'
-      });
+      // Make a DELETE request to remove the model
+      await axios.delete(`${this.baseUrl}/models/${modelId}`);
       
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
-        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
+      // Check if the model was active and reset active model if needed
+      const activeModel = await this.getActiveModel();
+      
+      if (activeModel) {
+        // We would need to check if the deleted model was active
+        // This would require additional API call or storing model IDs with paths
+        // For now, we'll handle this in the ModelSelector component
       }
-      
-      console.log(`Model ${modelId} deleted successfully`);
     } catch (error) {
-      console.error('Failed to delete model:', error);
+      console.error('Error deleting model:', error);
       throw error;
     }
   }
-
+  
   async setActiveModel(modelName: string, modelPath: string): Promise<void> {
     try {
-      console.log(`Setting active model: ${modelName}, ${modelPath}`);
-      const response = await fetch(`${this.getApiBaseUrl()}/models/select`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: modelName, path: modelPath })
+      await axios.post(`${this.baseUrl}/models/select`, {
+        name: modelName,
+        path: modelPath
       });
-      
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
-        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
-      }
-      
-      console.log("Active model set successfully");
-      // Cache the active model in localStorage for quick access
-      localStorage.setItem('active-ai-models', JSON.stringify([{ name: modelName, path: modelPath }]));
     } catch (error) {
-      console.error('Failed to set active model:', error);
+      console.error('Error setting active model:', error);
       throw error;
     }
   }
-
+  
   async setActiveModels(models: { name: string; path: string }[]): Promise<void> {
     try {
-      console.log(`Setting multiple active models:`, models);
-      const response = await fetch(`${this.getApiBaseUrl()}/models/select-multiple`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ models })
+      await axios.post(`${this.baseUrl}/models/select-multiple`, {
+        models: models
       });
-      
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
-        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
-      }
-      
-      console.log("Multiple active models set successfully");
-      // Cache the active models in localStorage for quick access
-      localStorage.setItem('active-ai-models', JSON.stringify(models));
     } catch (error) {
-      console.error('Failed to set active models:', error);
+      console.error('Error setting multiple active models:', error);
       throw error;
     }
   }
-
+  
   async getActiveModel(): Promise<{ name: string; path: string } | null> {
     try {
-      console.log(`Getting active model from ${this.getApiBaseUrl()}/models/active`);
-      const response = await fetch(`${this.getApiBaseUrl()}/models/active`);
-      
-      if (!response.ok) {
-        if (response.status === 404) {
-          console.log("No active model set");
-          return null;
-        }
-        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
-        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
-      }
-      
-      const activeModel = await response.json();
-      console.log("Active model:", activeModel);
-      
-      // Cache the active model in localStorage for quick access
-      localStorage.setItem('active-ai-models', JSON.stringify([activeModel]));
-      return activeModel;
+      const response = await axios.get(`${this.baseUrl}/models/active`);
+      return response.data ? {
+        name: response.data.name,
+        path: response.data.path
+      } : null;
     } catch (error) {
-      console.error('Failed to get active model:', error);
-      
-      // Try to get from localStorage if API fails
-      const cachedModels = localStorage.getItem('active-ai-models');
-      if (cachedModels) {
-        const models = JSON.parse(cachedModels);
-        return models.length > 0 ? models[0] : null;
+      // If no active model is set, the API returns 404
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return null;
       }
-      
+      console.error('Error getting active model:', error);
       throw error;
     }
   }
-
+  
   async getActiveModels(): Promise<{ name: string; path: string }[]> {
     try {
-      console.log(`Getting active models from ${this.getApiBaseUrl()}/models/active-multiple`);
-      const response = await fetch(`${this.getApiBaseUrl()}/models/active-multiple`);
-      
-      if (!response.ok) {
-        if (response.status === 404) {
-          console.log("No active models set");
-          return [];
-        }
-        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
-        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
-      }
-      
-      const activeModels = await response.json();
-      console.log("Active models:", activeModels);
-      
-      // Cache the active models in localStorage for quick access
-      localStorage.setItem('active-ai-models', JSON.stringify(activeModels));
-      return activeModels;
+      const response = await axios.get(`${this.baseUrl}/models/active-multiple`);
+      return response.data.map((model: any) => ({
+        name: model.name,
+        path: model.path
+      }));
     } catch (error) {
-      console.error('Failed to get active models:', error);
-      
-      // Try to get from localStorage if API fails
-      const cachedModels = localStorage.getItem('active-ai-models');
-      if (cachedModels) {
-        return JSON.parse(cachedModels);
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return [];
       }
-      
-      return [];
+      console.error('Error getting active models:', error);
+      throw error;
     }
   }
-
+  
   async getModelFileUrl(modelPath: string): Promise<string | null> {
     try {
-      console.log(`Getting model file URL for ${modelPath}`);
-      const response = await fetch(`${this.getApiBaseUrl()}/models/file-url?path=${encodeURIComponent(modelPath)}`);
-      
-      if (!response.ok) {
-        if (response.status === 404) {
-          console.log(`Model file not found: ${modelPath}`);
-          return null;
-        }
-        const error = await response.json().catch(() => ({ detail: `HTTP error! Status: ${response.status}` }));
-        throw new Error(error.detail || `HTTP error! Status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log(`Got model file URL: ${data.url}`);
-      return data.url;
+      const response = await axios.get(`${this.baseUrl}/models/file-url`, {
+        params: { path: modelPath }
+      });
+      return response.data.url;
     } catch (error) {
-      console.error('Failed to get model file URL:', error);
-      throw error;
+      console.error('Error getting model file URL:', error);
+      return null;
+    }
+  }
+  
+  private getFormatFromPath(path: string): string {
+    if (path.toLowerCase().endsWith('.onnx')) {
+      return 'onnx';
+    } else if (path.toLowerCase().endsWith('.pt') || path.toLowerCase().endsWith('.pth')) {
+      return 'pytorch';
+    } else {
+      return 'unknown';
     }
   }
 }
-
