@@ -82,6 +82,13 @@ export interface ModelInfo {
   size?: string;  // Making size optional
   uploadedAt?: string;
   cameras?: string[];
+  format?: string; // Added to track model format (ONNX, PyTorch, etc.)
+}
+
+// Model upload options
+export interface ModelUploadOptions {
+  enablePyTorchSupport?: boolean;
+  convertToOnnx?: boolean;
 }
 
 class SettingsService {
@@ -110,7 +117,26 @@ class SettingsService {
     return modelsStr ? JSON.parse(modelsStr) : [];
   }
 
-  async uploadCustomModel(file: File, modelName: string): Promise<ModelInfo> {
+  // Helper method to determine the model format from file extension
+  private getModelFormat(filename: string): string {
+    const extension = filename.split('.').pop()?.toLowerCase() || '';
+    
+    if (extension === 'onnx') return 'onnx';
+    if (extension === 'pt' || extension === 'pth') return 'pytorch';
+    if (extension === 'tflite') return 'tflite';
+    if (extension === 'pb') return 'tensorflow';
+    
+    return 'unknown';
+  }
+
+  async uploadCustomModel(file: File, modelName: string, options?: ModelUploadOptions): Promise<ModelInfo> {
+    const format = this.getModelFormat(file.name);
+    
+    // Check for PyTorch model without explicit support enabled
+    if (format === 'pytorch' && (!options || !options.enablePyTorchSupport)) {
+      throw new Error('PyTorch models require special handling. Enable PyTorch support to continue.');
+    }
+    
     // Create a model info object
     const modelInfo: ModelInfo = {
       id: `custom-${Date.now()}`,
@@ -118,7 +144,8 @@ class SettingsService {
       path: `/models/${file.name}`,
       size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
       uploadedAt: new Date().toISOString(),
-      cameras: ['All Cameras']
+      cameras: ['All Cameras'],
+      format: format
     };
 
     // Save to localStorage
@@ -126,7 +153,7 @@ class SettingsService {
     localStorage.setItem('custom-ai-models', JSON.stringify([...existingModels, modelInfo]));
     
     // In a real app, we would upload the file to a server here
-    console.log(`Simulating upload of ${file.name} as ${modelName}`);
+    console.log(`Simulating upload of ${file.name} as ${modelName} (${format} format)`);
     
     // Return the created model info
     return modelInfo;
@@ -135,6 +162,14 @@ class SettingsService {
   // Delete a model by ID
   deleteCustomModel(modelId: string): boolean {
     const existingModels = this.getCustomModels();
+    
+    // Check if model exists and is custom (has ID starting with 'custom-')
+    const modelToDelete = existingModels.find(model => model.id === modelId);
+    if (!modelToDelete || !modelToDelete.id.startsWith('custom-')) {
+      console.error('Only custom models can be deleted');
+      return false;
+    }
+    
     const filteredModels = existingModels.filter(model => model.id !== modelId);
     
     // If no models were removed, return false
@@ -147,7 +182,6 @@ class SettingsService {
     
     // Check if the deleted model was active and reset if needed
     const activeModels = this.getActiveModels();
-    const modelToDelete = existingModels.find(model => model.id === modelId);
     
     if (modelToDelete && activeModels.some(m => m.path === modelToDelete.path)) {
       // Filter out the deleted model from active models

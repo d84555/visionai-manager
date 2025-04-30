@@ -19,9 +19,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Brain, Upload, Trash2, Camera, AlertCircle } from 'lucide-react';
+import { Brain, Upload, Trash2, Camera, AlertCircle, Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import SettingsService from '@/services/SettingsService';
+import { 
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
 
 interface AIModel {
   id: string;
@@ -40,6 +46,7 @@ const AIModelUpload: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [assignTarget, setAssignTarget] = useState<string | null>(null);
   const [isPyTorch, setIsPyTorch] = useState(false);
+  const [forceAllowPyTorch, setForceAllowPyTorch] = useState(false);
   
   useEffect(() => {
     const customModels = SettingsService.getCustomModels();
@@ -87,6 +94,7 @@ const AIModelUpload: React.FC = () => {
       // Check if the file is a PyTorch model
       const isPyTorchFile = file.name.endsWith('.pt') || file.name.endsWith('.pth');
       setIsPyTorch(isPyTorchFile);
+      setForceAllowPyTorch(false); // Reset force flag when file changes
     }
   };
   
@@ -101,13 +109,24 @@ const AIModelUpload: React.FC = () => {
       return;
     }
     
+    // Check if PyTorch model without force flag
+    if (isPyTorch && !forceAllowPyTorch) {
+      toast.error('PyTorch models require special handling', {
+        description: 'Click "Enable PyTorch Support" button to continue with upload anyway.',
+        duration: 5000
+      });
+      return;
+    }
+    
     setIsUploading(true);
     
     try {
       const fileSizeMB = (modelFile.size / (1024 * 1024)).toFixed(1);
       
       try {
-        const uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName);
+        // Add extra params for PyTorch models
+        const uploadOptions = isPyTorch ? { enablePyTorchSupport: true } : undefined;
+        const uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName, uploadOptions);
         
         const newModel: AIModel = {
           id: `custom-${Date.now()}`,
@@ -125,6 +144,7 @@ const AIModelUpload: React.FC = () => {
         setModelName('');
         setModelFile(null);
         setModelType('object-detection');
+        setForceAllowPyTorch(false);
         
         toast.success('AI Model Uploaded', {
           description: `${newModel.name} has been successfully uploaded and is ready to use.`
@@ -133,8 +153,8 @@ const AIModelUpload: React.FC = () => {
         console.error('Error uploading model:', error);
         
         if (isPyTorch) {
-          toast.error('Error uploading PyTorch model. This feature is in beta.', {
-            description: 'Try using an ONNX format model instead for better compatibility.',
+          toast.error('Failed to upload PyTorch model', {
+            description: 'The PyTorch model could not be processed. Consider converting it to ONNX format for better compatibility.',
             duration: 5000
           });
         } else {
@@ -157,14 +177,28 @@ const AIModelUpload: React.FC = () => {
     const modelToDelete = uploadedModels.find(model => model.id === modelId);
     if (!modelToDelete) return;
     
-    setUploadedModels(uploadedModels.filter(model => model.id !== modelId));
-    
-    const customModels = SettingsService.getCustomModels().filter(model => model.id !== modelId);
-    localStorage.setItem('custom-ai-models', JSON.stringify(customModels));
-    
-    toast.success('Model Removed', {
-      description: `${modelToDelete.name} has been successfully removed.`
-    });
+    try {
+      // Try to delete the model using SettingsService
+      const deleted = SettingsService.deleteCustomModel(modelId);
+      
+      if (!deleted) {
+        toast.error('Failed to delete model', {
+          description: 'This model cannot be deleted or is in use by the system.'
+        });
+        return;
+      }
+      
+      setUploadedModels(uploadedModels.filter(model => model.id !== modelId));
+      
+      toast.success('Model Removed', {
+        description: `${modelToDelete.name} has been successfully removed.`
+      });
+    } catch (error) {
+      console.error('Error deleting model:', error);
+      toast.error('Failed to delete model', {
+        description: 'An error occurred while trying to delete the model.'
+      });
+    }
   };
   
   const handleAssignCamera = (modelId: string, camera: string) => {
@@ -219,6 +253,13 @@ const AIModelUpload: React.FC = () => {
     'Reception'
   ];
   
+  const enablePyTorchSupport = () => {
+    setForceAllowPyTorch(true);
+    toast.info('PyTorch support enabled for this upload', {
+      description: 'You can now upload the PyTorch model. Note that functionality may be limited.',
+    });
+  };
+  
   return (
     <div className="space-y-6">
       <Card>
@@ -238,20 +279,49 @@ const AIModelUpload: React.FC = () => {
               <Input 
                 id="model-file" 
                 type="file" 
-                accept=".pt,.onnx,.tflite,.pb" 
+                accept=".pt,.onnx,.tflite,.pb,.pth" 
                 onChange={handleFileChange}
                 disabled={isUploading}
               />
-              <p className="text-xs text-muted-foreground">
-                Supported formats: ONNX (recommended), TFLite, PyTorch (beta), TensorFlow
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Supported formats: ONNX (recommended), TFLite, PyTorch (beta), TensorFlow
+                </p>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                        <Info className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="w-80">
+                      <p className="text-sm">
+                        <strong>ONNX format</strong> is recommended for best compatibility and performance. 
+                        PyTorch models may have limited functionality.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
               {isPyTorch && (
-                <div className="mt-2 flex items-start gap-2 p-2 bg-amber-50 border border-amber-200 rounded-md">
-                  <AlertCircle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                  <div className="text-xs text-amber-800">
-                    <p className="font-medium">PyTorch model detected</p>
-                    <p>PyTorch model support is in beta. For best results, consider converting your model to ONNX format.</p>
+                <div className="mt-2 flex flex-col gap-2">
+                  <div className="flex items-start gap-2 p-2 bg-amber-50 border border-amber-200 rounded-md">
+                    <AlertCircle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-amber-800">
+                      <p className="font-medium">PyTorch model detected</p>
+                      <p>PyTorch model support is in beta. For best results, consider converting your model to ONNX format.</p>
+                    </div>
                   </div>
+                  {!forceAllowPyTorch && (
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={enablePyTorchSupport}
+                      className="w-full"
+                    >
+                      Enable PyTorch Support
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -291,7 +361,11 @@ const AIModelUpload: React.FC = () => {
           </div>
         </CardContent>
         <CardFooter className="flex justify-end">
-          <Button variant="default" onClick={handleUpload} disabled={isUploading || !modelFile || !modelName.trim()}>
+          <Button 
+            variant="default" 
+            onClick={handleUpload} 
+            disabled={isUploading || !modelFile || !modelName.trim() || (isPyTorch && !forceAllowPyTorch)}
+          >
             {isUploading ? (
               <>
                 <Upload className="mr-2 h-4 w-4 animate-pulse" />
