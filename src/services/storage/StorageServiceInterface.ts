@@ -9,7 +9,7 @@ export interface ModelInfo {
 }
 
 export interface StorageServiceInterface {
-  uploadModel(file: File, name: string): Promise<ModelInfo>;
+  uploadModel(file: File, name: string, options?: any): Promise<ModelInfo>;
   listModels(): Promise<ModelInfo[]>;
   deleteModel(modelId: string): Promise<void>;
   setActiveModel(modelName: string, modelPath: string): Promise<void>;
