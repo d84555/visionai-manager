@@ -42,9 +42,17 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
     commonjsOptions: {
       transformMixedEsModules: true, // Handle both ES modules and CommonJS
     },
+    sourcemap: true, // Enable source maps for production builds too
+    minify: mode !== 'development', // Only minify in non-dev environments
   },
   define: {
     // Needed to fix "require is not defined" error
     global: 'globalThis',
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      // Enable source maps for dependencies too
+      sourcemap: true
+    }
   }
 }));

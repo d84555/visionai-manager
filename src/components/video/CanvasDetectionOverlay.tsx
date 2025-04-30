@@ -30,14 +30,15 @@ interface CanvasDetectionOverlayProps {
 }
 
 export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
-  detections = [], // Ensure detections is never undefined
+  detections = [], 
   videoRef, 
   minimal = false 
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // Main effect for drawing detections
   useEffect(() => {
-    // Ensure all required refs exist before proceeding
+    // IMPORTANT: Pre-initialize all variables to avoid temporal dead zone issues
     const canvas = canvasRef.current;
     const video = videoRef.current;
     
@@ -46,12 +47,16 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Set canvas dimensions to match video
+    // Function to update canvas dimensions
     const updateCanvasDimensions = () => {
       if (!canvas || !video) return;
       
-      const { videoWidth, videoHeight } = video;
-      const { width, height } = video.getBoundingClientRect();
+      // Get video dimensions - using separate variables to avoid TDZ
+      const videoWidth = video.videoWidth;
+      const videoHeight = video.videoHeight;
+      const rect = video.getBoundingClientRect();
+      const width = rect.width;
+      const height = rect.height;
       
       if (width && height) {
         canvas.width = width;
@@ -64,46 +69,41 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({
       }
     };
     
-    // Initial setup and on resize
-    updateCanvasDimensions();
-    window.addEventListener('resize', updateCanvasDimensions);
-    
-    // Clear existing drawings and draw new ones
+    // Function to draw all detections
     const drawDetections = () => {
       if (!ctx || !canvas) return;
       
-      // Clear canvas
+      // Clear canvas first
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       // Safety check for detections
-      const safeDetections = Array.isArray(detections) ? detections : [];
-      if (safeDetections.length === 0) {
+      if (!Array.isArray(detections) || detections.length === 0) {
         return;
       }
       
-      // Draw each detection
-      for (let index = 0; index < safeDetections.length; index++) {
+      // Draw each detection with proper error handling
+      for (let i = 0; i < detections.length; i++) {
         try {
-          const detection = safeDetections[index];
+          const detection = detections[i];
           if (!detection) continue;
           
-          // Initialize variables before any calculations or destructuring
+          // Initialize ALL variables before any calculations
           let canvasX = 0;
           let canvasY = 0;
           let canvasWidth = 0;
           let canvasHeight = 0;
-          let color = 'red'; // Default color
+          let color = 'red';
           let validCoordinates = false;
           
-          // Get color based on model or class name
+          // Get model name safely without destructuring
           const modelName = detection.model || detection.label || '';
           color = getModelColor(modelName);
           
-          // Extract bbox coordinates safely using our utility
+          // Extract bbox coordinates safely
           const bbox = extractBboxCoordinates(detection);
           
           if (bbox.valid) {
-            // Convert normalized values (0-1) to canvas pixels
+            // Convert normalized coordinates to canvas pixels
             canvasX = bbox.x1 * canvas.width;
             canvasY = bbox.y1 * canvas.height;
             canvasWidth = (bbox.x2 - bbox.x1) * canvas.width;
@@ -124,20 +124,23 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({
           
           // Draw label for non-minimal mode
           if (!minimal) {
-            // Prepare label text - careful with destructuring and property access
+            // Prepare label text - avoid destructuring entirely
             let labelText = detection.label || 'Unknown';
-            const confidenceValue = detection.confidence || 0;
+            let confidenceValue = 0;
+            if (typeof detection.confidence === 'number') {
+              confidenceValue = detection.confidence;
+            }
             const roundedConfidence = Math.round(confidenceValue * 100);
             labelText = `${labelText} (${roundedConfidence}%)`;
             
             // Draw label background
             ctx.fillStyle = color;
-            const textMetrics = ctx.measureText(labelText);
+            const textWidth = ctx.measureText(labelText).width;
             const textHeight = 20; // Approximate height
             ctx.fillRect(
               canvasX, 
               canvasY - textHeight, 
-              textMetrics.width + 10, 
+              textWidth + 10, 
               textHeight
             );
             
@@ -151,14 +154,20 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({
             );
           }
         } catch (error) {
-          console.error('Error drawing detection:', error, safeDetections[index]);
+          console.error('Error drawing detection:', error);
+          // Continue with next detection
         }
       }
     };
     
-    // Draw immediately and whenever detections change
+    // Initial setup and event handlers
+    updateCanvasDimensions();
+    window.addEventListener('resize', updateCanvasDimensions);
+    
+    // Draw detections immediately
     drawDetections();
     
+    // Cleanup
     return () => {
       window.removeEventListener('resize', updateCanvasDimensions);
     };

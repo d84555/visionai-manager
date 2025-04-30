@@ -34,17 +34,17 @@ export function getModelColor(modelName: string): string {
     'default': '#FF0000'   // Default red
   };
   
-  // Try to find an exact match first
-  for (const [key, color] of Object.entries(colorMap)) {
+  // Check for exact match first
+  for (const key in colorMap) {
     if (normalizedName === key) {
-      return color;
+      return colorMap[key];
     }
   }
   
-  // Otherwise, check if the model name contains any of our keys
-  for (const [key, color] of Object.entries(colorMap)) {
+  // Check for partial match
+  for (const key in colorMap) {
     if (normalizedName.includes(key)) {
-      return color;
+      return colorMap[key];
     }
   }
   
@@ -60,7 +60,7 @@ export function extractBboxCoordinates(detection: any): {
   y2: number; 
   valid: boolean;
 } {
-  // Initialize result with defaults first before any other operations
+  // Initialize result with defaults
   const result = {
     x1: 0,
     y1: 0,
@@ -74,20 +74,22 @@ export function extractBboxCoordinates(detection: any): {
   
   try {
     // Handle YOLO-style center+dimensions format
-    if (typeof detection.x === 'number' && typeof detection.y === 'number' && 
-        typeof detection.width === 'number' && typeof detection.height === 'number') {
+    if (typeof detection.x === 'number' && 
+        typeof detection.y === 'number' && 
+        typeof detection.width === 'number' && 
+        typeof detection.height === 'number') {
       
-      // Temporarily store values in local variables to avoid "Cannot access before initialization" errors
-      const centerX = detection.x;
-      const centerY = detection.y;
+      // Store in local variables first
+      const x = detection.x;
+      const y = detection.y;
       const width = detection.width;
       const height = detection.height;
       
-      // Only set properties after all calculations are done
-      result.x1 = centerX - (width / 2);
-      result.y1 = centerY - (height / 2);
-      result.x2 = centerX + (width / 2);
-      result.y2 = centerY + (height / 2);
+      // Set properties after calculations
+      result.x1 = x - (width / 2);
+      result.y1 = y - (height / 2);
+      result.x2 = x + (width / 2);
+      result.y2 = y + (height / 2);
       result.valid = true;
       return result;
     }
@@ -96,20 +98,22 @@ export function extractBboxCoordinates(detection: any): {
     if (detection.bbox) {
       // Array format [x1, y1, x2, y2]
       if (Array.isArray(detection.bbox) && detection.bbox.length >= 4) {
-        // Store in temporary variables first to avoid temporal dead zone issues
-        const item0 = detection.bbox[0];
-        const item1 = detection.bbox[1];
-        const item2 = detection.bbox[2];
-        const item3 = detection.bbox[3];
+        const bboxArray = detection.bbox;
         
-        // Verify all values are numbers
-        if (typeof item0 === 'number' && typeof item1 === 'number' && 
-            typeof item2 === 'number' && typeof item3 === 'number' &&
-            !isNaN(item0) && !isNaN(item1) && !isNaN(item2) && !isNaN(item3)) {
-          result.x1 = item0;
-          result.y1 = item1;
-          result.x2 = item2;
-          result.y2 = item3;
+        // Check all values are valid numbers
+        if (typeof bboxArray[0] === 'number' && 
+            typeof bboxArray[1] === 'number' && 
+            typeof bboxArray[2] === 'number' && 
+            typeof bboxArray[3] === 'number' &&
+            !isNaN(bboxArray[0]) && 
+            !isNaN(bboxArray[1]) && 
+            !isNaN(bboxArray[2]) && 
+            !isNaN(bboxArray[3])) {
+          
+          result.x1 = bboxArray[0];
+          result.y1 = bboxArray[1];
+          result.x2 = bboxArray[2];
+          result.y2 = bboxArray[3];
           result.valid = true;
           return result;
         }
@@ -119,20 +123,20 @@ export function extractBboxCoordinates(detection: any): {
       if (typeof detection.bbox === 'object' && detection.bbox !== null) {
         const bbox = detection.bbox;
         
-        // Store in temporary variables first
-        const x1 = bbox.x1;
-        const y1 = bbox.y1;
-        const x2 = bbox.x2;
-        const y2 = bbox.y2;
-        
-        // Check each property individually
-        if (typeof x1 === 'number' && typeof y1 === 'number' && 
-            typeof x2 === 'number' && typeof y2 === 'number' &&
-            !isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
-          result.x1 = x1;
-          result.y1 = y1;
-          result.x2 = x2;
-          result.y2 = y2;
+        // Check each property individually without destructuring
+        if (typeof bbox.x1 === 'number' && 
+            typeof bbox.y1 === 'number' && 
+            typeof bbox.x2 === 'number' && 
+            typeof bbox.y2 === 'number' &&
+            !isNaN(bbox.x1) && 
+            !isNaN(bbox.y1) && 
+            !isNaN(bbox.x2) && 
+            !isNaN(bbox.y2)) {
+          
+          result.x1 = bbox.x1;
+          result.y1 = bbox.y1;
+          result.x2 = bbox.x2;
+          result.y2 = bbox.y2;
           result.valid = true;
           return result;
         }
@@ -169,23 +173,33 @@ export function convertToDisplayCoordinates(
   
   try {
     // Check inputs before calculations
-    if (typeof bbox !== 'object' || bbox === null ||
-        typeof bbox.x1 !== 'number' || typeof bbox.y1 !== 'number' ||
-        typeof bbox.x2 !== 'number' || typeof bbox.y2 !== 'number' ||
-        typeof displayWidth !== 'number' || typeof displayHeight !== 'number') {
+    if (typeof bbox !== 'object' || 
+        bbox === null ||
+        typeof bbox.x1 !== 'number' || 
+        typeof bbox.y1 !== 'number' ||
+        typeof bbox.x2 !== 'number' || 
+        typeof bbox.y2 !== 'number' ||
+        typeof displayWidth !== 'number' || 
+        typeof displayHeight !== 'number') {
       return result;
     }
     
-    // Convert normalized coordinates (0-1) to display pixels
-    result.x = bbox.x1 * displayWidth;
-    result.y = bbox.y1 * displayHeight;
-    result.width = (bbox.x2 - bbox.x1) * displayWidth;
-    result.height = (bbox.y2 - bbox.y1) * displayHeight;
+    // Convert normalized coordinates to display pixels
+    const x = bbox.x1 * displayWidth;
+    const y = bbox.y1 * displayHeight;
+    const width = (bbox.x2 - bbox.x1) * displayWidth;
+    const height = (bbox.y2 - bbox.y1) * displayHeight;
+    
+    // Assign calculated values
+    result.x = x;
+    result.y = y;
+    result.width = width;
+    result.height = height;
     
     // Check for valid dimensions
-    result.valid = result.width > 0 && result.height > 0 && 
-                  !isNaN(result.x) && !isNaN(result.y) && 
-                  !isNaN(result.width) && !isNaN(result.height);
+    result.valid = width > 0 && height > 0 && 
+                  !isNaN(x) && !isNaN(y) && 
+                  !isNaN(width) && !isNaN(height);
     
     return result;
   } catch (error) {
@@ -208,8 +222,10 @@ export function canSafelyRenderDetection(detection: any): boolean {
     if (detection.x !== undefined && detection.y !== undefined && 
         detection.width !== undefined && detection.height !== undefined) {
       // Check for valid numeric values
-      if (typeof detection.x !== 'number' || typeof detection.y !== 'number' || 
-          typeof detection.width !== 'number' || typeof detection.height !== 'number' ||
+      if (typeof detection.x !== 'number' || 
+          typeof detection.y !== 'number' || 
+          typeof detection.width !== 'number' || 
+          typeof detection.height !== 'number' ||
           isNaN(detection.x) || isNaN(detection.y) || 
           isNaN(detection.width) || isNaN(detection.height)) {
         return false;
@@ -222,19 +238,30 @@ export function canSafelyRenderDetection(detection: any): boolean {
       // Array format
       if (Array.isArray(detection.bbox)) {
         if (detection.bbox.length < 4) return false;
-        // Check all values are valid numbers
-        return detection.bbox.slice(0, 4).every(val => 
-          typeof val === 'number' && !isNaN(val));
+        
+        // Check all values are valid numbers - without destructuring
+        for (let i = 0; i < 4; i++) {
+          if (typeof detection.bbox[i] !== 'number' || isNaN(detection.bbox[i])) {
+            return false;
+          }
+        }
+        return true;
       }
       
       // Object format
       if (typeof detection.bbox === 'object' && detection.bbox !== null) {
         const bbox = detection.bbox;
+        
         // Check all required properties exist and are numbers
-        return ['x1', 'y1', 'x2', 'y2'].every(prop => {
+        const props = ['x1', 'y1', 'x2', 'y2'];
+        for (let i = 0; i < props.length; i++) {
+          const prop = props[i];
           const value = (bbox as any)[prop];
-          return typeof value === 'number' && !isNaN(value);
-        });
+          if (typeof value !== 'number' || isNaN(value)) {
+            return false;
+          }
+        }
+        return true;
       }
       
       return false;

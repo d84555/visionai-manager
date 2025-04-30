@@ -28,7 +28,7 @@ interface DetectionOverlayProps {
 }
 
 export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ 
-  detections = [], // Ensure detections is never undefined
+  detections = [], 
   minimal = false 
 }) => {
   const [visibleDetections, setVisibleDetections] = useState<Detection[]>([]);
@@ -45,25 +45,31 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
       
       if (detections.length > 0) {
         // Filter out any detections that can't be safely rendered
-        const safeDetections = detections.filter(det => {
-          if (!det) return false;
+        const safeDetections: Detection[] = [];
+        
+        for (let i = 0; i < detections.length; i++) {
+          const det = detections[i];
+          if (!det) continue;
+          
           try {
-            return canSafelyRenderDetection(det);
+            if (canSafelyRenderDetection(det)) {
+              safeDetections.push(det);
+            }
           } catch (err) {
             console.error("Invalid detection format:", err);
-            return false;
           }
-        });
+        }
         
-        // Sort by confidence before limiting
-        const sortedDetections = [...safeDetections].sort((a, b) => {
-          // Initialize confidence values before comparison
+        // Sort by confidence
+        const sortedDetections = [...safeDetections];
+        sortedDetections.sort((a, b) => {
+          // Initialize confidence values safely
           const confA = typeof a.confidence === 'number' ? a.confidence : 0;
           const confB = typeof b.confidence === 'number' ? b.confidence : 0;
           return confB - confA; 
         });
         
-        // Limit to max 50 detections to prevent rendering issues
+        // Limit to max 50 detections
         const limitedDetections = sortedDetections.slice(0, 50);
         setVisibleDetections(limitedDetections);
       } else {
@@ -71,7 +77,6 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
       }
     } catch (error) {
       console.error("Error processing detections:", error);
-      // Safely set empty array on error to prevent UI crashes
       setVisibleDetections([]);
     }
   }, [detections]);
@@ -82,14 +87,14 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
   }
 
   try {
-    // Get the video element to determine actual dimensions
+    // Get the video element
     const videoElement = document.querySelector('video');
     if (!videoElement) {
       console.log("No video element found for overlay");
       return null;
     }
     
-    // Get actual display dimensions of the video element
+    // Get actual display dimensions
     const videoBounds = videoElement.getBoundingClientRect();
     const displayWidth = videoBounds.width;
     const displayHeight = videoBounds.height;
@@ -99,8 +104,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
         {visibleDetections.map((detection, index) => {
           if (!detection) return null;
           
-          // Create a stable unique key for each detection that doesn't depend on object properties
-          // This helps avoid "Cannot access c before initialization" errors in React's internals
+          // Create a stable unique key 
           const uniqueKey = `detection-${index}-${Date.now()}`;
           
           return (
@@ -117,13 +121,12 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
       </>
     );
   } catch (error) {
-    // Catch any global rendering errors
     console.error("Critical error rendering detection overlay:", error);
     return null;
   }
 };
 
-// Separate component for individual detection boxes to isolate rendering issues
+// Separate component for individual detection boxes
 const DetectionBox: React.FC<{
   detection: Detection;
   displayWidth: number;
@@ -134,26 +137,26 @@ const DetectionBox: React.FC<{
   try {
     if (!detection) return null;
     
-    // Pre-initialize all needed variables to avoid 'Cannot access before initialization' errors
+    // Pre-initialize all needed variables 
     let displayX = 0;
     let displayY = 0;
     let displayBoxWidth = 0;
     let displayBoxHeight = 0;
-    let borderColor = '#FF0000'; // Default red
+    let borderColor = '#FF0000'; 
     let validCoordinates = false;
     
-    // Get the model name safely
+    // Get the model name safely  
     const modelName = detection.model || 
       (detection.label ? detection.label.split(':')[0].toLowerCase() : '') || '';
       
-    // Get color safely without destructuring
+    // Get color safely
     borderColor = getModelColor(modelName);
     
-    // Use our safe extraction utility to get coordinates
+    // Use extraction utility for coordinates
     const bbox = extractBboxCoordinates(detection);
     
     if (bbox.valid) {
-      // Convert normalized values (0-1) to display pixel coordinates
+      // Convert normalized values to display pixels
       displayX = bbox.x1 * displayWidth;
       displayY = bbox.y1 * displayHeight;
       displayBoxWidth = (bbox.x2 - bbox.x1) * displayWidth;
@@ -161,18 +164,22 @@ const DetectionBox: React.FC<{
       validCoordinates = true;
     }
     
-    // Skip invalid or tiny bounding boxes
-    if (!validCoordinates || displayBoxWidth < 1 || displayBoxHeight < 1 || 
-        isNaN(displayX) || isNaN(displayY) || 
-        isNaN(displayBoxWidth) || isNaN(displayBoxHeight)) {
+    // Skip invalid boxes
+    if (!validCoordinates || 
+        displayBoxWidth < 1 || 
+        displayBoxHeight < 1 || 
+        isNaN(displayX) || 
+        isNaN(displayY) || 
+        isNaN(displayBoxWidth) || 
+        isNaN(displayBoxHeight)) {
       return null;
     }
     
-    // Apply minimum size for very small detections
+    // Apply minimum size
     const finalBoxWidth = Math.max(displayBoxWidth, 10);
     const finalBoxHeight = Math.max(displayBoxHeight, 10);
     
-    // Prepare the label and confidence display safely
+    // Prepare the label and confidence display
     let labelText = detection.label || detection.class || 'Object';
     let confidenceValue = 0;
     
@@ -196,7 +203,7 @@ const DetectionBox: React.FC<{
           borderColor: borderColor,
           pointerEvents: 'none',
           zIndex: 50,
-          transition: 'none' // Remove any transition that might cause lag
+          transition: 'none'
         }}
       >
         <span 
@@ -213,7 +220,6 @@ const DetectionBox: React.FC<{
       </div>
     );
   } catch (renderError) {
-    // Log error but don't crash the entire UI
     console.error(`Error rendering detection ${index}:`, renderError);
     return null;
   }

@@ -13,8 +13,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
+import { v4 as uuidv4 } from 'uuid';
 
 const VideoPage = () => {
+  // Pre-initialize all state variables
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeModels, setActiveModels] = useState<{ name: string; path: string }[]>([]);
   const [gridLayout, setGridLayout] = useState<'1x1' | '2x2' | '3x3' | '4x4'>('2x2');
@@ -24,6 +26,7 @@ const VideoPage = () => {
   const [cameras, setCameras] = useState([]);
   const [availableModels, setAvailableModels] = useState<{id: string; name: string; path: string}[]>([]);
 
+  // Load saved settings
   useEffect(() => {
     const loadSavedSettings = async () => {
       try {
@@ -55,11 +58,13 @@ const VideoPage = () => {
     loadModels();
   }, []);
   
+  // Load cameras
   const loadCameras = () => {
     const loadedCameras = CameraService.getAllCameras();
     setCameras(loadedCameras);
   };
   
+  // Load AI models
   const loadModels = async () => {
     try {
       const storageService = StorageServiceFactory.getService();
@@ -73,7 +78,7 @@ const VideoPage = () => {
       
       setAvailableModels(formattedModels);
       
-      // Also try to get the active models
+      // Try to get active models
       try {
         const activeModels = await storageService.getActiveModels();
         if (activeModels && activeModels.length > 0) {
@@ -89,6 +94,7 @@ const VideoPage = () => {
     }
   };
 
+  // Save grid layout when changed
   useEffect(() => {
     SettingsService.saveGridLayout({
       layout: gridLayout,
@@ -96,15 +102,18 @@ const VideoPage = () => {
     });
   }, [gridLayout, streamType]);
 
+  // Save camera assignments when changed
   useEffect(() => {
     localStorage.setItem('camera-grid-assignments', JSON.stringify(cameraAssignments));
   }, [cameraAssignments]);
 
+  // Handle camera changes
   const handleCamerasChanged = () => {
     loadCameras();
     setRefreshKey(prev => prev + 1);
   };
 
+  // Handle single model selection
   const handleModelSelected = (modelName: string, modelPath: string) => {
     const newActiveModels = [{ name: modelName, path: modelPath }];
     setActiveModels(newActiveModels);
@@ -112,6 +121,7 @@ const VideoPage = () => {
     setRefreshKey(prev => prev + 1);
   };
   
+  // Handle multiple model selection
   const handleModelChange = (modelIds: string[]) => {
     const selectedModels = modelIds.map(id => {
       const model = availableModels.find(m => m.id === id);
@@ -121,7 +131,7 @@ const VideoPage = () => {
     setActiveModels(selectedModels);
     SettingsService.setActiveModels(selectedModels);
     
-    // Also set as active in the backend
+    // Set active in the backend
     const storageService = StorageServiceFactory.getService();
     storageService.setActiveModels(selectedModels)
       .then(() => {
@@ -140,6 +150,7 @@ const VideoPage = () => {
       });
   };
 
+  // Assign camera to grid position
   const handleAssignCamera = (cameraId: string, gridPositionId: string) => {
     const newAssignments = { ...cameraAssignments };
     newAssignments[gridPositionId] = cameraId;
@@ -148,6 +159,7 @@ const VideoPage = () => {
     localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
   };
 
+  // Clear camera assignment
   const handleClearAssignment = (gridPositionId: string) => {
     const newAssignments = { ...cameraAssignments };
     delete newAssignments[gridPositionId];
@@ -156,9 +168,9 @@ const VideoPage = () => {
     localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
   };
 
-  // Fix for duplicate key warnings - use completely unique keys
-  const gridKey = `grid-${refreshKey}-${crypto.randomUUID?.() || Math.random().toString(36)}`;
-  const videoFeedKey = `videofeed-${refreshKey}-${crypto.randomUUID?.() || Math.random().toString(36)}`;
+  // Generate truly unique keys to avoid any potential conflicts
+  const gridKey = `grid-${refreshKey}-${uuidv4()}`;
+  const videoFeedKey = `videofeed-${refreshKey}-${uuidv4()}`;
   
   return (
     <div className="space-y-6">
