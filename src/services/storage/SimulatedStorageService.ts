@@ -1,10 +1,9 @@
-
 import { StorageServiceInterface, ModelInfo } from './StorageServiceInterface';
 import SettingsService from '../SettingsService';
 
 export default class SimulatedStorageService implements StorageServiceInterface {
-  async uploadModel(file: File, name: string): Promise<ModelInfo> {
-    return SettingsService.uploadCustomModel(file, name);
+  async uploadModel(file: File, name: string, options?: any): Promise<ModelInfo> {
+    return SettingsService.uploadCustomModel(file, name, options);
   }
   
   async listModels(): Promise<ModelInfo[]> {

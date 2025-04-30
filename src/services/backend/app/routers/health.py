@@ -17,15 +17,20 @@ async def models_health_check():
     
     # Return status based on directory existence
     if os.path.exists(models_dir):
+        # Make sure we return models as an array for consistency with the frontend expectations
+        models = [f for f in os.listdir(models_dir) if os.path.isfile(os.path.join(models_dir, f))] if os.path.exists(models_dir) else []
+        
         return {
             "status": "ok", 
             "message": "Models API is available",
             "models_directory": models_dir,
-            "models_count": len([f for f in os.listdir(models_dir) if os.path.isfile(os.path.join(models_dir, f))]) if os.path.exists(models_dir) else 0
+            "models_count": len(models),
+            "models": models  # Return models as an array
         }
     else:
         return {
             "status": "warning",
             "message": "Models directory not found",
-            "models_directory": models_dir
+            "models_directory": models_dir,
+            "models": []  # Return empty array for consistency
         }

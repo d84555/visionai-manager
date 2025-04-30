@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 import { StorageServiceInterface, ModelInfo } from './StorageServiceInterface';
 
@@ -65,6 +66,28 @@ export default class APIStorageService implements StorageServiceInterface {
   async listModels(): Promise<ModelInfo[]> {
     try {
       const response = await axios.get(`${this.baseUrl}/models/list`);
+      
+      // Fix: Check if response.data is actually an array before using map
+      if (!Array.isArray(response.data)) {
+        console.warn('API response is not an array:', response.data);
+        
+        // If response.data has a models property that's an array, use that
+        if (response.data && Array.isArray(response.data.models)) {
+          return response.data.models.map((model: any) => ({
+            id: model.id,
+            name: model.name,
+            path: model.path,
+            fileSize: model.fileSize,
+            uploadDate: model.uploadDate,
+            format: this.getFormatFromPath(model.path)
+          }));
+        }
+        
+        // If not an array and no models property, return empty array
+        return [];
+      }
+      
+      // Original handling for when response.data is an array
       return response.data.map((model: any) => ({
         id: model.id,
         name: model.name,
@@ -141,6 +164,23 @@ export default class APIStorageService implements StorageServiceInterface {
   async getActiveModels(): Promise<{ name: string; path: string }[]> {
     try {
       const response = await axios.get(`${this.baseUrl}/models/active-multiple`);
+      
+      // Add handling for different response formats
+      if (!Array.isArray(response.data)) {
+        console.warn('Active models response is not an array:', response.data);
+        
+        // If response.data has a models property that's an array, use that
+        if (response.data && Array.isArray(response.data.models)) {
+          return response.data.models.map((model: any) => ({
+            name: model.name,
+            path: model.path
+          }));
+        }
+        
+        // If not an array and no models property, return empty array
+        return [];
+      }
+      
       return response.data.map((model: any) => ({
         name: model.name,
         path: model.path
