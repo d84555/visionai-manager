@@ -27,7 +27,10 @@ interface DetectionOverlayProps {
   minimal?: boolean;
 }
 
-export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, minimal = false }) => {
+export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ 
+  detections = [], // Ensure detections is never undefined
+  minimal = false 
+}) => {
   const [visibleDetections, setVisibleDetections] = useState<Detection[]>([]);
   
   // Process detections when they change
@@ -41,17 +44,11 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
       }
       
       if (detections.length > 0) {
-        console.log(`DetectionOverlay received ${detections.length} detections`);
-        
-        // Log detection format for first detection
-        if (detections[0]) {
-          console.log("First detection sample:", JSON.stringify(detections[0]));
-        }
-        
         // Filter out any detections that can't be safely rendered
         const safeDetections = detections.filter(det => {
+          if (!det) return false;
           try {
-            return det && canSafelyRenderDetection(det);
+            return canSafelyRenderDetection(det);
           } catch (err) {
             console.error("Invalid detection format:", err);
             return false;
@@ -59,15 +56,16 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
         });
         
         // Sort by confidence before limiting
-        const sortedDetections = safeDetections.sort((a, b) => 
-          ((b.confidence || 0) - (a.confidence || 0))
-        );
+        const sortedDetections = [...safeDetections].sort((a, b) => {
+          // Initialize confidence values before comparison
+          const confA = typeof a.confidence === 'number' ? a.confidence : 0;
+          const confB = typeof b.confidence === 'number' ? b.confidence : 0;
+          return confB - confA; 
+        });
         
         // Limit to max 50 detections to prevent rendering issues
         const limitedDetections = sortedDetections.slice(0, 50);
         setVisibleDetections(limitedDetections);
-        
-        console.log(`Filtered to ${limitedDetections.length} safe detections for rendering`);
       } else {
         setVisibleDetections([]);
       }
@@ -83,8 +81,8 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
     return null;
   }
 
-  // Get the video element to determine actual dimensions
   try {
+    // Get the video element to determine actual dimensions
     const videoElement = document.querySelector('video');
     if (!videoElement) {
       console.log("No video element found for overlay");
@@ -99,10 +97,12 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ detections, 
     return (
       <>
         {visibleDetections.map((detection, index) => {
-          // Create a stable unique key for each detection
-          const uniqueKey = `det-${detection.id || index}-${detection.label || 'unknown'}-${index}`;
+          if (!detection) return null;
           
-          // Wrap each detection rendering in its own try-catch to isolate failures
+          // Create a stable unique key for each detection that doesn't depend on object properties
+          // This helps avoid "Cannot access c before initialization" errors in React's internals
+          const uniqueKey = `detection-${index}-${Date.now()}`;
+          
           return (
             <DetectionBox 
               key={uniqueKey}
@@ -132,6 +132,8 @@ const DetectionBox: React.FC<{
   index: number;
 }> = ({ detection, displayWidth, displayHeight, minimal, index }) => {
   try {
+    if (!detection) return null;
+    
     // Pre-initialize all needed variables to avoid 'Cannot access before initialization' errors
     let displayX = 0;
     let displayY = 0;
@@ -140,10 +142,11 @@ const DetectionBox: React.FC<{
     let borderColor = '#FF0000'; // Default red
     let validCoordinates = false;
     
-    // Get the model color
-    const modelName = detection.label 
-      ? detection.label.split(':')[0].toLowerCase() 
-      : (detection.model || '');
+    // Get the model name safely
+    const modelName = detection.model || 
+      (detection.label ? detection.label.split(':')[0].toLowerCase() : '') || '';
+      
+    // Get color safely without destructuring
     borderColor = getModelColor(modelName);
     
     // Use our safe extraction utility to get coordinates
@@ -169,6 +172,19 @@ const DetectionBox: React.FC<{
     const finalBoxWidth = Math.max(displayBoxWidth, 10);
     const finalBoxHeight = Math.max(displayBoxHeight, 10);
     
+    // Prepare the label and confidence display safely
+    let labelText = detection.label || detection.class || 'Object';
+    let confidenceValue = 0;
+    
+    if (typeof detection.confidence === 'number') {
+      confidenceValue = detection.confidence;
+    }
+    
+    const roundedConfidence = Math.round(confidenceValue * 100);
+    const displayLabel = minimal ? 
+      labelText : 
+      `${labelText} (${roundedConfidence}%)`;
+    
     return (
       <div
         className="absolute border-2"
@@ -192,10 +208,7 @@ const DetectionBox: React.FC<{
             backgroundColor: borderColor
           }}
         >
-          {minimal ? 
-            detection.label || detection.class || 'Object' : 
-            `${detection.label || detection.class || 'Object'} (${Math.round((detection.confidence || 0) * 100)}%)`
-          }
+          {displayLabel}
         </span>
       </div>
     );

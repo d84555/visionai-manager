@@ -29,10 +29,15 @@ interface CanvasDetectionOverlayProps {
   minimal?: boolean;
 }
 
-export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ detections, videoRef, minimal = false }) => {
+export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
+  detections = [], // Ensure detections is never undefined
+  videoRef, 
+  minimal = false 
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
+    // Ensure all required refs exist before proceeding
     const canvas = canvasRef.current;
     const video = videoRef.current;
     
@@ -43,19 +48,19 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
     
     // Set canvas dimensions to match video
     const updateCanvasDimensions = () => {
-      if (canvas && video) {
-        const { videoWidth, videoHeight } = video;
-        const { width, height } = video.getBoundingClientRect();
+      if (!canvas || !video) return;
+      
+      const { videoWidth, videoHeight } = video;
+      const { width, height } = video.getBoundingClientRect();
+      
+      if (width && height) {
+        canvas.width = width;
+        canvas.height = height;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
         
-        if (width && height) {
-          canvas.width = width;
-          canvas.height = height;
-          canvas.style.width = `${width}px`;
-          canvas.style.height = `${height}px`;
-          
-          // Redraw detections when dimensions change
-          drawDetections();
-        }
+        // Redraw detections when dimensions change
+        drawDetections();
       }
     };
     
@@ -70,21 +75,19 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      // Debug: Log dimensions and detection count
-      console.log(`Drawing ${detections?.length || 0} detections on canvas ${canvas.width}x${canvas.height}`);
-      
       // Safety check for detections
-      if (!detections || detections.length === 0) {
+      const safeDetections = Array.isArray(detections) ? detections : [];
+      if (safeDetections.length === 0) {
         return;
       }
       
       // Draw each detection
-      for (let index = 0; index < detections.length; index++) {
+      for (let index = 0; index < safeDetections.length; index++) {
         try {
-          const detection = detections[index];
+          const detection = safeDetections[index];
           if (!detection) continue;
           
-          // Pre-initialize all possible variables for safety
+          // Initialize variables before any calculations or destructuring
           let canvasX = 0;
           let canvasY = 0;
           let canvasWidth = 0;
@@ -111,7 +114,7 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
           // Skip invalid boxes
           if (!validCoordinates || canvasWidth < 1 || canvasHeight < 1 || 
               isNaN(canvasX) || isNaN(canvasY) || isNaN(canvasWidth) || isNaN(canvasHeight)) {
-            continue; // Skip drawing this detection
+            continue;
           }
           
           // Draw bounding box
@@ -121,10 +124,11 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
           
           // Draw label for non-minimal mode
           if (!minimal) {
-            // Prepare label text
-            const labelText = detection.model 
-              ? `${detection.label || 'Unknown'} (${Math.round((detection.confidence || 0) * 100)}%)`
-              : `${detection.label || 'Unknown'} (${Math.round((detection.confidence || 0) * 100)}%)`;
+            // Prepare label text - careful with destructuring and property access
+            let labelText = detection.label || 'Unknown';
+            const confidenceValue = detection.confidence || 0;
+            const roundedConfidence = Math.round(confidenceValue * 100);
+            labelText = `${labelText} (${roundedConfidence}%)`;
             
             // Draw label background
             ctx.fillStyle = color;
@@ -147,7 +151,7 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
             );
           }
         } catch (error) {
-          console.error('Error drawing detection:', error, detections[index]);
+          console.error('Error drawing detection:', error, safeDetections[index]);
         }
       }
     };

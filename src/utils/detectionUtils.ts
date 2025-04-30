@@ -16,7 +16,7 @@ export interface BoundingBox {
 // Get a color based on the model name for consistent visualization
 export function getModelColor(modelName: string): string {
   // Default color for unknown models
-  if (!modelName) return '#FF0000'; // Red
+  if (!modelName || typeof modelName !== 'string') return '#FF0000'; // Red
   
   // Normalize the model name to handle case differences
   const normalizedName = modelName.toLowerCase();
@@ -60,7 +60,7 @@ export function extractBboxCoordinates(detection: any): {
   y2: number; 
   valid: boolean;
 } {
-  // Initialize result with defaults
+  // Initialize result with defaults first before any other operations
   const result = {
     x1: 0,
     y1: 0,
@@ -77,11 +77,13 @@ export function extractBboxCoordinates(detection: any): {
     if (typeof detection.x === 'number' && typeof detection.y === 'number' && 
         typeof detection.width === 'number' && typeof detection.height === 'number') {
       
+      // Temporarily store values in local variables to avoid "Cannot access before initialization" errors
       const centerX = detection.x;
       const centerY = detection.y;
       const width = detection.width;
       const height = detection.height;
       
+      // Only set properties after all calculations are done
       result.x1 = centerX - (width / 2);
       result.y1 = centerY - (height / 2);
       result.x2 = centerX + (width / 2);
@@ -94,14 +96,20 @@ export function extractBboxCoordinates(detection: any): {
     if (detection.bbox) {
       // Array format [x1, y1, x2, y2]
       if (Array.isArray(detection.bbox) && detection.bbox.length >= 4) {
-        const [x1, y1, x2, y2] = detection.bbox;
+        // Store in temporary variables first to avoid temporal dead zone issues
+        const item0 = detection.bbox[0];
+        const item1 = detection.bbox[1];
+        const item2 = detection.bbox[2];
+        const item3 = detection.bbox[3];
+        
         // Verify all values are numbers
-        if (typeof x1 === 'number' && typeof y1 === 'number' && 
-            typeof x2 === 'number' && typeof y2 === 'number') {
-          result.x1 = x1;
-          result.y1 = y1;
-          result.x2 = x2;
-          result.y2 = y2;
+        if (typeof item0 === 'number' && typeof item1 === 'number' && 
+            typeof item2 === 'number' && typeof item3 === 'number' &&
+            !isNaN(item0) && !isNaN(item1) && !isNaN(item2) && !isNaN(item3)) {
+          result.x1 = item0;
+          result.y1 = item1;
+          result.x2 = item2;
+          result.y2 = item3;
           result.valid = true;
           return result;
         }
@@ -110,13 +118,21 @@ export function extractBboxCoordinates(detection: any): {
       // Object format with {x1, y1, x2, y2}
       if (typeof detection.bbox === 'object' && detection.bbox !== null) {
         const bbox = detection.bbox;
+        
+        // Store in temporary variables first
+        const x1 = bbox.x1;
+        const y1 = bbox.y1;
+        const x2 = bbox.x2;
+        const y2 = bbox.y2;
+        
         // Check each property individually
-        if (typeof bbox.x1 === 'number' && typeof bbox.y1 === 'number' && 
-            typeof bbox.x2 === 'number' && typeof bbox.y2 === 'number') {
-          result.x1 = bbox.x1;
-          result.y1 = bbox.y1;
-          result.x2 = bbox.x2;
-          result.y2 = bbox.y2;
+        if (typeof x1 === 'number' && typeof y1 === 'number' && 
+            typeof x2 === 'number' && typeof y2 === 'number' &&
+            !isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+          result.x1 = x1;
+          result.y1 = y1;
+          result.x2 = x2;
+          result.y2 = y2;
           result.valid = true;
           return result;
         }
@@ -142,21 +158,39 @@ export function convertToDisplayCoordinates(
   height: number;
   valid: boolean;
 } {
+  // Initialize result before any calculations
+  const result = {
+    x: 0, 
+    y: 0, 
+    width: 0, 
+    height: 0, 
+    valid: false
+  };
+  
   try {
+    // Check inputs before calculations
+    if (typeof bbox !== 'object' || bbox === null ||
+        typeof bbox.x1 !== 'number' || typeof bbox.y1 !== 'number' ||
+        typeof bbox.x2 !== 'number' || typeof bbox.y2 !== 'number' ||
+        typeof displayWidth !== 'number' || typeof displayHeight !== 'number') {
+      return result;
+    }
+    
     // Convert normalized coordinates (0-1) to display pixels
-    const x = bbox.x1 * displayWidth;
-    const y = bbox.y1 * displayHeight;
-    const width = (bbox.x2 - bbox.x1) * displayWidth;
-    const height = (bbox.y2 - bbox.y1) * displayHeight;
+    result.x = bbox.x1 * displayWidth;
+    result.y = bbox.y1 * displayHeight;
+    result.width = (bbox.x2 - bbox.x1) * displayWidth;
+    result.height = (bbox.y2 - bbox.y1) * displayHeight;
     
     // Check for valid dimensions
-    const valid = width > 0 && height > 0 && 
-                !isNaN(x) && !isNaN(y) && !isNaN(width) && !isNaN(height);
+    result.valid = result.width > 0 && result.height > 0 && 
+                  !isNaN(result.x) && !isNaN(result.y) && 
+                  !isNaN(result.width) && !isNaN(result.height);
     
-    return { x, y, width, height, valid };
+    return result;
   } catch (error) {
     console.error('Error converting coordinates:', error);
-    return { x: 0, y: 0, width: 0, height: 0, valid: false };
+    return result;
   }
 }
 
@@ -166,7 +200,9 @@ export function canSafelyRenderDetection(detection: any): boolean {
   
   try {
     // Check for required properties
-    if (!detection.label) return false;
+    if (typeof detection.label !== 'string' && typeof detection.class !== 'string') {
+      return false;
+    }
     
     // Validate center+dimensions format
     if (detection.x !== undefined && detection.y !== undefined && 
@@ -186,17 +222,19 @@ export function canSafelyRenderDetection(detection: any): boolean {
       // Array format
       if (Array.isArray(detection.bbox)) {
         if (detection.bbox.length < 4) return false;
-        // Check all values are numbers
-        return detection.bbox.slice(0, 4).every(val => typeof val === 'number' && !isNaN(val));
+        // Check all values are valid numbers
+        return detection.bbox.slice(0, 4).every(val => 
+          typeof val === 'number' && !isNaN(val));
       }
       
       // Object format
       if (typeof detection.bbox === 'object' && detection.bbox !== null) {
         const bbox = detection.bbox;
         // Check all required properties exist and are numbers
-        return ['x1', 'y1', 'x2', 'y2'].every(prop => 
-          prop in bbox && typeof bbox[prop] === 'number' && !isNaN(bbox[prop])
-        );
+        return ['x1', 'y1', 'x2', 'y2'].every(prop => {
+          const value = (bbox as any)[prop];
+          return typeof value === 'number' && !isNaN(value);
+        });
       }
       
       return false;
