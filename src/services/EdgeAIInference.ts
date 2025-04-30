@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 import { toast } from 'sonner';
 
@@ -76,6 +77,15 @@ class WebSocketManager {
   public maxPendingRequests = 3; // Maximum number of in-flight requests
 
   constructor(private url: string) {}
+
+  // Add public getter methods for private properties
+  public getConnectionStatus(): boolean {
+    return this.isConnected;
+  }
+
+  public getPendingRequestsCount(): number {
+    return this.pendingRequests;
+  }
 
   connect(): Promise<boolean> {
     return new Promise((resolve, reject) => {
@@ -565,9 +575,10 @@ class EdgeAIInference {
   } {
     return {
       websocketAvailable: this.webSocketManager?.isWebSocketAvailable() || false,
+      // Use the getter methods instead of directly accessing private properties
       websocketConnected: this.useWebSocket && !!this.webSocketManager && 
-                          this.webSocketManager.isConnected || false,
-      pendingRequests: this.webSocketManager?.pendingRequests || this.pendingHttpRequests
+                          this.webSocketManager.getConnectionStatus() || false,
+      pendingRequests: this.webSocketManager?.getPendingRequestsCount() || this.pendingHttpRequests
     };
   }
 }
