@@ -71,15 +71,19 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       // Debug: Log dimensions and detection count
-      console.log(`Drawing ${detections.length} detections on canvas ${canvas.width}x${canvas.height}`);
+      console.log(`Drawing ${detections?.length || 0} detections on canvas ${canvas.width}x${canvas.height}`);
       
-      if (detections.length === 0) {
+      // Safety check for detections
+      if (!detections || detections.length === 0) {
         return;
       }
       
       // Draw each detection
-      detections.forEach((detection, index) => {
+      for (let index = 0; index < detections.length; index++) {
         try {
+          const detection = detections[index];
+          if (!detection) continue;
+          
           // Pre-initialize all possible variables for safety
           let canvasX = 0;
           let canvasY = 0;
@@ -107,7 +111,7 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
           // Skip invalid boxes
           if (!validCoordinates || canvasWidth < 1 || canvasHeight < 1 || 
               isNaN(canvasX) || isNaN(canvasY) || isNaN(canvasWidth) || isNaN(canvasHeight)) {
-            return; // Skip drawing this detection
+            continue; // Skip drawing this detection
           }
           
           // Draw bounding box
@@ -119,8 +123,8 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
           if (!minimal) {
             // Prepare label text
             const labelText = detection.model 
-              ? `${detection.label} (${Math.round((detection.confidence || 0) * 100)}%)`
-              : `${detection.label} (${Math.round((detection.confidence || 0) * 100)}%)`;
+              ? `${detection.label || 'Unknown'} (${Math.round((detection.confidence || 0) * 100)}%)`
+              : `${detection.label || 'Unknown'} (${Math.round((detection.confidence || 0) * 100)}%)`;
             
             // Draw label background
             ctx.fillStyle = color;
@@ -143,9 +147,9 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({ 
             );
           }
         } catch (error) {
-          console.error('Error drawing detection:', error, detection);
+          console.error('Error drawing detection:', error, detections[index]);
         }
-      });
+      }
     };
     
     // Draw immediately and whenever detections change

@@ -60,6 +60,7 @@ export function extractBboxCoordinates(detection: any): {
   y2: number; 
   valid: boolean;
 } {
+  // Initialize result with defaults
   const result = {
     x1: 0,
     y1: 0,
@@ -68,10 +69,13 @@ export function extractBboxCoordinates(detection: any): {
     valid: false
   };
   
+  // Safety check for null/undefined detection
+  if (!detection) return result;
+  
   try {
     // Handle YOLO-style center+dimensions format
-    if (detection.x !== undefined && detection.y !== undefined && 
-        detection.width !== undefined && detection.height !== undefined) {
+    if (typeof detection.x === 'number' && typeof detection.y === 'number' && 
+        typeof detection.width === 'number' && typeof detection.height === 'number') {
       
       const centerX = detection.x;
       const centerY = detection.y;
@@ -90,20 +94,25 @@ export function extractBboxCoordinates(detection: any): {
     if (detection.bbox) {
       // Array format [x1, y1, x2, y2]
       if (Array.isArray(detection.bbox) && detection.bbox.length >= 4) {
-        // Explicitly access by index rather than destructuring
-        result.x1 = detection.bbox[0];
-        result.y1 = detection.bbox[1];
-        result.x2 = detection.bbox[2];
-        result.y2 = detection.bbox[3];
-        result.valid = true;
-        return result;
+        const [x1, y1, x2, y2] = detection.bbox;
+        // Verify all values are numbers
+        if (typeof x1 === 'number' && typeof y1 === 'number' && 
+            typeof x2 === 'number' && typeof y2 === 'number') {
+          result.x1 = x1;
+          result.y1 = y1;
+          result.x2 = x2;
+          result.y2 = y2;
+          result.valid = true;
+          return result;
+        }
       }
       
       // Object format with {x1, y1, x2, y2}
       if (typeof detection.bbox === 'object' && detection.bbox !== null) {
         const bbox = detection.bbox;
         // Check each property individually
-        if ('x1' in bbox && 'y1' in bbox && 'x2' in bbox && 'y2' in bbox) {
+        if (typeof bbox.x1 === 'number' && typeof bbox.y1 === 'number' && 
+            typeof bbox.x2 === 'number' && typeof bbox.y2 === 'number') {
           result.x1 = bbox.x1;
           result.y1 = bbox.y1;
           result.x2 = bbox.x2;
@@ -116,7 +125,7 @@ export function extractBboxCoordinates(detection: any): {
     
     return result; // Returns with valid=false
   } catch (error) {
-    console.error('Error extracting bounding box coordinates:', error, detection);
+    console.error('Error extracting bounding box coordinates:', error);
     return result; // Returns with valid=false in case of error
   }
 }
@@ -163,7 +172,9 @@ export function canSafelyRenderDetection(detection: any): boolean {
     if (detection.x !== undefined && detection.y !== undefined && 
         detection.width !== undefined && detection.height !== undefined) {
       // Check for valid numeric values
-      if (isNaN(detection.x) || isNaN(detection.y) || 
+      if (typeof detection.x !== 'number' || typeof detection.y !== 'number' || 
+          typeof detection.width !== 'number' || typeof detection.height !== 'number' ||
+          isNaN(detection.x) || isNaN(detection.y) || 
           isNaN(detection.width) || isNaN(detection.height)) {
         return false;
       }
