@@ -1,7 +1,7 @@
 
 import { StorageServiceInterface } from './StorageServiceInterface';
-import { SimulatedStorageService } from './SimulatedStorageService';
-import { APIStorageService } from './APIStorageService';
+import SimulatedStorageService from './SimulatedStorageService';
+import APIStorageService from './APIStorageService';
 
 export type StorageMode = 'simulated' | 'api';
 
