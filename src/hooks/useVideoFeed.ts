@@ -90,6 +90,11 @@ export const useVideoFeed = ({
       
       socket.onopen = () => {
         console.log('WebSocket connection established');
+        // Send a ping message to test connection
+        socket.send(JSON.stringify({
+          type: 'ping',
+          message: 'Testing connection'
+        }));
       };
       
       socket.onmessage = (event) => {
@@ -220,6 +225,21 @@ export const useVideoFeed = ({
         isStreaming,
         alreadyProcessing: processingRef.current
       });
+      
+      // If we have video element but it's not fully ready, log more details
+      if (videoRef.current) {
+        console.log('Video element details:', {
+          readyState: videoRef.current.readyState,
+          videoWidth: videoRef.current.videoWidth,
+          videoHeight: videoRef.current.videoHeight,
+          currentSrc: videoRef.current.currentSrc,
+          networkState: videoRef.current.networkState,
+          paused: videoRef.current.paused
+        });
+      }
+      
+      // Schedule next check regardless
+      requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
       return;
     }
     
@@ -239,17 +259,29 @@ export const useVideoFeed = ({
       return;
     }
     
-    // Skip if the video is not properly loaded
+    // Enhanced video readiness check
     if (
-      videoRef.current.readyState !== 4 || 
+      !videoRef.current || 
+      videoRef.current.readyState < 2 || // HAVE_CURRENT_DATA or higher
       videoRef.current.videoWidth === 0 || 
-      videoRef.current.videoHeight === 0
+      videoRef.current.videoHeight === 0 ||
+      videoRef.current.paused
     ) {
-      console.log('Video not ready for frame processing', {
-        readyState: videoRef.current.readyState,
-        width: videoRef.current.videoWidth,
-        height: videoRef.current.videoHeight
+      console.log('Video not fully ready for frame processing', {
+        readyState: videoRef.current?.readyState,
+        width: videoRef.current?.videoWidth,
+        height: videoRef.current?.videoHeight,
+        paused: videoRef.current?.paused
       });
+      
+      // Add a force play attempt if video is paused
+      if (videoRef.current && videoRef.current.paused && isPlaying) {
+        console.log('Video is paused but should be playing, attempting to play...');
+        videoRef.current.play().catch(err => {
+          console.error('Error forcing video to play:', err);
+        });
+      }
+      
       requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
       return;
     }
@@ -294,6 +326,7 @@ export const useVideoFeed = ({
       
       // Draw the current video frame to the canvas
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      console.log(`Captured frame: ${canvas.width}x${canvas.height}`);
       
       // Get the image data as a Base64 string
       const imageData = canvas.toDataURL('image/jpeg', 0.7);
@@ -303,6 +336,7 @@ export const useVideoFeed = ({
       
       // Skip if no models are selected
       if (modelPaths.length === 0) {
+        console.log('No model paths available, skipping inference');
         processingRef.current = false;
         requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
         return;
@@ -310,14 +344,19 @@ export const useVideoFeed = ({
       
       // Log what models we're sending for detection
       console.log(`Sending frame for inference with models: ${currentActiveModels.map(m => m.name).join(', ')}`);
-      console.log('Model paths:', modelPaths);
+      
+      // Add timestamp for debugging
+      const timestamp = new Date().toISOString();
       
       // Send the frame for processing
       socketRef.current.send(JSON.stringify({
         modelPaths: modelPaths,
         imageData: imageData,
-        threshold: 0.5
+        threshold: 0.5,
+        timestamp: timestamp
       }));
+      
+      console.log(`Frame sent at ${timestamp}`);
     } catch (error) {
       console.error('Error processing frame:', error);
       processingRef.current = false;
@@ -384,6 +423,25 @@ export const useVideoFeed = ({
       // Start streaming
       setIsStreaming(true);
       setIsPlaying(true);
+      
+      // Ensure video element plays
+      if (videoRef.current) {
+        try {
+          console.log('Attempting to play video...');
+          const playPromise = videoRef.current.play();
+          
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
+              console.log('Video playback started successfully');
+            }).catch(error => {
+              console.error('Video playback failed:', error);
+              toast.error('Video playback failed. This may be due to browser autoplay policies.');
+            });
+          }
+        } catch (error) {
+          console.error('Error playing video:', error);
+        }
+      }
     }
   }, [videoUrl, hasUploadedFile, originalFile, initWebSocket]);
 
@@ -480,20 +538,24 @@ export const useVideoFeed = ({
   useEffect(() => {
     if (isStreaming && isPlaying) {
       console.log('Starting frame processing loop with active models:', activeModelsRef.current);
-      startFrameProcessing();
+      
+      // Short delay to ensure video has time to initialize
+      const timer = setTimeout(() => {
+        startFrameProcessing();
+      }, 500);
+      
+      return () => {
+        clearTimeout(timer);
+        if (requestAnimationFrameIdRef.current !== null) {
+          cancelAnimationFrame(requestAnimationFrameIdRef.current);
+          requestAnimationFrameIdRef.current = null;
+        }
+      };
     } else if (requestAnimationFrameIdRef.current !== null) {
       console.log('Stopping frame processing loop');
       cancelAnimationFrame(requestAnimationFrameIdRef.current);
       requestAnimationFrameIdRef.current = null;
     }
-    
-    return () => {
-      if (requestAnimationFrameIdRef.current !== null) {
-        console.log('Cleaning up frame processing on component unmount');
-        cancelAnimationFrame(requestAnimationFrameIdRef.current);
-        requestAnimationFrameIdRef.current = null;
-      }
-    };
   }, [isStreaming, isPlaying, startFrameProcessing]);
 
   // Clean up resources on unmount

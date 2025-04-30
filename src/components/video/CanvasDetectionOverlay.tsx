@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect } from 'react';
 import { extractBboxCoordinates, getModelColor } from '@/utils/detectionUtils';
 
@@ -71,7 +72,13 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({
       const width = rect.width;
       const height = rect.height;
       
-      console.log('Updating canvas dimensions:', { width, height, videoWidth, videoHeight });
+      console.log('Updating canvas dimensions:', { 
+        width, 
+        height, 
+        videoWidth, 
+        videoHeight,
+        videoReadyState: video.readyState
+      });
       
       if (width && height) {
         canvas.width = width;
@@ -190,12 +197,25 @@ export const CanvasDetectionOverlay: React.FC<CanvasDetectionOverlayProps> = ({
     updateCanvasDimensions();
     window.addEventListener('resize', updateCanvasDimensions);
     
+    // Add video event listeners to ensure canvas is updated when video changes
+    video.addEventListener('loadedmetadata', updateCanvasDimensions);
+    video.addEventListener('loadeddata', updateCanvasDimensions);
+    video.addEventListener('play', updateCanvasDimensions);
+    
     // Draw detections immediately
     drawDetections();
+    
+    // Also set up an interval to periodically check and update canvas dimensions
+    // This helps with videos that might change size or when video loads late
+    const dimensionsInterval = setInterval(updateCanvasDimensions, 1000);
     
     // Cleanup
     return () => {
       window.removeEventListener('resize', updateCanvasDimensions);
+      video.removeEventListener('loadedmetadata', updateCanvasDimensions);
+      video.removeEventListener('loadeddata', updateCanvasDimensions);
+      video.removeEventListener('play', updateCanvasDimensions);
+      clearInterval(dimensionsInterval);
     };
   }, [detections, videoRef, minimal]);
   
