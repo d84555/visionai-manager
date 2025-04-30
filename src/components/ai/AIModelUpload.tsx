@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -160,16 +161,16 @@ const AIModelUpload: React.FC = () => {
             });
           } catch (apiError) {
             console.warn('API upload failed, falling back to simulated upload:', apiError);
-            // Fall back to local simulated upload
-            uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName, uploadOptions);
+            // Fall back to local simulated upload - FIX HERE: The uploadCustomModel method only accepts 2 arguments
+            uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName);
             
             toast.success('AI Model Uploaded (Simulation)', {
               description: `${modelName} has been simulated as uploaded. (API unavailable)`,
             });
           }
         } else {
-          // API not available, use simulated storage
-          uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName, uploadOptions);
+          // API not available, use simulated storage - FIX HERE: The uploadCustomModel method only accepts 2 arguments
+          uploadResult = await SettingsService.uploadCustomModel(modelFile, modelName);
           
           toast.success('AI Model Uploaded (Simulation)', {
             description: `${modelName} has been simulated as uploaded. (API unavailable)`,
