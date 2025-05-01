@@ -13,9 +13,193 @@ import shutil
 import subprocess
 from pathlib import Path
 import tempfile
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api", tags=["inference"])
 logger = logging.getLogger(__name__)
+
+# Define the missing classes and functions that websocket.py is trying to import
+class Detection(BaseModel):
+    id: str
+    label: str
+    class_name: str = ""
+    class_id: int = 0
+    model: Optional[str] = None
+    confidence: float
+    x: float = 0.0
+    y: float = 0.0
+    width: float = 0.0
+    height: float = 0.0
+    bbox: Optional[Dict[str, float]] = None
+
+class InferenceResult(BaseModel):
+    detections: List[Detection]
+    inference_time: float
+    processed_at: str
+    timestamp: str
+
+def get_model_path(model_path: str) -> str:
+    """Resolve a model path to its filesystem location."""
+    models_dir = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"))
+    
+    # Check if the path is already absolute
+    if os.path.isabs(model_path) and os.path.exists(model_path):
+        return model_path
+        
+    # Check if the path exists relative to the models directory
+    resolved_path = os.path.join(models_dir, os.path.basename(model_path))
+    if os.path.exists(resolved_path):
+        return resolved_path
+        
+    # If it's a custom model with prefix in path
+    if "/custom_models/" in model_path or "\\custom_models\\" in model_path:
+        basename = os.path.basename(model_path)
+        custom_models_dir = os.path.join(models_dir, "custom_models")
+        os.makedirs(custom_models_dir, exist_ok=True)
+        resolved_path = os.path.join(custom_models_dir, basename)
+        if os.path.exists(resolved_path):
+            return resolved_path
+    
+    # Fall back to the original path as a last resort
+    return model_path
+
+def optimize_pytorch_model(model_path: str) -> str:
+    """Placeholder for PyTorch model optimization."""
+    # This is a placeholder function that simply returns the original model path
+    # In a real implementation, this would optimize the model for inference
+    logger.info(f"Optimizing model: {model_path}")
+    return model_path
+
+# Simulate YOLO availability
+try:
+    # Try importing YOLO dependencies
+    import torch
+    TORCH_AVAILABLE = True
+    try:
+        from ultralytics import YOLO
+        ULTRALYTICS_AVAILABLE = True
+    except ImportError:
+        ULTRALYTICS_AVAILABLE = False
+        YOLO = None
+        
+    # Check for CUDA
+    CUDA_AVAILABLE = torch.cuda.is_available() if TORCH_AVAILABLE else False
+    # Check for FP16 support
+    FP16_SUPPORTED = CUDA_AVAILABLE and torch.cuda.get_device_capability()[0] >= 7
+except ImportError:
+    TORCH_AVAILABLE = False
+    ULTRALYTICS_AVAILABLE = False
+    CUDA_AVAILABLE = False
+    FP16_SUPPORTED = False
+    YOLO = None
+
+def simulate_detection() -> List[Detection]:
+    """Generate simulated detections for testing when no model is available."""
+    detections = [
+        Detection(
+            id=f"sim_{uuid.uuid4()}",
+            label="Person",
+            class_name="person",
+            class_id=0,
+            confidence=0.95,
+            x=0.5,
+            y=0.5,
+            width=0.2,
+            height=0.4,
+            bbox={
+                "x1": 0.4,
+                "y1": 0.3,
+                "x2": 0.6,
+                "y2": 0.7,
+                "width": 0.2,
+                "height": 0.4
+            }
+        ),
+        Detection(
+            id=f"sim_{uuid.uuid4()}",
+            label="Car",
+            class_name="car",
+            class_id=2,
+            confidence=0.85,
+            x=0.7,
+            y=0.6,
+            width=0.15,
+            height=0.1,
+            bbox={
+                "x1": 0.625,
+                "y1": 0.55,
+                "x2": 0.775,
+                "y2": 0.65,
+                "width": 0.15,
+                "height": 0.1
+            }
+        )
+    ]
+    return detections
+
+def convert_ultralytics_results_to_detections(results, img_width: int, img_height: int, conf_threshold: float = 0.25, model_name: str = "") -> List[Detection]:
+    """Convert Ultralytics YOLO results to our Detection format."""
+    detections = []
+    try:
+        # Iterate through results (usually just one item for a single image)
+        for i, result in enumerate(results):
+            if hasattr(result, 'boxes'):
+                boxes = result.boxes
+                for j, box in enumerate(boxes):
+                    # Get box information
+                    conf = float(box.conf[0]) if hasattr(box, 'conf') and len(box.conf) > 0 else 0.0
+                    
+                    # Skip low confidence detections
+                    if conf < conf_threshold:
+                        continue
+                        
+                    # Get coordinates (normalized to 0-1)
+                    if hasattr(box, 'xywhn') and box.xywhn is not None:
+                        # Already normalized coordinates
+                        x, y, w, h = box.xywhn[0].tolist()
+                    elif hasattr(box, 'xyxy') and box.xyxy is not None:
+                        # Convert xyxy to xywh normalized
+                        x1, y1, x2, y2 = box.xyxy[0].tolist()
+                        x = (x1 + x2) / 2 / img_width
+                        y = (y1 + y2) / 2 / img_height
+                        w = (x2 - x1) / img_width
+                        h = (y2 - y1) / img_height
+                    else:
+                        continue
+                    
+                    # Get class information
+                    cls = int(box.cls[0]) if hasattr(box, 'cls') and box.cls is not None and len(box.cls) > 0 else 0
+                    label = result.names[cls] if hasattr(result, 'names') and result.names and cls in result.names else f"class_{cls}"
+                    
+                    # Calculate bbox in both formats
+                    bbox = {
+                        "x1": max(0, x - w/2),
+                        "y1": max(0, y - h/2),
+                        "x2": min(1, x + w/2),
+                        "y2": min(1, y + h/2),
+                        "width": w,
+                        "height": h
+                    }
+                    
+                    # Create detection object
+                    detection = Detection(
+                        id=f"{model_name}_{i}_{j}_{uuid.uuid4()}",
+                        label=label,
+                        class_name=label,
+                        class_id=cls,
+                        model=model_name,
+                        confidence=conf,
+                        x=x,
+                        y=y,
+                        width=w,
+                        height=h,
+                        bbox=bbox
+                    )
+                    detections.append(detection)
+    except Exception as e:
+        logger.error(f"Error converting model results to detections: {str(e)}")
+        
+    return detections
 
 # Create a transcoded videos directory if it doesn't exist
 temp_dir = Path(tempfile.gettempdir()) / "avianet_transcoded"
@@ -31,167 +215,13 @@ async def transcode_video(
     file: UploadFile = File(...),
     outputFormat: str = Form("mp4")
 ):
-    # Generate a unique ID for this transcoding job
-    job_id = str(uuid.uuid4())
+    # ... keep existing code
     
-    # Save the uploaded file to a temporary location
-    temp_input_path = temp_dir / f"input_{job_id}_{file.filename}"
-    with open(temp_input_path, "wb") as temp_file:
-        shutil.copyfileobj(file.file, temp_file)
-    
-    # Define the output path
-    output_extension = outputFormat.lower()
-    if output_extension not in ["mp4", "webm", "hls"]:
-        output_extension = "mp4"  # Default to MP4
-        
-    temp_output_path = temp_dir / f"output_{job_id}.{output_extension}"
-    
-    # Set the encoding parameters based on format
-    if output_extension == "mp4":
-        ffmpeg_cmd = [
-            "ffmpeg", 
-            "-i", str(temp_input_path),
-            "-c:v", "libx264", 
-            "-preset", "fast", 
-            "-c:a", "aac", 
-            "-movflags", "+faststart",
-            str(temp_output_path)
-        ]
-    elif output_extension == "webm":
-        ffmpeg_cmd = [
-            "ffmpeg", 
-            "-i", str(temp_input_path),
-            "-c:v", "libvpx", 
-            "-crf", "10", 
-            "-b:v", "1M",
-            "-c:a", "libvorbis", 
-            str(temp_output_path)
-        ]
-    elif output_extension == "hls":
-        # For HLS, we need to create segments
-        temp_output_path = temp_dir / f"output_{job_id}"
-        os.makedirs(temp_output_path, exist_ok=True)
-        master_playlist = temp_output_path / "master.m3u8"
-        
-        ffmpeg_cmd = [
-            "ffmpeg", 
-            "-i", str(temp_input_path),
-            "-c:v", "libx264", 
-            "-preset", "fast",
-            "-c:a", "aac", 
-            "-f", "hls",
-            "-hls_time", "4",
-            "-hls_playlist_type", "vod",
-            "-hls_segment_filename", f"{temp_output_path}/segment_%03d.ts",
-            str(master_playlist)
-        ]
-    
-    # Start the transcoding process
-    try:
-        logger.info(f"Starting transcoding job {job_id} for file {file.filename}")
-        logger.info(f"Running command: {' '.join(ffmpeg_cmd)}")
-        
-        # The command below is commented out in the simulation version
-        # In a real backend, this would execute the FFmpeg command
-        # process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # stdout, stderr = process.communicate()
-        
-        # For simulation, we'll just pretend it worked
-        # In a real implementation, check the return code of the process
-        
-        # Simulate delay
-        time.sleep(2)
-        
-        logger.info(f"Transcoding completed for job {job_id}")
-        
-        # Track the job
-        active_jobs[job_id] = {
-            "status": "completed",
-            "input_file": str(temp_input_path),
-            "output_file": str(temp_output_path),
-            "format": output_extension,
-            "created_at": time.time()
-        }
-        
-        # For simulation, create a dummy file
-        with open(temp_output_path, "wb") as f:
-            # Just write some bytes to simulate a video file
-            f.write(b"This is a simulated video file")
-        
-        # Return the transcoded file
-        return FileResponse(
-            path=temp_output_path,
-            media_type=f"video/{output_extension}",
-            filename=f"{os.path.splitext(file.filename)[0]}.{output_extension}"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error during transcoding: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Transcoding failed: {str(e)}")
-    finally:
-        # Clean up in background
-        background_tasks.add_task(cleanup_temp_files, job_id, str(temp_input_path), str(temp_output_path))
-
-def cleanup_temp_files(job_id: str, input_path: str, output_path: str):
-    """Clean up temporary files after they've been served."""
-    # Wait a bit to ensure the file has been served
-    time.sleep(300)  # 5 minutes
-    
-    try:
-        if os.path.exists(input_path):
-            os.remove(input_path)
-            logger.info(f"Removed temporary input file: {input_path}")
-            
-        if os.path.exists(output_path):
-            if os.path.isdir(output_path):
-                shutil.rmtree(output_path)
-            else:
-                os.remove(output_path)
-            logger.info(f"Removed temporary output file: {output_path}")
-            
-        # Remove the job from tracking
-        if job_id in active_jobs:
-            del active_jobs[job_id]
-    except Exception as e:
-        logger.error(f"Error cleaning up temporary files: {str(e)}")
-
-# Example endpoint for streaming inference
 @router.post("/inference")
 async def inference(request: Request):
     """
     Process an image for object detection
     """
-    try:
-        data = await request.json()
-        
-        # Simulate processing delay
-        time.sleep(0.2)
-        
-        # Return simulated detections
-        return {
-            "status": "success",
-            "detections": [
-                {
-                    "id": "det1",
-                    "label": "Person",
-                    "confidence": 0.95,
-                    "bbox": {"x1": 100, "y1": 200, "x2": 300, "y2": 400, "width": 200, "height": 200}
-                },
-                {
-                    "id": "det2",
-                    "label": "Car",
-                    "confidence": 0.85,
-                    "bbox": {"x1": 450, "y1": 300, "x2": 550, "y2": 350, "width": 100, "height": 50}
-                }
-            ],
-            "inferenceTime": 120,
-            "processedAt": "edge"
-        }
-    except Exception as e:
-        logger.error(f"Inference error: {str(e)}")
-        return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": f"Inference failed: {str(e)}"}
-        )
+    # ... keep existing code
 
 # Add more inference-related endpoints as needed

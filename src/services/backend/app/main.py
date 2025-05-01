@@ -36,11 +36,12 @@ ffmpeg_binary_path = os.environ.get("FFMPEG_BINARY_PATH", "ffmpeg")
 os.environ["FFMPEG_BINARY_PATH"] = ffmpeg_binary_path
 logger.info(f"Using FFmpeg binary path: {ffmpeg_binary_path}")
 
-# Include routers - make sure models router is included first for proper endpoint resolution
-app.include_router(models.router)    # Must be first to handle /models/upload route
+# Make sure inference router is included before websocket router
+# because websocket router depends on inference module's classes and functions
+app.include_router(inference.router)
+app.include_router(models.router)    
 app.include_router(websocket.router)
 app.include_router(health.router)
-app.include_router(inference.router)
 
 @app.get("/")
 async def root():
