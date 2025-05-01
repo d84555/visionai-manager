@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response
 from fastapi.responses import StreamingResponse
 import os
@@ -11,7 +10,7 @@ from pathlib import Path
 import time
 import json
 
-# Define the router with no prefix - we'll use routes like /transcode and /transcode/stream directly
+# Define the router with no prefix but explicitly setting the correct tags
 router = APIRouter(
     tags=["transcode"],
     responses={404: {"description": "Not found"}},
@@ -223,6 +222,9 @@ async def create_stream(
     """
     Create a streaming endpoint from an RTSP or other stream URL
     """
+    # Log the incoming request for debugging
+    logger.info(f"Received stream request with URL: {stream_url}, format: {output_format}")
+    
     # Generate unique stream ID
     stream_id = str(uuid.uuid4())
     
@@ -261,6 +263,8 @@ async def create_stream(
     
     # Construct the public URL for the stream
     stream_url = f"/transcode/stream/{stream_id}/index.m3u8"
+    
+    logger.info(f"Stream job created: {stream_id}, URL: {stream_url}")
     
     return {
         "stream_id": stream_id, 
@@ -348,10 +352,13 @@ async def get_stream_file(stream_id: str, file_name: str):
     """
     Serve HLS stream files
     """
+    logger.info(f"Requested stream file: {stream_id}/{file_name}")
+    
     stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
     file_path = os.path.join(stream_dir, file_name)
     
     if not os.path.exists(file_path):
+        logger.error(f"Stream file not found: {file_path}")
         raise HTTPException(status_code=404, detail="Stream file not found")
     
     # Determine content type

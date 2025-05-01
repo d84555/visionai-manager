@@ -36,12 +36,12 @@ ffmpeg_binary_path = os.environ.get("FFMPEG_BINARY_PATH", "ffmpeg")
 os.environ["FFMPEG_BINARY_PATH"] = ffmpeg_binary_path
 logger.info(f"Using FFmpeg binary path: {ffmpeg_binary_path}")
 
-# Include routers
+# Include routers - IMPORTANT: Do not add prefixes to transcode router
 app.include_router(inference.router)
 app.include_router(models.router)    
 app.include_router(websocket.router)
 app.include_router(health.router)
-app.include_router(transcode.router)  # Important: Include the transcode router directly without any prefix
+app.include_router(transcode.router)  # No prefix, will use routes directly as defined in router
 
 @app.get("/")
 async def root():

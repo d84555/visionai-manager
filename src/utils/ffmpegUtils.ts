@@ -117,7 +117,7 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
       formData.append('preset', ffmpegSettings.preset || 'fast');
       
       try {
-        // Make the API call to /transcode endpoint (no /api prefix)
+        // Make the API call to /transcode endpoint without any prefix
         const response = await axios.post('/transcode', formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
@@ -252,8 +252,13 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
     });
     
     try {
-      // Updated endpoint to match backend route - /transcode/stream
-      const response = await axios.post('/transcode/stream', formData);
+      // Direct URL to the /transcode/stream endpoint without any prefix
+      const response = await axios.post('/transcode/stream', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
       const { stream_id, stream_url, status } = response.data;
       
       console.log('Stream response received:', response.data);
@@ -262,7 +267,7 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
         throw new Error('Failed to start stream processing');
       }
       
-      // Return the stream URL
+      // Return the stream URL - this should be a publicly accessible URL
       toast.success('Stream ready', {
         description: 'Camera stream is now available for playback'
       });
@@ -275,7 +280,7 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
       if (error.response) {
         if (error.response.status === 404) {
           toast.error('Stream creation failed: Endpoint not found', {
-            description: 'The transcoding service may not be running or is unreachable. Check server logs.'
+            description: 'The transcoding service may not be running or is unreachable. Make sure the backend server is running and has the /transcode/stream endpoint configured.'
           });
         } else {
           toast.error(`Stream creation failed: Server returned ${error.response.status}`, {
