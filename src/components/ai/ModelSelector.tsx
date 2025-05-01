@@ -43,7 +43,24 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   const loadModels = async () => {
     try {
       const storageService = StorageServiceFactory.getService();
-      const customModels = await storageService.listModels();
+      let customModels;
+      
+      try {
+        // First attempt to load models from API
+        customModels = await storageService.listModels();
+      } catch (error) {
+        console.warn('API storage failed, falling back to simulated storage', error);
+        
+        // Fall back to simulated storage if API fails
+        StorageServiceFactory.setMode('simulated');
+        storageService = StorageServiceFactory.getService();
+        customModels = await storageService.listModels();
+        
+        // Notify user about the fallback
+        toast.warning('Using simulated storage mode due to API connectivity issues', {
+          description: 'Model operations will be simulated locally'
+        });
+      }
       
       const formattedCustomModels = customModels.map(model => ({
         id: model.id,
@@ -182,31 +199,89 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     setIsUploading(true);
     
     try {
-      const storageService = StorageServiceFactory.getService();
-      const uploadResult = await storageService.uploadModel(modelFile, modelName);
+      // Get the current storage service mode
+      const currentMode = StorageServiceFactory.getMode();
+      let storageService = StorageServiceFactory.getService();
       
-      if (isPyTorch) {
-        toast.success('PyTorch Model Uploaded (Beta)', {
-          description: 'Model uploaded successfully. Note that PyTorch support is in beta.'
+      try {
+        // Attempt the upload
+        const uploadResult = await storageService.uploadModel(modelFile, modelName, {
+          enablePyTorchSupport: isPyTorch
         });
-      } else {
-        toast.success('Model Uploaded', {
-          description: 'Model has been successfully uploaded and is ready to use.'
-        });
+        
+        if (isPyTorch) {
+          toast.success('PyTorch Model Uploaded (Beta)', {
+            description: 'Model uploaded successfully. Note that PyTorch support is in beta.'
+          });
+        } else {
+          toast.success('Model Uploaded', {
+            description: 'Model has been successfully uploaded and is ready to use.'
+          });
+        }
+        
+        // Reset form
+        setModelName('');
+        setModelFile(null);
+        setModelType('object-detection');
+        
+        // Reload models list
+        loadModels();
+        
+      } catch (error) {
+        console.error('Error uploading model with API storage:', error);
+        
+        // If in API mode and failed, try to fall back to simulated mode
+        if (currentMode === 'api') {
+          toast.warning('API upload failed, falling back to simulation mode', {
+            description: 'The model will be stored locally in your browser.'
+          });
+          
+          try {
+            // Try with simulated storage as fallback
+            StorageServiceFactory.setMode('simulated');
+            storageService = StorageServiceFactory.getService();
+            
+            const uploadResult = await storageService.uploadModel(modelFile, modelName, {
+              enablePyTorchSupport: isPyTorch
+            });
+            
+            toast.success('Model Uploaded (Simulation Mode)', {
+              description: 'Model has been stored in browser local storage.'
+            });
+            
+            // Reset form
+            setModelName('');
+            setModelFile(null);
+            setModelType('object-detection');
+            
+            // Update storage mode state
+            setStorageMode('simulated');
+            
+            // Reload models list
+            loadModels();
+            
+          } catch (fallbackError) {
+            console.error('Fallback to simulated storage also failed:', fallbackError);
+            throw error; // Throw original error
+          }
+        } else {
+          throw error; // Not in API mode, so just throw the error
+        }
       }
-      
-      setModelName('');
-      setModelFile(null);
-      setModelType('object-detection');
-      
-      loadModels();
     } catch (error) {
       console.error('Error uploading model:', error);
-      toast.error('Failed to upload model', {
-        description: isPyTorch 
-          ? 'Error uploading PyTorch model. This feature is in beta.'
-          : 'Please try again or check your connection.'
-      });
+      
+      let errorMessage = 'Failed to upload model. Please try again or check your connection.';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(isPyTorch 
+        ? 'Failed to upload PyTorch model'
+        : 'Failed to upload model', 
+        { description: errorMessage }
+      );
     } finally {
       setIsUploading(false);
     }

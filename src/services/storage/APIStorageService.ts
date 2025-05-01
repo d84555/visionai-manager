@@ -1,4 +1,3 @@
-
 import axios from 'axios';
 import { StorageServiceInterface, ModelInfo } from './StorageServiceInterface';
 
@@ -27,7 +26,7 @@ export default class APIStorageService implements StorageServiceInterface {
         }
       }
       
-      // Updated endpoint to use health/models/upload
+      // Updated endpoint to match the backend route structure
       const response = await axios.post(`${this.baseUrl}/health/models/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
