@@ -31,8 +31,8 @@ os.makedirs(models_dir, exist_ok=True)
 os.environ["MODELS_DIR"] = models_dir
 logger.info(f"Using models directory: {models_dir}")
 
-# Include routers - order matters for endpoint resolution
-app.include_router(models.router)  # Include models router first for /models/upload
+# Include routers - make sure models router is included first for proper endpoint resolution
+app.include_router(models.router)    # Must be first to handle /models/upload route
 app.include_router(websocket.router)
 app.include_router(health.router)
 app.include_router(inference.router)

@@ -22,6 +22,9 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 # Create Router
 router = APIRouter(prefix="/models", tags=["models"])
 
+# Log the router setup for debugging
+logger.info(f"Models router initialized with prefix /models and models directory: {MODELS_DIR}")
+
 class ModelRequest(BaseModel):
     name: str
     path: str
@@ -89,13 +92,14 @@ def get_models() -> List[Dict[str, Any]]:
 @router.get("/list")
 async def list_models() -> List[Dict[str, Any]]:
     """List all available models"""
+    logger.info("Models router: Received request to list models")
     return get_models()
 
 @router.post("/upload")
 async def upload_model(file: UploadFile = File(...), name: str = Form("")):
     """Upload a new AI model"""
     try:
-        logger.info(f"Models router: Received model upload request for {name}")
+        logger.info(f"Models router: Received model upload request for {name or file.filename}")
         
         # Ensure the models directory exists
         os.makedirs(MODELS_DIR, exist_ok=True)

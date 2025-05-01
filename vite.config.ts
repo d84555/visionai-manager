@@ -16,6 +16,12 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
         ws: true,
         changeOrigin: true,
       },
+      // Add proxy for API endpoints (including model routes)
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, '')
+      },
       // Add proxy for local FFmpeg access if needed
       '/api/ffmpeg': {
         target: 'http://localhost:8000',
