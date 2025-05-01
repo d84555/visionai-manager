@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { convertToPlayableFormat, detectVideoFormat, createHlsStream } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
@@ -78,6 +79,38 @@ export const useVideoFeed = ({
     activeModelsRef.current = activeModels;
     console.log('Active models updated:', activeModels);
   }, [activeModels]);
+
+  // Define stopStream function before it's used
+  const stopStream = useCallback(() => {
+    // Signal not to attempt reconnection
+    if (socketRef.current) {
+      retryConnectionRef.current = true;
+    }
+    
+    setIsStreaming(false);
+    setIsPlaying(false);
+    setDetections([]);
+    setInferenceLocation(null);
+    setInferenceTime(null);
+    setActualFps(null);
+    setFormatNotSupported(false);
+    setIsLiveStream(false);
+    
+    // Cancel any pending animation frame
+    if (requestAnimationFrameIdRef.current !== null) {
+      cancelAnimationFrame(requestAnimationFrameIdRef.current);
+      requestAnimationFrameIdRef.current = null;
+    }
+    
+    // Close WebSocket connection
+    if (socketRef.current) {
+      socketRef.current.close();
+      socketRef.current = null;
+    }
+    
+    // Reset connection attempts
+    connectionAttemptsRef.current = 0;
+  }, []);
 
   // Initialize WebSocket connection with retry logic
   const initWebSocket = useCallback(() => {
@@ -473,38 +506,6 @@ export const useVideoFeed = ({
     }
   }, [videoUrl, hasUploadedFile, initWebSocket, processRtspStream, isStreamingUrl, stopStream]);
 
-  // Stop streaming
-  const stopStream = useCallback(() => {
-    // Signal not to attempt reconnection
-    if (socketRef.current) {
-      retryConnectionRef.current = true;
-    }
-    
-    setIsStreaming(false);
-    setIsPlaying(false);
-    setDetections([]);
-    setInferenceLocation(null);
-    setInferenceTime(null);
-    setActualFps(null);
-    setFormatNotSupported(false);
-    setIsLiveStream(false);
-    
-    // Cancel any pending animation frame
-    if (requestAnimationFrameIdRef.current !== null) {
-      cancelAnimationFrame(requestAnimationFrameIdRef.current);
-      requestAnimationFrameIdRef.current = null;
-    }
-    
-    // Close WebSocket connection
-    if (socketRef.current) {
-      socketRef.current.close();
-      socketRef.current = null;
-    }
-    
-    // Reset connection attempts
-    connectionAttemptsRef.current = 0;
-  }, []);
-
   // Toggle play/pause
   const togglePlayPause = useCallback(() => {
     if (!videoRef.current) return;
@@ -704,7 +705,7 @@ export const useVideoFeed = ({
     handleVideoError,
     setHasUploadedFile,
     setOriginalFile,
-    originalFile,  // Added originalFile to the return value
+    originalFile,
     processRtspStream,
     isStreamingUrl
   };
