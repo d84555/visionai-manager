@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { convertToPlayableFormat, detectVideoFormat, createHlsStream } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
@@ -431,94 +430,48 @@ export const useVideoFeed = ({
       }
     }
     
-    // Handle uploaded files with potential format issues
-    if (hasUploadedFile && originalFile) {
-      setIsProcessing(true);
+    // Initialize WebSocket connection for any type of video
+    initWebSocket();
       
+    // Start streaming
+    setIsStreaming(true);
+    setIsPlaying(true);
+    
+    // Ensure video element plays
+    if (videoRef.current) {
       try {
-        // Check if it's a special format
-        const formatInfo = detectVideoFormat(originalFile);
-        setIsHikvisionFormat(formatInfo.isHikvision || false);
+        console.log('Attempting to play video...');
         
-        // If format requires transcoding
-        if (formatInfo.requiresTranscoding) {
-          setIsTranscoding(true);
-          
-          // Convert to playable format
-          const playableUrl = await convertToPlayableFormat(originalFile);
-          setVideoUrl(playableUrl);
-          setIsTranscoding(false);
-        }
-        
-        // Model loading can proceed in parallel with conversion
-        if (activeModelsRef.current.length > 0) {
-          setIsModelLoading(true);
-          setTimeout(() => { setIsModelLoading(false); }, 1500);
-        }
-        
-        // Initialize WebSocket connection
-        initWebSocket();
-        
-        // Start streaming
-        setIsStreaming(true);
-        setIsPlaying(true);
-      } catch (error) {
-        console.error('Error processing video file:', error);
-        toast.error('Failed to process video file', {
-          description: 'The file format may not be supported. Please try a different file or use the server-side transcoding option.'
-        });
-        setFormatNotSupported(true);
-      } finally {
-        setIsProcessing(false);
-      }
-    } else {
-      // Standard video streaming (URL)
-      if (activeModelsRef.current.length > 0) {
-        setIsModelLoading(true);
-        
-        // Simulate model loading time
+        // Add a small delay to ensure the video element has loaded properly
         setTimeout(() => {
-          setIsModelLoading(false);
-        }, 1500);
-      }
-      
-      // Initialize WebSocket connection
-      initWebSocket();
-      
-      // Start streaming
-      setIsStreaming(true);
-      setIsPlaying(true);
-      
-      // Ensure video element plays
-      if (videoRef.current) {
-        try {
-          console.log('Attempting to play video...');
-          const playPromise = videoRef.current.play();
-          
-          if (playPromise !== undefined) {
-            playPromise.then(() => {
-              console.log('Video playback started successfully');
-            }).catch(error => {
-              console.error('Error forcing video to play:', error);
-              
-              // Handle unsupported format
-              if (error.name === 'NotSupportedError') {
-                toast.error('Video format not supported', {
-                  description: 'This video format cannot be played in your browser. Please use server-side transcoding or upload a compatible format like MP4.'
-                });
-                setFormatNotSupported(true);
-                stopStream();
-              } else {
-                toast.error('Video playback failed. This may be due to browser autoplay policies.');
-              }
-            });
+          if (videoRef.current) {
+            const playPromise = videoRef.current.play();
+            
+            if (playPromise !== undefined) {
+              playPromise.then(() => {
+                console.log('Video playback started successfully');
+              }).catch(error => {
+                console.error('Error forcing video to play:', error);
+                
+                // Handle unsupported format
+                if (error.name === 'NotSupportedError') {
+                  toast.error('Video format not supported', {
+                    description: 'This video format cannot be played in your browser. Please enable server-side transcoding in Settings.'
+                  });
+                  setFormatNotSupported(true);
+                  stopStream();
+                } else {
+                  toast.error('Video playback failed. This may be due to browser autoplay policies.');
+                }
+              });
+            }
           }
-        } catch (error) {
-          console.error('Error playing video:', error);
-        }
+        }, 500);
+      } catch (error) {
+        console.error('Error playing video:', error);
       }
     }
-  }, [videoUrl, hasUploadedFile, originalFile, initWebSocket, processRtspStream, isStreamingUrl]);
+  }, [videoUrl, hasUploadedFile, initWebSocket, processRtspStream, isStreamingUrl, stopStream]);
 
   // Stop streaming
   const stopStream = useCallback(() => {
@@ -564,7 +517,7 @@ export const useVideoFeed = ({
         console.error('Error forcing video to play:', err);
         if (err.name === 'NotSupportedError') {
           toast.error('Video format not supported', {
-            description: 'This video format cannot be played in your browser. Please use server-side transcoding or upload a compatible format like MP4.'
+            description: 'This video format cannot be played in your browser. Please enable server-side transcoding in Settings.'
           });
           setFormatNotSupported(true);
         }
@@ -578,23 +531,35 @@ export const useVideoFeed = ({
     setOriginalFile(file);
     setHasUploadedFile(true);
     setIsLiveStream(false);
+    setVideoUrl(''); // Clear existing URL while processing
     
     // Check file format
     const formatInfo = detectVideoFormat(file);
     setIsHikvisionFormat(formatInfo.isHikvision || false);
     
-    // If format requires transcoding, don't set URL yet
-    // It will be handled in startStream
-    if (!formatInfo.requiresTranscoding) {
-      setVideoUrl(URL.createObjectURL(file));
-    } else {
-      // Clear URL as we'll replace it after conversion
-      setVideoUrl('');
-    }
-    
-    // Stop any existing stream
-    if (isStreaming) {
-      stopStream();
+    // Always process the file through convertToPlayableFormat
+    // This ensures browser compatibility regardless of what the detectVideoFormat returns
+    setIsProcessing(true);
+    try {
+      toast.info('Processing video file', {
+        description: 'Converting to web-compatible format...'
+      });
+      
+      const playableUrl = await convertToPlayableFormat(file);
+      setVideoUrl(playableUrl);
+      
+      // Stop any existing stream
+      if (isStreaming) {
+        stopStream();
+      }
+    } catch (error) {
+      console.error('Error processing uploaded video:', error);
+      toast.error('Failed to process video', {
+        description: 'The file format may not be supported. Please try a different format or use server transcoding.'
+      });
+      setFormatNotSupported(true);
+    } finally {
+      setIsProcessing(false);
     }
   }, [isStreaming, stopStream]);
 

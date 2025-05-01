@@ -1,4 +1,3 @@
-
 import SettingsService from '@/services/SettingsService';
 import { toast } from 'sonner';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -62,15 +61,19 @@ export const detectVideoFormat = (file: File): {
   // Get file extension
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
   
-  // Check for known problematic formats
-  const problematicFormats = ['avi', 'mkv', 'h265', 'ts', 'dav', 'raw', 'h264'];
+  // Enhanced problematic formats list
+  const problematicFormats = ['avi', 'mkv', 'h265', 'ts', 'dav', 'raw', 'h264', 'mp4v'];
   const isHikvision = extension === 'dav' || file.type === 'video/x-dav';
+  
+  // Force transcoding for most formats to ensure compatibility
+  const forceTranscode = true; // Set to true to ensure all uploads are transcoded
   
   // Check if this is a problematic format
   if (problematicFormats.includes(extension) || 
       file.type === 'application/octet-stream' ||
       file.type === 'video/x-dav' ||
-      !file.type.startsWith('video/')) {
+      !file.type.startsWith('video/') ||
+      forceTranscode) {
     
     return {
       isSupported: false,
@@ -80,11 +83,11 @@ export const detectVideoFormat = (file: File): {
     };
   }
   
-  // Check against browser-supported formats
+  // Even for "supported" formats, we'll recommend transcoding
   return {
     isSupported: !!supportedFormats[file.type],
     format: file.type,
-    requiresTranscoding: !supportedFormats[file.type],
+    requiresTranscoding: true, // Always transcode to ensure compatibility
     isHikvision
   };
 };
@@ -259,29 +262,27 @@ export const convertToPlayableFormat = async (videoFile: File): Promise<string> 
     const ffmpegSettings = SettingsService.getSettings('ffmpeg');
     const formatInfo = detectVideoFormat(videoFile);
     
-    // Determine if this is a format requiring transcoding
-    if (formatInfo.requiresTranscoding) {
-      console.log(`File type ${videoFile.type || formatInfo.format} needs transcoding`);
-      toast.info("Processing video format", {
-        description: "Converting to web-compatible format for playback"
-      });
-      
-      // If server-side transcoding is enabled, use that
-      if (ffmpegSettings.serverTranscoding) {
-        return serverTranscodeVideo(videoFile);
-      }
-      
-      // If Hikvision format, use special handling
-      if (formatInfo.isHikvision) {
-        return convertDavToMP4(videoFile);
-      }
-      
-      // For other formats, try client-side transcoding
-      return clientSideProcessVideo(videoFile);
+    // Always prefer server-side transcoding if available
+    if (ffmpegSettings.serverTranscoding) {
+      console.log(`Using server-side transcoding for ${videoFile.name}`);
+      return serverTranscodeVideo(videoFile);
     }
     
-    // For standard formats that browsers can play natively
-    return URL.createObjectURL(videoFile);
+    // If Hikvision format and client-side processing is available
+    if (formatInfo.isHikvision) {
+      try {
+        return convertDavToMP4(videoFile);
+      } catch (error) {
+        console.error("Failed to convert DAV file:", error);
+        // Fall back to direct URL creation but with warning
+        toast.warning("Special format detected but conversion failed", {
+          description: "Video may not play correctly. Enable server-side transcoding in Settings."
+        });
+      }
+    }
+    
+    // For client-side handling of other formats
+    return clientSideProcessVideo(videoFile);
   } catch (error) {
     console.error('Error handling video:', error);
     toast.error('Video format processing failed', {

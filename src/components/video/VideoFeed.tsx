@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Camera, VideoIcon, Loader, Server, FileVideo, Network, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -444,7 +443,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                   <FileVideo className="text-gray-400 mr-1" size={14} />
                   <p className="text-xs text-muted-foreground">
                     Supports MP4, WebM, Hikvision DAV, AVI, MKV, H.264/H.265, and other NVR export formats
-                    {ffmpegSettings.serverTranscoding && " (Server transcoding enabled)"}
+                    {ffmpegSettings.serverTranscoding ? " (Server transcoding enabled)" : " (Enable server transcoding in Settings for better compatibility)"}
                   </p>
                 </div>
                 
