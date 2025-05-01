@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Camera, VideoIcon, Loader, Server } from 'lucide-react';
+import { AlertTriangle, Camera, VideoIcon, Loader, Server, FileVideo } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,7 @@ import { DemoVideoButtons } from './DemoVideoButtons';
 import SettingsService from '@/services/SettingsService';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface VideoFeedProps {
   initialVideoUrl?: string;
@@ -60,8 +62,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
 }) => {
   const [selectedModels, setSelectedModels] = useState<{name: string; path: string}[]>([]);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
+  const [ffmpegSettings, setFfmpegSettings] = useState<any>({});
 
   useEffect(() => {
+    // Load FFmpeg settings
+    const settings = SettingsService.getSettings('ffmpeg');
+    setFfmpegSettings(settings);
+    
     const loadModels = async () => {
       try {
         const storageService = StorageServiceFactory.getService();
@@ -114,6 +121,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     isHikvisionFormat,
     setIsHikvisionFormat,
     isModelLoading,
+    isTranscoding,
+    formatNotSupported,
     videoRef,
     containerRef,
     startStream,
@@ -171,11 +180,20 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   if (!showControls) {
     return (
       <div className="video-feed relative" ref={containerRef}>
-        {isProcessing || isModelLoading ? (
+        {isProcessing || isModelLoading || isTranscoding ? (
           <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '160px' }}>
             <Loader className="text-avianet-red animate-spin" size={24} />
             <p className="text-sm mt-2 text-gray-500">
-              {isModelLoading ? 'Loading AI model...' : 'Processing video...'}
+              {isModelLoading ? 'Loading AI model...' : 
+               isTranscoding ? 'Transcoding video...' : 
+               'Processing video...'}
+            </p>
+          </div>
+        ) : formatNotSupported ? (
+          <div className="flex flex-col items-center justify-center bg-red-50 dark:bg-red-900/20 rounded-md" style={{ height: '160px' }}>
+            <AlertTriangle className="text-red-500" size={24} />
+            <p className="text-sm mt-2 text-red-600 dark:text-red-400">
+              Format not supported
             </p>
           </div>
         ) : isStreaming ? (
@@ -237,6 +255,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               {actualFps} FPS
             </Badge>
           )}
+          {isTranscoding && (
+            <Badge variant="outline" className="ml-2 bg-yellow-500 text-white animate-pulse">
+              TRANSCODING
+            </Badge>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="p-6">
@@ -247,6 +270,21 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             availableModels={availableModels}
             onModelChange={handleModelChange}
           />
+          
+          {formatNotSupported && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Video format not supported</AlertTitle>
+              <AlertDescription>
+                <p>This video format cannot be played directly in your browser. Please try one of these options:</p>
+                <ul className="list-disc pl-6 mt-2">
+                  <li>Enable server-side transcoding in Settings → FFmpeg</li>
+                  <li>Upload an MP4 or WebM file instead</li>
+                  <li>Use a streaming URL instead of a raw file</li>
+                </ul>
+              </AlertDescription>
+            </Alert>
+          )}
 
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
@@ -262,22 +300,23 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                     setOriginalFile(null);
                   }}
                   className="rounded-r-none"
-                  disabled={hasUploadedFile || isProcessing}
+                  disabled={hasUploadedFile || isProcessing || isTranscoding}
                 />
                 <Button
                   variant={isStreaming ? "destructive" : "default"}
                   onClick={isStreaming ? stopStream : startStream}
                   className="rounded-l-none"
-                  disabled={isProcessing || isModelLoading || (!videoUrl && !hasUploadedFile)}
+                  disabled={isProcessing || isModelLoading || isTranscoding || (!videoUrl && !hasUploadedFile)}
                 >
                   {isStreaming ? "Stop" : "Start"}
                 </Button>
               </div>
               {hasUploadedFile && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  {isProcessing ? 'Processing video file...' : (
-                    isHikvisionFormat ? 'Hikvision format detected. Click Start to begin.' : 'Local file loaded. Click Start to begin.'
-                  )}
+                  {isProcessing ? 'Processing video file...' : 
+                   isTranscoding ? 'Transcoding video to browser-compatible format...' :
+                   isHikvisionFormat ? 'Hikvision format detected. Click Start to begin.' : 
+                   'Local file loaded. Click Start to begin.'}
                 </p>
               )}
             </div>
@@ -289,20 +328,24 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               <Input
                 id="video-file"
                 type="file"
-                accept="video/*,.dav"
+                accept="video/*,.dav,.h264,.h265,.ts,.mkv,.avi,video/x-msvideo,video/x-matroska"
                 onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
                 className="mt-1"
-                disabled={isProcessing || isModelLoading}
+                disabled={isProcessing || isModelLoading || isTranscoding}
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Supports MP4, WebM, Hikvision DAV, and other NVR export formats
-              </p>
+              <div className="flex items-center mt-1">
+                <FileVideo className="text-gray-400 mr-1" size={14} />
+                <p className="text-xs text-muted-foreground">
+                  Supports MP4, WebM, Hikvision DAV, AVI, MKV, H.264/H.265, and other NVR export formats
+                  {ffmpegSettings.serverTranscoding && " (Server transcoding enabled)"}
+                </p>
+              </div>
             </div>
           </div>
 
           <DemoVideoButtons
             onSelectDemo={handleDemoVideo}
-            isProcessing={isProcessing || isModelLoading}
+            isProcessing={isProcessing || isModelLoading || isTranscoding}
           />
 
           <div className="video-feed mt-4 relative" ref={containerRef}>
@@ -312,11 +355,23 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 <p className="text-gray-700 dark:text-gray-300">Processing video...</p>
                 <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">This may take a moment depending on the file size</p>
               </div>
+            ) : isTranscoding ? (
+              <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
+                <Loader className="text-yellow-500 animate-spin mb-2" size={48} />
+                <p className="text-gray-700 dark:text-gray-300">Transcoding video...</p>
+                <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Converting video to browser-compatible format</p>
+              </div>
             ) : isModelLoading ? (
               <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
                 <Loader className="text-avianet-red animate-spin mb-2" size={48} />
                 <p className="text-gray-700 dark:text-gray-300">Loading AI model...</p>
                 <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">This may take a moment for custom models</p>
+              </div>
+            ) : formatNotSupported ? (
+              <div className="flex flex-col items-center justify-center bg-red-50 dark:bg-red-900/20 rounded-md" style={{ height: '360px' }}>
+                <AlertTriangle className="text-red-500 mb-2" size={48} />
+                <p className="text-red-700 dark:text-red-400">Video format not supported</p>
+                <p className="text-red-600 dark:text-red-300 text-sm mt-1">Enable server-side transcoding in Settings or try a different format</p>
               </div>
             ) : isStreaming ? (
               <div className="relative">
@@ -409,8 +464,10 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             <ul className="list-disc pl-5">
               <li>Models directory: {SettingsService.getStorageConfig().modelsPath}</li>
               <li>Settings directory: {SettingsService.getStorageConfig().settingsPath}</li>
-              <li>Note: In browser environment, these paths are simulated</li>
-              <li>For true filesystem persistence, an Electron or Node.js implementation is required</li>
+              {ffmpegSettings.serverTranscoding && (
+                <li>Server FFmpeg path: {ffmpegSettings.serverBinaryPath || 'Default'}</li>
+              )}
+              <li>Transcoding: {ffmpegSettings.serverTranscoding ? `Enabled (${ffmpegSettings.transcodeFormat || 'mp4'})` : 'Disabled'}</li>
             </ul>
           </div>
         </div>

@@ -3,6 +3,7 @@ import SettingsService from '@/services/SettingsService';
 import { toast } from 'sonner';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
+import axios from 'axios';
 
 // Initialize FFmpeg status
 let isFFmpegLoaded = false;
@@ -14,6 +15,15 @@ const supportedFormats = {
   // Hikvision often uses these formats
   'video/x-dav': true,
   'application/octet-stream': true, // For various proprietary formats
+};
+
+// Track supported codecs
+const supportedCodecs = {
+  'h264': true,
+  'vp8': true,
+  'vp9': true,
+  'av1': true,
+  'theora': true,
 };
 
 // Track ffmpeg loaded status
@@ -41,26 +51,103 @@ export const loadFFmpeg = async (): Promise<boolean> => {
 };
 
 /**
- * Improved Hikvision format detection
+ * Improved format detection for various camera exports
  */
-const isHikvisionFormat = (file: File): boolean => {
-  // Check by extension
-  if (file.name.toLowerCase().endsWith('.dav')) return true;
+export const detectVideoFormat = (file: File): { 
+  isSupported: boolean; 
+  format: string; 
+  requiresTranscoding: boolean;
+  isHikvision?: boolean;
+} => {
+  // Get file extension
+  const extension = file.name.split('.').pop()?.toLowerCase() || '';
   
-  // Check by MIME type if available
-  if (file.type === 'video/x-dav' || file.type === 'application/octet-stream') {
-    // Further check file signature/magic numbers for Hikvision formats
-    // This would require reading the first few bytes of the file
-    // For simplicity, we'll assume it is Hikvision format based on MIME type
-    return true;
+  // Check for known problematic formats
+  const problematicFormats = ['avi', 'mkv', 'h265', 'ts', 'dav', 'raw', 'h264'];
+  const isHikvision = extension === 'dav' || file.type === 'video/x-dav';
+  
+  // Check if this is a problematic format
+  if (problematicFormats.includes(extension) || 
+      file.type === 'application/octet-stream' ||
+      file.type === 'video/x-dav' ||
+      !file.type.startsWith('video/')) {
+    
+    return {
+      isSupported: false,
+      format: extension || file.type || 'unknown',
+      requiresTranscoding: true,
+      isHikvision
+    };
   }
   
-  return false;
+  // Check against browser-supported formats
+  return {
+    isSupported: !!supportedFormats[file.type],
+    format: file.type,
+    requiresTranscoding: !supportedFormats[file.type],
+    isHikvision
+  };
+};
+
+/**
+ * Transcodes video on the server using FFmpeg
+ */
+export const serverTranscodeVideo = async (file: File): Promise<string> => {
+  try {
+    const ffmpegSettings = SettingsService.getSettings('ffmpeg');
+    const formatInfo = detectVideoFormat(file);
+    
+    // If server-side transcoding is enabled in settings
+    if (ffmpegSettings.serverTranscoding) {
+      console.log('Using server-side transcoding for video:', file.name);
+      
+      // Create form data to send the file
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('outputFormat', ffmpegSettings.transcodeFormat || 'mp4');
+      
+      // Send to server endpoint for transcoding
+      const response = await axios.post('/api/transcode', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        responseType: 'blob',
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total!);
+          console.log(`Upload progress: ${percentCompleted}%`);
+          
+          if (percentCompleted === 100) {
+            toast.info('Video uploaded, now processing...', {
+              duration: 5000
+            });
+          }
+        },
+      });
+      
+      // Create a URL for the transcoded video
+      const transcodedVideo = new Blob([response.data], { 
+        type: `video/${ffmpegSettings.transcodeFormat}` 
+      });
+      
+      return URL.createObjectURL(transcodedVideo);
+    }
+    
+    // Fallback to client-side processing
+    return clientSideProcessVideo(file);
+  } catch (error) {
+    console.error('Server transcoding failed:', error);
+    toast.error('Video transcoding failed', {
+      description: 'Server could not process this video format. Trying client-side fallback.'
+    });
+    
+    // Fallback to client-side processing
+    return clientSideProcessVideo(file);
+  }
 };
 
 /**
  * Converts a video file to a web-playable format
- * Enhanced handling for Hikvision DAV format
+ * Enhanced handling for various formats
  * @param videoFile The video file to convert
  * @returns A Blob URL for the converted video
  */
@@ -69,37 +156,31 @@ export const convertToPlayableFormat = async (videoFile: File): Promise<string> 
     // Load FFmpeg settings
     await loadFFmpeg();
     const ffmpegSettings = SettingsService.getSettings('ffmpeg');
-    const fileData = await fetchFileData(videoFile);
+    const formatInfo = detectVideoFormat(videoFile);
     
-    // Determine if this is a special format requiring transcoding
-    const needsTranscoding = !supportedFormats[videoFile.type] || isHikvisionFormat(videoFile);
-    
-    if (needsTranscoding) {
-      console.log(`File type ${videoFile.type} needs transcoding`);
+    // Determine if this is a format requiring transcoding
+    if (formatInfo.requiresTranscoding) {
+      console.log(`File type ${videoFile.type || formatInfo.format} needs transcoding`);
       toast.info("Processing video format", {
         description: "Converting to web-compatible format for playback"
       });
       
-      if (ffmpegSettings.useLocalBinary) {
-        console.log(`Using local FFmpeg binary at: ${ffmpegSettings.localBinaryPath || 'default system path'}`);
-        // In a real implementation, we would send this to a backend service
-        // that would use FFmpeg to transcode the video
-        
-        // FIX: For Hikvision formats, we need special handling
-        if (isHikvisionFormat(videoFile)) {
-          return handleHikvisionFormat(fileData, videoFile);
-        }
-        
-        // For regular formats needing transcoding
-        return createDirectBlobUrl(fileData, videoFile);
-      } else {
-        // For client-side transcoding attempt (limited capability)
-        return attemptClientSideTranscoding(fileData, videoFile);
+      // If server-side transcoding is enabled, use that
+      if (ffmpegSettings.serverTranscoding) {
+        return serverTranscodeVideo(videoFile);
       }
+      
+      // If Hikvision format, use special handling
+      if (formatInfo.isHikvision) {
+        return convertDavToMP4(videoFile);
+      }
+      
+      // For other formats, try client-side transcoding
+      return clientSideProcessVideo(videoFile);
     }
     
     // For standard formats that browsers can play natively
-    return createDirectBlobUrl(fileData, videoFile);
+    return URL.createObjectURL(videoFile);
   } catch (error) {
     console.error('Error handling video:', error);
     toast.error('Video format processing failed', {
@@ -110,19 +191,29 @@ export const convertToPlayableFormat = async (videoFile: File): Promise<string> 
 };
 
 /**
- * Special handling for Hikvision DAV format videos
+ * Client-side video processing - with failover for unsupported formats
  */
-const handleHikvisionFormat = (fileData: Uint8Array, videoFile: File): string => {
-  console.log('Handling Hikvision format video...');
-  toast.info('Hikvision video format detected', {
-    description: 'Processing proprietary format for playback'
-  });
+const clientSideProcessVideo = async (videoFile: File): Promise<string> => {
+  const fileData = await fetchFileData(videoFile);
+  const formatInfo = detectVideoFormat(videoFile);
   
-  // In a real implementation, this would extract frames or convert to MP4
-  // For now we'll create a blob with MP4 mimetype and hope the player can handle it
+  // If this is a Hikvision format or another special format
+  if (formatInfo.isHikvision) {
+    return convertDavToMP4(videoFile);
+  }
   
-  // For simulating successful conversion
-  return createDirectBlobUrl(fileData, new File([fileData], videoFile.name, { type: 'video/mp4' }));
+  // Try to create a direct blob URL with MP4 mime type as fallback
+  try {
+    return createDirectBlobUrl(fileData, new File([fileData], videoFile.name, { type: 'video/mp4' }));
+  } catch (error) {
+    console.error('Client-side processing failed:', error);
+    
+    // Last resort - return original file blob URL with warning
+    toast.error('Video format not supported', {
+      description: 'This video format cannot be played directly. Please use server-side transcoding.'
+    });
+    return URL.createObjectURL(videoFile);
+  }
 };
 
 /**
@@ -197,31 +288,6 @@ const createDirectBlobUrl = (fileData: Uint8Array, videoFile: File): string => {
   
   const blob = new Blob([fileData], { type: mimeType });
   return URL.createObjectURL(blob);
-};
-
-/**
- * Attempts client-side transcoding for formats that might be partially compatible
- * Enhanced with better error handling
- */
-const attemptClientSideTranscoding = async (fileData: Uint8Array, videoFile: File): Promise<string> => {
-  console.log("Attempting client-side format adaptation");
-  
-  try {
-    // For browser environments without full FFmpeg, options are limited
-    // We'll try with MP4 mimetype which might help with some formats
-    
-    // For Hikvision DAV files, attempt special handling
-    if (isHikvisionFormat(videoFile)) {
-      return handleHikvisionFormat(fileData, videoFile);
-    }
-    
-    // For other formats, try with MP4 mimetype
-    return createDirectBlobUrl(fileData, new File([fileData], videoFile.name, { type: 'video/mp4' }));
-  } catch (error) {
-    console.error('Client-side transcoding failed:', error);
-    // Fall back to direct blob URL with original mimetype
-    return createDirectBlobUrl(fileData, videoFile);
-  }
 };
 
 // Helper function to fetch file data

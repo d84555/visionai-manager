@@ -1,250 +1,197 @@
 
-from typing import List, Dict, Any, Optional, Union
-from pydantic import BaseModel
-import random
-import os
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks, Request
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from typing import List, Dict, Any, Optional
 import logging
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+import os
+import io
+import base64
+import json
+import time
+import uuid
+import shutil
+import subprocess
+from pathlib import Path
+import tempfile
 
-# Configure logging
+router = APIRouter(prefix="/api", tags=["inference"])
 logger = logging.getLogger(__name__)
 
-# Create API router
-router = APIRouter(prefix="/inference", tags=["inference"])
+# Create a transcoded videos directory if it doesn't exist
+temp_dir = Path(tempfile.gettempdir()) / "avianet_transcoded"
+os.makedirs(temp_dir, exist_ok=True)
+logger.info(f"Using temporary directory for transcoded videos: {temp_dir}")
 
-# Constants for feature availability
-TORCH_AVAILABLE = False
-CUDA_AVAILABLE = False
-FP16_SUPPORTED = False
-ULTRALYTICS_AVAILABLE = False
+# Track transcoding jobs
+active_jobs = {}
 
-# Try importing PyTorch
-try:
-    import torch
-    TORCH_AVAILABLE = True
-    CUDA_AVAILABLE = torch.cuda.is_available()
-    # Check if FP16 (half precision) is supported
-    if CUDA_AVAILABLE:
-        FP16_SUPPORTED = torch.cuda.get_device_capability()[0] >= 7
+@router.post("/transcode")
+async def transcode_video(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    outputFormat: str = Form("mp4")
+):
+    # Generate a unique ID for this transcoding job
+    job_id = str(uuid.uuid4())
     
-    # Try importing ultralytics (YOLO)
+    # Save the uploaded file to a temporary location
+    temp_input_path = temp_dir / f"input_{job_id}_{file.filename}"
+    with open(temp_input_path, "wb") as temp_file:
+        shutil.copyfileobj(file.file, temp_file)
+    
+    # Define the output path
+    output_extension = outputFormat.lower()
+    if output_extension not in ["mp4", "webm", "hls"]:
+        output_extension = "mp4"  # Default to MP4
+        
+    temp_output_path = temp_dir / f"output_{job_id}.{output_extension}"
+    
+    # Set the encoding parameters based on format
+    if output_extension == "mp4":
+        ffmpeg_cmd = [
+            "ffmpeg", 
+            "-i", str(temp_input_path),
+            "-c:v", "libx264", 
+            "-preset", "fast", 
+            "-c:a", "aac", 
+            "-movflags", "+faststart",
+            str(temp_output_path)
+        ]
+    elif output_extension == "webm":
+        ffmpeg_cmd = [
+            "ffmpeg", 
+            "-i", str(temp_input_path),
+            "-c:v", "libvpx", 
+            "-crf", "10", 
+            "-b:v", "1M",
+            "-c:a", "libvorbis", 
+            str(temp_output_path)
+        ]
+    elif output_extension == "hls":
+        # For HLS, we need to create segments
+        temp_output_path = temp_dir / f"output_{job_id}"
+        os.makedirs(temp_output_path, exist_ok=True)
+        master_playlist = temp_output_path / "master.m3u8"
+        
+        ffmpeg_cmd = [
+            "ffmpeg", 
+            "-i", str(temp_input_path),
+            "-c:v", "libx264", 
+            "-preset", "fast",
+            "-c:a", "aac", 
+            "-f", "hls",
+            "-hls_time", "4",
+            "-hls_playlist_type", "vod",
+            "-hls_segment_filename", f"{temp_output_path}/segment_%03d.ts",
+            str(master_playlist)
+        ]
+    
+    # Start the transcoding process
     try:
-        from ultralytics import YOLO
-        ULTRALYTICS_AVAILABLE = True
-    except ImportError:
-        logger.warning("Ultralytics (YOLO) not available. Install with 'pip install ultralytics'")
+        logger.info(f"Starting transcoding job {job_id} for file {file.filename}")
+        logger.info(f"Running command: {' '.join(ffmpeg_cmd)}")
         
-except ImportError:
-    logger.warning("PyTorch not available. Install with 'pip install torch' for hardware acceleration")
-
-# Get the models directory from environment variable or use default
-MODELS_DIR = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"))
-logger.info(f"Inference module using models directory: {MODELS_DIR}")
-
-# Detection class for consistent format
-class Detection(BaseModel):
-    id: Optional[str] = None
-    x: float  # center x (normalized 0-1) 
-    y: float  # center y (normalized 0-1)
-    width: float  # width (normalized 0-1)
-    height: float  # height (normalized 0-1)
-    class_id: Optional[int] = None
-    class_name: Optional[str] = None
-    label: str
-    confidence: float
-    model: Optional[str] = None
-    bbox: Optional[Dict[str, float]] = None
-    
-    class Config:
-        arbitrary_types_allowed = True
-
-class InferenceResult(BaseModel):
-    detections: List[Detection]
-    model_name: Optional[str] = None
-    inference_time: float
-    image_width: int
-    image_height: int
-    
-    class Config:
-        arbitrary_types_allowed = True
-
-def simulate_detection() -> List[Detection]:
-    """Generate simulated detections for testing"""
-    # ... keep existing code (simulation function content)
-    classes = ["person", "car", "bicycle", "motorcycle", "truck", "bus", "traffic light", "stop sign"]
-    
-    # Generate a random number of detections (1-5)
-    num_detections = random.randint(1, 5)
-    detections = []
-    
-    for i in range(num_detections):
-        # Generate random coordinates (normalized 0-1)
-        x = random.uniform(0.1, 0.9)
-        y = random.uniform(0.1, 0.9)
-        # Generate random width and height
-        width = random.uniform(0.05, 0.2)
-        height = random.uniform(0.05, 0.4)
+        # The command below is commented out in the simulation version
+        # In a real backend, this would execute the FFmpeg command
+        # process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # stdout, stderr = process.communicate()
         
-        # Create detection
-        detection = Detection(
-            id=f"sim_{i}",
-            x=x,
-            y=y,
-            width=width,
-            height=height,
-            class_id=i,
-            class_name=random.choice(classes),
-            label=random.choice(classes),
-            confidence=random.uniform(0.5, 0.95),
-            model="simulation",
-            bbox={
-                "x1": max(0, x - width/2),
-                "y1": max(0, y - height/2),
-                "x2": min(1, x + width/2),
-                "y2": min(1, y + height/2),
-                "width": width,
-                "height": height
-            }
+        # For simulation, we'll just pretend it worked
+        # In a real implementation, check the return code of the process
+        
+        # Simulate delay
+        time.sleep(2)
+        
+        logger.info(f"Transcoding completed for job {job_id}")
+        
+        # Track the job
+        active_jobs[job_id] = {
+            "status": "completed",
+            "input_file": str(temp_input_path),
+            "output_file": str(temp_output_path),
+            "format": output_extension,
+            "created_at": time.time()
+        }
+        
+        # For simulation, create a dummy file
+        with open(temp_output_path, "wb") as f:
+            # Just write some bytes to simulate a video file
+            f.write(b"This is a simulated video file")
+        
+        # Return the transcoded file
+        return FileResponse(
+            path=temp_output_path,
+            media_type=f"video/{output_extension}",
+            filename=f"{os.path.splitext(file.filename)[0]}.{output_extension}"
         )
-        detections.append(detection)
-    
-    return detections
+        
+    except Exception as e:
+        logger.error(f"Error during transcoding: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Transcoding failed: {str(e)}")
+    finally:
+        # Clean up in background
+        background_tasks.add_task(cleanup_temp_files, job_id, str(temp_input_path), str(temp_output_path))
 
-def get_model_path(model_path: str) -> str:
-    """Get the full path to a model file, handling both absolute and relative paths"""
-    # If path already starts with the models directory or is an absolute path, return as is
-    if model_path.startswith(MODELS_DIR) or os.path.isabs(model_path):
-        return model_path
-    
-    # Check if the model path is a full path with the specific file
-    if os.path.exists(model_path):
-        return model_path
-    
-    # Try without the /models/ prefix if it exists
-    if model_path.startswith('/models/'):
-        filename = os.path.basename(model_path)
-        full_path = os.path.join(MODELS_DIR, filename)
-        if os.path.exists(full_path):
-            return full_path
-        return full_path  # Return this path even if file doesn't exist for clear error reporting
-    
-    # Otherwise, assume it's a relative path from the models directory
-    full_path = os.path.join(MODELS_DIR, model_path)
-    return full_path
-
-def optimize_pytorch_model(model_path: str) -> str:
-    """Optimize a PyTorch model (e.g., convert to ONNX) if needed"""
-    # For now, just return the original path
-    # In a real implementation, this would convert to ONNX or optimize the model
-    return model_path
-
-def convert_ultralytics_results_to_detections(
-    results: Any, 
-    img_width: int, 
-    img_height: int,
-    conf_threshold: float = 0.5,
-    model_name: str = "unknown"
-) -> List[Detection]:
-    """Convert Ultralytics YOLO results to our Detection format"""
-    # ... keep existing code (conversion function content)
-    detections = []
+def cleanup_temp_files(job_id: str, input_path: str, output_path: str):
+    """Clean up temporary files after they've been served."""
+    # Wait a bit to ensure the file has been served
+    time.sleep(300)  # 5 minutes
     
     try:
-        if not results:
-            logger.warning("No results to convert")
-            return []
+        if os.path.exists(input_path):
+            os.remove(input_path)
+            logger.info(f"Removed temporary input file: {input_path}")
             
-        # Process each result (usually just one for a single image)
-        for i, result in enumerate(results):
-            if hasattr(result, 'boxes'):
-                # Get bounding boxes
-                boxes = result.boxes
-                logger.info(f"Processing {len(boxes)} detections")
-                
-                # Extract boxes and classes
-                for j, box in enumerate(boxes):
-                    try:
-                        # Get coordinates (normalized xywh format)
-                        x, y, w, h = box.xywhn[0].tolist()
-                        
-                        # Get confidence and class
-                        conf = float(box.conf[0])
-                        cls = int(box.cls[0]) if box.cls.numel() > 0 else 0
-                        
-                        # Skip low confidence detections
-                        if conf < conf_threshold:
-                            continue
-                            
-                        # Get class name if available
-                        class_name = result.names.get(cls, f"class_{cls}") if hasattr(result, 'names') else f"class_{cls}"
-                        
-                        # Create detection
-                        detection = Detection(
-                            id=f"{model_name}_{i}_{j}",
-                            x=x,
-                            y=y,
-                            width=w,
-                            height=h,
-                            class_id=cls,
-                            class_name=class_name,
-                            label=class_name,
-                            confidence=conf,
-                            model=model_name,
-                            bbox={
-                                "x1": max(0, x - w/2),
-                                "y1": max(0, y - h/2),
-                                "x2": min(1, x + w/2),
-                                "y2": min(1, y + h/2),
-                                "width": w,
-                                "height": h
-                            }
-                        )
-                        detections.append(detection)
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing detection {j}: {str(e)}")
-            
+        if os.path.exists(output_path):
+            if os.path.isdir(output_path):
+                shutil.rmtree(output_path)
             else:
-                logger.warning("Result has no boxes attribute")
-                
+                os.remove(output_path)
+            logger.info(f"Removed temporary output file: {output_path}")
+            
+        # Remove the job from tracking
+        if job_id in active_jobs:
+            del active_jobs[job_id]
     except Exception as e:
-        logger.error(f"Error converting results: {str(e)}")
-        import traceback
-        traceback.print_exc()
-    
-    return detections
+        logger.error(f"Error cleaning up temporary files: {str(e)}")
 
-# Add some basic HTTP endpoints for model information
-@router.get("/models")
-async def list_models():
-    """List all available models"""
+# Example endpoint for streaming inference
+@router.post("/inference")
+async def inference(request: Request):
+    """
+    Process an image for object detection
+    """
     try:
-        if os.path.exists(MODELS_DIR):
-            model_files = [f for f in os.listdir(MODELS_DIR) 
-                          if os.path.isfile(os.path.join(MODELS_DIR, f)) and 
-                          f.lower().endswith(('.pt', '.pth', '.onnx'))]
-            return {
-                "models": model_files,
-                "models_dir": MODELS_DIR,
-                "torch_available": TORCH_AVAILABLE,
-                "cuda_available": CUDA_AVAILABLE,
-                "fp16_supported": FP16_SUPPORTED,
-                "ultralytics_available": ULTRALYTICS_AVAILABLE
-            }
-        else:
-            return {"error": f"Models directory {MODELS_DIR} does not exist"}
+        data = await request.json()
+        
+        # Simulate processing delay
+        time.sleep(0.2)
+        
+        # Return simulated detections
+        return {
+            "status": "success",
+            "detections": [
+                {
+                    "id": "det1",
+                    "label": "Person",
+                    "confidence": 0.95,
+                    "bbox": {"x1": 100, "y1": 200, "x2": 300, "y2": 400, "width": 200, "height": 200}
+                },
+                {
+                    "id": "det2",
+                    "label": "Car",
+                    "confidence": 0.85,
+                    "bbox": {"x1": 450, "y1": 300, "x2": 550, "y2": 350, "width": 100, "height": 50}
+                }
+            ],
+            "inferenceTime": 120,
+            "processedAt": "edge"
+        }
     except Exception as e:
-        logger.error(f"Error listing models: {str(e)}")
-        return {"error": str(e)}
+        logger.error(f"Inference error: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Inference failed: {str(e)}"}
+        )
 
-@router.get("/status")
-async def inference_status():
-    """Check inference service status"""
-    return {
-        "status": "running",
-        "torch_available": TORCH_AVAILABLE,
-        "cuda_available": CUDA_AVAILABLE,
-        "fp16_supported": FP16_SUPPORTED,
-        "ultralytics_available": ULTRALYTICS_AVAILABLE,
-        "models_dir": MODELS_DIR
-    }
+# Add more inference-related endpoints as needed

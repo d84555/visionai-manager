@@ -1,5 +1,6 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { convertDavToMP4 } from '../utils/ffmpegUtils';
+import { convertToPlayableFormat, detectVideoFormat } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
 
 interface Detection {
@@ -54,6 +55,8 @@ export const useVideoFeed = ({
   const [actualFps, setActualFps] = useState<number | null>(null);
   const [isHikvisionFormat, setIsHikvisionFormat] = useState(false);
   const [isModelLoading, setIsModelLoading] = useState(false);
+  const [isTranscoding, setIsTranscoding] = useState(false);
+  const [formatNotSupported, setFormatNotSupported] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -377,16 +380,26 @@ export const useVideoFeed = ({
     setDetections([]);
     setInferenceLocation(null);
     setInferenceTime(null);
+    setFormatNotSupported(false);
     
-    // Handle Hikvision DAV format for uploaded files
-    if (hasUploadedFile && originalFile && originalFile.name.endsWith('.dav')) {
+    // Handle uploaded files with potential format issues
+    if (hasUploadedFile && originalFile) {
       setIsProcessing(true);
-      setIsHikvisionFormat(true);
       
       try {
-        // Convert DAV to MP4
-        const mp4Url = await convertDavToMP4(originalFile);
-        setVideoUrl(mp4Url);
+        // Check if it's a Hikvision DAV file or other special format
+        const formatInfo = detectVideoFormat(originalFile);
+        setIsHikvisionFormat(formatInfo.isHikvision || false);
+        
+        // If format requires transcoding
+        if (formatInfo.requiresTranscoding) {
+          setIsTranscoding(true);
+          
+          // Convert to playable format
+          const playableUrl = await convertToPlayableFormat(originalFile);
+          setVideoUrl(playableUrl);
+          setIsTranscoding(false);
+        }
         
         // Model loading can proceed in parallel with conversion
         if (activeModelsRef.current.length > 0) {
@@ -400,14 +413,18 @@ export const useVideoFeed = ({
         setIsStreaming(true);
         setIsPlaying(true);
       } catch (error) {
-        console.error('Error converting DAV file:', error);
-        toast.error('Failed to convert Hikvision DAV file');
+        console.error('Error processing video file:', error);
+        toast.error('Failed to process video file', {
+          description: 'The file format may not be supported. Please try a different file or use the server-side transcoding option.'
+        });
+        setFormatNotSupported(true);
       } finally {
         setIsProcessing(false);
         setIsModelLoading(false);
+        setIsTranscoding(false);
       }
     } else {
-      // Standard video streaming
+      // Standard video streaming (URL)
       if (activeModelsRef.current.length > 0) {
         setIsModelLoading(true);
         
@@ -434,8 +451,18 @@ export const useVideoFeed = ({
             playPromise.then(() => {
               console.log('Video playback started successfully');
             }).catch(error => {
-              console.error('Video playback failed:', error);
-              toast.error('Video playback failed. This may be due to browser autoplay policies.');
+              console.error('Error forcing video to play:', error);
+              
+              // Handle unsupported format
+              if (error.name === 'NotSupportedError') {
+                toast.error('Video format not supported', {
+                  description: 'This video format cannot be played in your browser. Please use server-side transcoding or upload a compatible format like MP4.'
+                });
+                setFormatNotSupported(true);
+                stopStream();
+              } else {
+                toast.error('Video playback failed. This may be due to browser autoplay policies.');
+              }
             });
           }
         } catch (error) {
@@ -453,6 +480,7 @@ export const useVideoFeed = ({
     setInferenceLocation(null);
     setInferenceTime(null);
     setActualFps(null);
+    setFormatNotSupported(false);
     
     // Cancel any pending animation frame
     if (requestAnimationFrameIdRef.current !== null) {
@@ -475,7 +503,15 @@ export const useVideoFeed = ({
       videoRef.current.pause();
       setIsPlaying(false);
     } else {
-      videoRef.current.play();
+      videoRef.current.play().catch(err => {
+        console.error('Error forcing video to play:', err);
+        if (err.name === 'NotSupportedError') {
+          toast.error('Video format not supported', {
+            description: 'This video format cannot be played in your browser. Please use server-side transcoding or upload a compatible format like MP4.'
+          });
+          setFormatNotSupported(true);
+        }
+      });
       setIsPlaying(true);
     }
   }, [isPlaying]);
@@ -485,14 +521,17 @@ export const useVideoFeed = ({
     setOriginalFile(file);
     setHasUploadedFile(true);
     
-    // Check if it's a Hikvision DAV file
-    if (file.name.endsWith('.dav')) {
-      setIsHikvisionFormat(true);
-      setVideoUrl('');  // Clear URL as we'll replace it after conversion
-    } else {
-      // Regular video file
-      setIsHikvisionFormat(false);
+    // Check file format
+    const formatInfo = detectVideoFormat(file);
+    setIsHikvisionFormat(formatInfo.isHikvision || false);
+    
+    // If format requires transcoding, don't set URL yet
+    // It will be handled in startStream
+    if (!formatInfo.requiresTranscoding) {
       setVideoUrl(URL.createObjectURL(file));
+    } else {
+      // Clear URL as we'll replace it after conversion
+      setVideoUrl('');
     }
     
     // Stop any existing stream
@@ -512,8 +551,37 @@ export const useVideoFeed = ({
 
   // Handle video error
   const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
-    console.error('Video error:', e);
-    toast.error('Failed to load video');
+    const video = e.target as HTMLVideoElement;
+    console.error('Video error:', e, video.error);
+    
+    if (video.error) {
+      // Check specific error codes
+      switch (video.error.code) {
+        case MediaError.MEDIA_ERR_ABORTED:
+          toast.error('Video playback aborted');
+          break;
+        case MediaError.MEDIA_ERR_NETWORK:
+          toast.error('Network error while loading video');
+          break;
+        case MediaError.MEDIA_ERR_DECODE:
+          toast.error('Video decode error', {
+            description: 'The video format may not be supported. Try enabling server-side transcoding in settings.'
+          });
+          setFormatNotSupported(true);
+          break;
+        case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+          toast.error('Video format not supported', {
+            description: 'This video format cannot be played in your browser. Please use server-side transcoding or upload a compatible format like MP4.'
+          });
+          setFormatNotSupported(true);
+          break;
+        default:
+          toast.error('Failed to load video');
+      }
+    } else {
+      toast.error('Failed to load video');
+    }
+    
     stopStream();
   }, [stopStream]);
 
@@ -521,8 +589,21 @@ export const useVideoFeed = ({
   useEffect(() => {
     if (autoStart && (initialVideoUrl || camera)) {
       // If camera is provided, use its stream URL
-      if (camera && camera.streamUrl && camera.streamUrl[streamType]) {
-        setVideoUrl(camera.streamUrl[streamType]);
+      if (camera && camera.streamUrl) {
+        // Add null check before accessing streamType
+        if (camera.streamUrl[streamType]) {
+          setVideoUrl(camera.streamUrl[streamType]);
+        } else {
+          // Fallback to main stream if requested stream type doesn't exist
+          if (camera.streamUrl.main) {
+            setVideoUrl(camera.streamUrl.main);
+            console.log(`Stream type ${streamType} not available, falling back to main stream`);
+          } else {
+            console.error(`No stream URL available for camera ${camera.id}`);
+            toast.error(`No stream URL available for camera ${camera.name || camera.id}`);
+            return;
+          }
+        }
       }
       
       // Start after a short delay to allow setup
@@ -536,7 +617,7 @@ export const useVideoFeed = ({
   
   // Start/stop frame processing based on streaming state
   useEffect(() => {
-    if (isStreaming && isPlaying) {
+    if (isStreaming && isPlaying && !formatNotSupported) {
       console.log('Starting frame processing loop with active models:', activeModelsRef.current);
       
       // Short delay to ensure video has time to initialize
@@ -556,7 +637,7 @@ export const useVideoFeed = ({
       cancelAnimationFrame(requestAnimationFrameIdRef.current);
       requestAnimationFrameIdRef.current = null;
     }
-  }, [isStreaming, isPlaying, startFrameProcessing]);
+  }, [isStreaming, isPlaying, formatNotSupported, startFrameProcessing]);
 
   // Clean up resources on unmount
   useEffect(() => {
@@ -586,6 +667,8 @@ export const useVideoFeed = ({
     isHikvisionFormat,
     setIsHikvisionFormat,
     isModelLoading,
+    isTranscoding,
+    formatNotSupported,
     videoRef,
     containerRef,
     startStream,
