@@ -64,7 +64,7 @@ export default {
 					ring: 'hsl(var(--sidebar-ring))'
 				},
 				avianet: {
-					red: '#ea384c',
+					red: '#c4132f', // Updated from '#ea384c' to '#c4132f'
 					black: '#000000e6',
 					white: '#ffffff',
 				}

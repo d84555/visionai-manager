@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Mail, Database, Logs, Server, Layers, Info } from 'lucide-react';
+import { Settings, Save, Mail, Database, Logs, Server, Layers, Info, Upload, Type, Image, Palette } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,12 @@ import SettingsService, {
   AlertSettings, 
   FFmpegSettings 
 } from '@/services/SettingsService';
+
+interface BrandingSettings {
+  logoUrl: string;
+  customFooterText: string;
+  useCustomFooter: boolean;
+}
 
 const SettingsPage = () => {
   const [modelSettings, setModelSettings] = useState<ModelSettings>({
@@ -54,6 +60,16 @@ const SettingsPage = () => {
     useLocalBinary: false
   });
 
+  const [brandingSettings, setBrandingSettings] = useState<BrandingSettings>({
+    logoUrl: '',
+    customFooterText: '',
+    useCustomFooter: false,
+  });
+
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const currentYear = new Date().getFullYear();
+
   const [storageMode, setStorageMode] = useState<'simulated' | 'api'>(
     StorageServiceFactory.getMode()
   );
@@ -63,11 +79,19 @@ const SettingsPage = () => {
     const loadedVideoSettings = SettingsService.getSettings('video');
     const loadedAlertSettings = SettingsService.getSettings('alerts');
     const loadedFfmpegSettings = SettingsService.getSettings('ffmpeg');
+    const loadedBrandingSettings = SettingsService.getSettings('branding');
     
     setModelSettings(loadedModelSettings);
     setVideoSettings(loadedVideoSettings);
     setAlertSettings(loadedAlertSettings);
     setFfmpegSettings(loadedFfmpegSettings);
+    
+    if (loadedBrandingSettings) {
+      setBrandingSettings(loadedBrandingSettings);
+      if (loadedBrandingSettings.logoUrl) {
+        setLogoPreview(loadedBrandingSettings.logoUrl);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -86,10 +110,49 @@ const SettingsPage = () => {
     SettingsService.updateSettings('ffmpeg', ffmpegSettings);
   }, [ffmpegSettings]);
 
+  useEffect(() => {
+    SettingsService.updateSettings('branding', brandingSettings);
+  }, [brandingSettings]);
+
   const handleStorageModeChange = (mode: 'simulated' | 'api') => {
     StorageServiceFactory.setMode(mode);
     setStorageMode(mode);
     toast.success(`Storage mode changed to ${mode === 'api' ? 'Edge Computing Node' : 'Browser Simulation'}`);
+  };
+  
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setSelectedFile(file);
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      setLogoPreview(result);
+      
+      // Store the data URL in settings
+      setBrandingSettings({
+        ...brandingSettings,
+        logoUrl: result
+      });
+    };
+    
+    reader.readAsDataURL(file);
+  };
+  
+  const handleFooterTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setBrandingSettings({
+      ...brandingSettings,
+      customFooterText: e.target.value
+    });
+  };
+  
+  const handleUseCustomFooter = (checked: boolean) => {
+    setBrandingSettings({
+      ...brandingSettings,
+      useCustomFooter: checked
+    });
   };
   
   const handleSaveSettings = () => {
@@ -102,6 +165,7 @@ const SettingsPage = () => {
       storage: SettingsService.getSettings('storage'),
       ffmpeg: ffmpegSettings,
       gridLayout: SettingsService.getSettings('gridLayout'),
+      branding: brandingSettings,
     });
 
     if (ffmpegSettings.customPath) {
@@ -122,6 +186,99 @@ const SettingsPage = () => {
           Save Settings
         </Button>
       </div>
+      
+      <Card className="w-full">
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center">
+            <Palette className="mr-2 text-avianet-red" size={20} />
+            Branding Configuration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="logo-upload">Custom Logo</Label>
+              <div className="flex items-center gap-4">
+                <div className="w-32 h-32 border rounded flex items-center justify-center overflow-hidden bg-gray-50 dark:bg-gray-800">
+                  {logoPreview ? (
+                    <img 
+                      src={logoPreview} 
+                      alt="Logo Preview" 
+                      className="max-w-full max-h-full object-contain" 
+                    />
+                  ) : (
+                    <Image className="text-gray-400" size={36} />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <Input
+                    id="logo-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoUpload}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Recommended size: 200x60px. Max file size: 2MB
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="use-custom-footer"
+                  checked={brandingSettings.useCustomFooter}
+                  onCheckedChange={handleUseCustomFooter}
+                />
+                <Label htmlFor="use-custom-footer">Use Custom Footer Text</Label>
+              </div>
+              
+              {brandingSettings.useCustomFooter && (
+                <div className="mt-2">
+                  <Label htmlFor="footer-text">Custom Footer Text</Label>
+                  <Input
+                    id="footer-text"
+                    value={brandingSettings.customFooterText}
+                    onChange={handleFooterTextChange}
+                    placeholder="Enter custom footer text"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Leave empty to use default footer text
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            <div className="mt-4 border-t pt-4">
+              <h3 className="text-lg font-medium mb-2">Preview</h3>
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  {logoPreview ? (
+                    <img 
+                      src={logoPreview} 
+                      alt="Logo Preview" 
+                      className="h-6 object-contain" 
+                    />
+                  ) : (
+                    <div className="flex items-center">
+                      <div className="h-2 w-2 rounded-full bg-avianet-red mr-2"></div>
+                      <span className="font-bold">AVIANET Vision</span>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="p-2 border rounded text-sm text-center text-muted-foreground">
+                  {brandingSettings.useCustomFooter && brandingSettings.customFooterText ? 
+                    brandingSettings.customFooterText :
+                    `© Copyright ${currentYear} AVIANET | All Rights Reserved`
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       
       <Card className="w-full">
         <CardHeader className="border-b">
@@ -458,9 +615,9 @@ const SettingsPage = () => {
         <CardContent className="p-6">
           <div className="space-y-4">
             <div>
-              <h3 className="text-lg font-medium">Avianet Vision</h3>
+              <h3 className="text-lg font-medium">AVIANET Vision</h3>
               <p className="text-sm text-muted-foreground">
-                Advanced video analysis platform with object detection and event monitoring
+                AVIANET specialize in disruptive IT/OT Cybersecurity services, IoT and Industrial Automation solutions, corporate IT Strategy Consultancy, seamless Digital AI Integration, DevOps services, bespoke Software Development, and cutting-edge Metaverse Technology within 2D/3D Virtual Event Platforms.
               </p>
             </div>
             
@@ -471,7 +628,7 @@ const SettingsPage = () => {
               </div>
               <div>
                 <h4 className="text-sm font-medium">Model</h4>
-                <p className="text-sm text-muted-foreground">YOLOv11</p>
+                <p className="text-sm text-muted-foreground">AVIANET Vision AI Model</p>
               </div>
               <div>
                 <h4 className="text-sm font-medium">Last Updated</h4>

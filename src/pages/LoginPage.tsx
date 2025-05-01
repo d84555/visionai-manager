@@ -66,7 +66,7 @@ const LoginPage = () => {
         <div className="mb-8 text-center">
           <div className="flex items-center justify-center">
             <div className="h-2 w-2 rounded-full bg-avianet-red animate-pulse mr-2"></div>
-            <h1 className="text-2xl font-bold">Avianet Vision</h1>
+            <h1 className="text-2xl font-bold">AVIANET Vision</h1>
           </div>
           <p className="text-muted-foreground mt-2">Advanced Video Analytics Platform</p>
         </div>
@@ -131,12 +131,6 @@ const LoginPage = () => {
               </form>
             </Form>
           </CardContent>
-          <CardFooter className="flex flex-col space-y-2">
-            <div className="text-center text-sm text-muted-foreground">
-              <p>Default credentials</p>
-              <p>Username: <span className="font-mono">admin</span> | Password: <span className="font-mono">admin</span></p>
-            </div>
-          </CardFooter>
         </Card>
       </div>
     </div>

@@ -1,3 +1,4 @@
+
 import { CacheService } from './CacheService';
 
 interface GridLayout {
@@ -72,6 +73,13 @@ export interface FFmpegSettings {
   customPath: boolean;
   localBinaryPath: string;
   useLocalBinary: boolean;
+}
+
+// Interface for branding settings
+export interface BrandingSettings {
+  logoUrl: string;
+  customFooterText: string;
+  useCustomFooter: boolean;
 }
 
 // Interface for custom AI models
@@ -341,13 +349,19 @@ class SettingsService {
           protocol: 'UDP',
           facility: 'local0',
           severity: 'notice',
-          appName: 'AvianetVision'
+          appName: 'AVIANETVision'
         };
       case 'gridLayout':
         return {
           layout: '2x2',
           streamType: 'main',
           pinnedCameraIds: []
+        };
+      case 'branding':
+        return {
+          logoUrl: '',
+          customFooterText: '',
+          useCustomFooter: false
         };
       default:
         return {};
