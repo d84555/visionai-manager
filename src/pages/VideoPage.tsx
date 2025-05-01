@@ -1,15 +1,14 @@
+
 import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { VideoIcon, Camera, Layers, Cpu } from 'lucide-react';
+import { VideoIcon, Camera } from 'lucide-react';
 import VideoFeed from '@/components/video/VideoFeed';
 import CameraManagement from '@/components/camera/CameraManagement';
 import CameraGrid from '@/components/camera/CameraGrid';
-import ModelSelector from '@/components/ai/ModelSelector';
 import SettingsService from '@/services/SettingsService';
 import CameraService from '@/services/CameraService';
 import CameraListPanel from '@/components/camera/CameraListPanel';
 import CameraControls from '@/components/video/CameraControls';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
@@ -113,43 +112,6 @@ const VideoPage = () => {
     setRefreshKey(prev => prev + 1);
   };
 
-  // Handle single model selection
-  const handleModelSelected = (modelName: string, modelPath: string) => {
-    const newActiveModels = [{ name: modelName, path: modelPath }];
-    setActiveModels(newActiveModels);
-    SettingsService.setActiveModels(newActiveModels);
-    setRefreshKey(prev => prev + 1);
-  };
-  
-  // Handle multiple model selection
-  const handleModelChange = (modelIds: string[]) => {
-    const selectedModels = modelIds.map(id => {
-      const model = availableModels.find(m => m.id === id);
-      return model ? { name: model.name, path: model.path } : null;
-    }).filter((m): m is { name: string; path: string } => m !== null);
-    
-    setActiveModels(selectedModels);
-    SettingsService.setActiveModels(selectedModels);
-    
-    // Set active in the backend
-    const storageService = StorageServiceFactory.getService();
-    storageService.setActiveModels(selectedModels)
-      .then(() => {
-        if (selectedModels.length === 0) {
-          toast.info('All detection models have been removed');
-        } else if (selectedModels.length === 1) {
-          toast.success(`Model ${selectedModels[0].name} set as active`);
-        } else {
-          toast.success(`${selectedModels.length} models set as active`);
-        }
-        setRefreshKey(prev => prev + 1);
-      })
-      .catch(error => {
-        console.error('Failed to set active models:', error);
-        toast.error('Failed to set active models');
-      });
-  };
-
   // Assign camera to grid position
   const handleAssignCamera = (cameraId: string, gridPositionId: string) => {
     const newAssignments = { ...cameraAssignments };
@@ -191,10 +153,6 @@ const VideoPage = () => {
           <TabsTrigger value="grid">
             <VideoIcon className="mr-2 h-4 w-4" />
             Camera Grid
-          </TabsTrigger>
-          <TabsTrigger value="models">
-            <Layers className="mr-2 h-4 w-4" />
-            AI Models
           </TabsTrigger>
         </TabsList>
         
@@ -246,37 +204,17 @@ const VideoPage = () => {
             </ResizablePanelGroup>
           </div>
         </TabsContent>
-        
-        <TabsContent value="models">
-          <div className="max-w-3xl mx-auto">
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle>AI Model Management</CardTitle>
-                <CardDescription>
-                  Configure and manage AI models used for object detection across all video feeds
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Select AI models to use for object detection on video feeds. You can apply multiple models to detect different objects simultaneously.
-                </p>
-                
-                <ModelSelector onModelSelected={handleModelSelected} />
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
       </Tabs>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="border rounded-md p-4">
           <h2 className="text-lg font-medium mb-2">Video Stream Usage</h2>
           <p className="text-sm text-muted-foreground mb-4">
-            The video stream displays real-time or recorded footage with AI-powered object detection overlays. Multiple models can be selected to detect different types of objects.
+            The video stream displays real-time or recorded footage with AI-powered object detection overlays. AI models can be configured in the Settings page.
           </p>
           <h3 className="text-md font-medium mb-1">Instructions:</h3>
           <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-1 ml-2">
-            <li>Select one or more detection models from the dropdown</li>
+            <li>Configure detection models in the Settings page</li>
             <li>Enter a valid video stream URL in the input field</li>
             <li>Or upload a local video file from your device</li>
             <li>Click the "Start" button to begin streaming and object detection</li>
@@ -287,7 +225,7 @@ const VideoPage = () => {
         <div className="border rounded-md p-4">
           <h2 className="text-lg font-medium mb-2">Detection Settings</h2>
           <p className="text-sm text-muted-foreground mb-3">
-            The default detection settings work for most scenarios. For advanced configuration, visit the Settings page.
+            Detection settings can be configured in the Settings page. For advanced configuration, visit the Settings > AI Models section.
           </p>
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
@@ -311,8 +249,7 @@ const VideoPage = () => {
         
         <div className="border rounded-md p-4">
           <h2 className="flex items-center text-lg font-medium mb-2">
-            <Cpu className="mr-2 text-avianet-red" size={18} />
-            FFmpeg Encoding
+            Video Encoding
           </h2>
           <p className="text-sm text-muted-foreground mb-3">
             The system includes an integrated FFmpeg encoder to support a wide range of video formats that may not be natively playable in browsers.

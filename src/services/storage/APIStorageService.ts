@@ -12,7 +12,7 @@ export default class APIStorageService implements StorageServiceInterface {
 
   async uploadModel(file: File, name: string, options?: any): Promise<ModelInfo> {
     try {
-      console.log(`Uploading model ${name} to ${this.baseUrl}/models/upload`);
+      console.log(`Uploading model ${name} to ${this.baseUrl}/health/models/upload`);
       const formData = new FormData();
       formData.append('file', file);
       formData.append('name', name);
@@ -27,7 +27,8 @@ export default class APIStorageService implements StorageServiceInterface {
         }
       }
       
-      const response = await axios.post(`${this.baseUrl}/models/upload`, formData, {
+      // Updated endpoint to use health/models/upload
+      const response = await axios.post(`${this.baseUrl}/health/models/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         },
