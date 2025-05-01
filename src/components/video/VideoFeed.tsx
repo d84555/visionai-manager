@@ -138,6 +138,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     handleVideoError,
     setHasUploadedFile,
     setOriginalFile,
+    originalFile,
     processRtspStream,
     isStreamingUrl
   } = useVideoFeed({

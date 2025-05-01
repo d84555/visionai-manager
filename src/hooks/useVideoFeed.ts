@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { convertToPlayableFormat, detectVideoFormat, createHlsStream } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
@@ -738,6 +739,7 @@ export const useVideoFeed = ({
     handleVideoError,
     setHasUploadedFile,
     setOriginalFile,
+    originalFile,  // Added originalFile to the return value
     processRtspStream,
     isStreamingUrl
   };
