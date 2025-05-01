@@ -1,72 +1,75 @@
 
-from fastapi import APIRouter, HTTPException, Response, File, UploadFile, Form
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi.responses import JSONResponse
+from typing import Dict, List, Optional
 import os
-import shutil
-from pathlib import Path
 import uuid
+import shutil
+import logging
 from datetime import datetime
 
-router = APIRouter(prefix="/health", tags=["health"])
+router = APIRouter(
+    prefix="/health",
+    tags=["health"]
+)
+
+# Configure logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+# Models directory - use environment variable or default location
+MODELS_DIR = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "../models"))
 
 @router.get("")
 async def health_check():
-    """Check if the API is running and return a 200 OK response"""
-    return {"status": "ok", "message": "API is running"}
-
-@router.get("/models")
-async def models_health_check():
-    """Check if the models API is running and return a 200 OK response"""
-    # Check if models directory exists
-    models_dir = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"))
-    
-    # Return status based on directory existence
-    if os.path.exists(models_dir):
-        # Make sure we return models as an array for consistency with the frontend expectations
-        models = [f for f in os.listdir(models_dir) if os.path.isfile(os.path.join(models_dir, f))] if os.path.exists(models_dir) else []
-        
-        return {
-            "status": "ok", 
-            "message": "Models API is available",
-            "models_directory": models_dir,
-            "models_count": len(models),
-            "models": models  # Return models as an array
-        }
-    else:
-        return {
-            "status": "warning",
-            "message": "Models directory not found",
-            "models_directory": models_dir,
-            "models": []  # Return empty array for consistency
-        }
+    """Simple health check endpoint"""
+    return {"status": "ok", "message": "AI Vision API is running"}
 
 @router.post("/models/upload")
-async def upload_model(file: UploadFile = File(...), name: str = Form(...)):
-    """Upload a model file to the server"""
+async def upload_model(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    enablePyTorchSupport: Optional[bool] = Form(False),
+    convertToOnnx: Optional[bool] = Form(False)
+):
+    """
+    Upload a model file (ONNX or PyTorch format)
+    """
     try:
         # Create models directory if it doesn't exist
-        models_dir = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"))
-        os.makedirs(models_dir, exist_ok=True)
+        os.makedirs(MODELS_DIR, exist_ok=True)
         
-        # Generate a safe filename
-        original_name = file.filename or "model"
-        file_extension = Path(original_name).suffix
-        safe_name = f"{name.replace(' ', '_')}_{uuid.uuid4().hex[:8]}{file_extension}"
-        file_path = os.path.join(models_dir, safe_name)
+        # Generate unique ID for the model
+        model_id = str(uuid.uuid4())
         
-        # Save the uploaded file
+        # Get original file extension
+        file_ext = os.path.splitext(file.filename)[1] if file.filename else ""
+        if file_ext.lower() not in [".onnx", ".pt", ".pth"]:
+            raise HTTPException(status_code=400, detail="Unsupported model format. Only .onnx, .pt, or .pth files are accepted.")
+
+        # Create the file path
+        safe_name = name.replace(" ", "_").lower()
+        filename = f"{safe_name}_{model_id}{file_ext}"
+        file_path = os.path.join(MODELS_DIR, filename)
+        
+        # Save the file
+        logger.info(f"Saving model file to {file_path}")
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-            
-        # Get file stats
-        file_stat = os.stat(file_path)
         
-        # Return model info
+        # Get file size
+        file_size = os.path.getsize(file_path)
+        
+        # Return response
         return {
-            "id": f"uploaded-{uuid.uuid4()}",
+            "id": model_id,
             "name": name,
             "path": file_path,
-            "fileSize": file_stat.st_size,
-            "uploadDate": datetime.now().isoformat()
+            "fileSize": file_size,
+            "uploadDate": datetime.now().isoformat(),
+            "enablePyTorchSupport": enablePyTorchSupport,
+            "convertToOnnx": convertToOnnx
         }
     except Exception as e:
+        logger.error(f"Error uploading model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to upload model: {str(e)}")

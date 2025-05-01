@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import {
   Card,
@@ -42,7 +43,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
   
   const loadModels = async () => {
     try {
-      const storageService = StorageServiceFactory.getService();
+      let storageService = StorageServiceFactory.getService();
       let customModels;
       
       try {
@@ -53,6 +54,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
         
         // Fall back to simulated storage if API fails
         StorageServiceFactory.setMode('simulated');
+        // Get a new instance with the updated mode
         storageService = StorageServiceFactory.getService();
         customModels = await storageService.listModels();
         
@@ -201,11 +203,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
     try {
       // Get the current storage service mode
       const currentMode = StorageServiceFactory.getMode();
-      let storageService = StorageServiceFactory.getService();
+      let initialStorageService = StorageServiceFactory.getService();
       
       try {
         // Attempt the upload
-        const uploadResult = await storageService.uploadModel(modelFile, modelName, {
+        const uploadResult = await initialStorageService.uploadModel(modelFile, modelName, {
           enablePyTorchSupport: isPyTorch
         });
         
@@ -239,9 +241,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelSelected }) => {
           try {
             // Try with simulated storage as fallback
             StorageServiceFactory.setMode('simulated');
-            storageService = StorageServiceFactory.getService();
+            const fallbackStorageService = StorageServiceFactory.getService();
             
-            const uploadResult = await storageService.uploadModel(modelFile, modelName, {
+            const uploadResult = await fallbackStorageService.uploadModel(modelFile, modelName, {
               enablePyTorchSupport: isPyTorch
             });
             
