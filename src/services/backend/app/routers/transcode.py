@@ -20,8 +20,9 @@ router = APIRouter(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Get FFmpeg binary path from environment variable or use default
-ffmpeg_binary_path = os.environ.get("FFMPEG_BINARY_PATH", "ffmpeg")
+# Get FFmpeg binary path from environment variable
+ffmpeg_binary_path = os.environ.get("FFMPEG_BINARY_PATH", "/usr/bin/ffmpeg")
+logger.info(f"Transcode module using FFmpeg binary from: {ffmpeg_binary_path}")
 
 # Create temp directory for transcoding jobs
 TRANSCODE_DIR = os.path.join(tempfile.gettempdir(), "transcode_jobs")

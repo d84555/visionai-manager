@@ -7,6 +7,7 @@ import axios from 'axios';
 
 // Initialize FFmpeg status
 let isFFmpegLoaded = false;
+
 // Track supported formats
 const supportedFormats = {
   'video/mp4': true,
@@ -117,7 +118,8 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
       formData.append('preset', ffmpegSettings.preset || 'fast');
       
       try {
-        // Make the API call to /transcode endpoint without any prefix
+        console.log('Sending transcode request to backend at /transcode');
+        // Make the direct request to the backend server
         const response = await axios.post('/transcode', formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
@@ -140,10 +142,16 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
           throw new Error('No job ID returned from transcoding service');
         }
         
+        console.log('Transcode job started with ID:', job_id);
+        
         // Poll for job completion
         let completed = false;
         let attempts = 0;
         let status;
+        
+        toast.info('Video processing in progress...', {
+          duration: 10000
+        });
         
         while (!completed && attempts < 60) { // Poll for up to 1 minute (60 * 1sec)
           await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
@@ -172,6 +180,8 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
         }
         
         const downloadUrl = `/transcode/${job_id}/download`;
+        console.log('Downloading from:', downloadUrl);
+        
         const downloadResponse = await axios.get(downloadUrl, {
           responseType: 'blob'
         });
@@ -192,7 +202,7 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
         // Check if it's a 404 error (endpoint not found)
         if (error.response && error.response.status === 404) {
           toast.error('Transcoding service not available', {
-            description: 'The server endpoint is not available. Check if the backend server is running correctly.'
+            description: 'The backend server endpoint is not available. Check if the backend server is running correctly at http://localhost:8000.'
           });
         } else {
           toast.error('Video transcoding failed', {
@@ -245,14 +255,14 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
     }
     
     // Log the request details for debugging
-    console.log('Sending stream request to /transcode/stream with parameters:', {
+    console.log('Sending stream request to backend at /transcode/stream with parameters:', {
       stream_url: streamUrl,
       output_format: 'hls',
       stream_name: streamName || 'not provided'
     });
     
     try {
-      // Direct URL to the /transcode/stream endpoint without any prefix
+      // Make the direct request to the backend server
       const response = await axios.post('/transcode/stream', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
@@ -280,7 +290,7 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
       if (error.response) {
         if (error.response.status === 404) {
           toast.error('Stream creation failed: Endpoint not found', {
-            description: 'The transcoding service may not be running or is unreachable. Make sure the backend server is running and has the /transcode/stream endpoint configured.'
+            description: 'The transcoding service may not be running or is unreachable. Make sure the backend server is running at http://localhost:8000 and has the /transcode/stream endpoint configured.'
           });
         } else {
           toast.error(`Stream creation failed: Server returned ${error.response.status}`, {
@@ -289,7 +299,7 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
         }
       } else if (error.request) {
         toast.error('Stream creation failed: No response from server', {
-          description: 'The server may be down or unreachable. Check network connection.'
+          description: 'The server may be down or unreachable. Check that the backend is running at http://localhost:8000.'
         });
       } else {
         toast.error('Stream creation failed', {

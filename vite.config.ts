@@ -16,6 +16,11 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
         ws: true,
         changeOrigin: true,
       },
+      // Add proxy for transcode endpoints (both REST and streaming)
+      '/transcode': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       // Add proxy for API endpoints (including model routes)
       '/api': {
         target: 'http://localhost:8000',
