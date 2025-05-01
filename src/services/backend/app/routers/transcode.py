@@ -262,7 +262,7 @@ async def create_stream(
         process_stream, stream_id, stream_url, output_path, output_format
     )
     
-    # Construct the public URL for the stream
+    # Return a relative URL for the stream that works with client-side proxying
     stream_url = f"/transcode/stream/{stream_id}/index.m3u8"
     
     logger.info(f"Stream job created: {stream_id}, URL: {stream_url}")

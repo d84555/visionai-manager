@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { convertToPlayableFormat, detectVideoFormat, createHlsStream } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
@@ -123,10 +122,9 @@ export const useVideoFeed = ({
       // Reset retry flag
       retryConnectionRef.current = false;
       
+      // Use relative path for WebSocket connections
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsHost = process.env.NODE_ENV === 'production' 
-        ? window.location.host
-        : window.location.host;
+      const wsHost = window.location.host;
       
       const wsUrl = `${wsProtocol}//${wsHost}/ws/inference`;
       console.log(`Connecting to WebSocket at ${wsUrl}`);
@@ -395,11 +393,18 @@ export const useVideoFeed = ({
       
       // Use FFmpeg to convert RTSP to HLS
       const streamUrl = await createHlsStream(url, `camera_${Date.now()}`);
+      console.log(`Stream URL received: ${streamUrl}`);
       
-      setVideoUrl(streamUrl);
+      // Make sure we're using relative URLs for streams
+      const relativeStreamUrl = streamUrl.startsWith('http') 
+        ? new URL(streamUrl).pathname 
+        : streamUrl;
+        
+      console.log(`Using relative stream URL: ${relativeStreamUrl}`);
+      setVideoUrl(relativeStreamUrl);
       setStreamProcessing(false);
       
-      return streamUrl;
+      return relativeStreamUrl;
     } catch (error) {
       console.error('Failed to process RTSP stream:', error);
       toast.error('Failed to process camera stream', {
@@ -573,7 +578,7 @@ export const useVideoFeed = ({
     });
   }, []);
 
-  // Handle video error
+  // Handle video error with improved logging
   const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.target as HTMLVideoElement;
     console.error('Video error:', e, video.error);
@@ -585,7 +590,9 @@ export const useVideoFeed = ({
           toast.error('Video playback aborted');
           break;
         case MediaError.MEDIA_ERR_NETWORK:
-          toast.error('Network error while loading video');
+          toast.error('Network error while loading video', {
+            description: 'Check that your backend server is running and properly configured'
+          });
           break;
         case MediaError.MEDIA_ERR_DECODE:
           toast.error('Video decode error', {
@@ -600,7 +607,9 @@ export const useVideoFeed = ({
           setFormatNotSupported(true);
           break;
         default:
-          toast.error('Failed to load video');
+          toast.error('Failed to load video', {
+            description: `Error code: ${video.error.code}, Message: ${video.error.message || 'Unknown error'}`
+          });
       }
     } else {
       toast.error('Failed to load video');
