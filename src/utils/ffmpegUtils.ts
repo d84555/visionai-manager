@@ -188,9 +188,17 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
         return URL.createObjectURL(transcodedVideo);
       } catch (error: any) {
         console.error('Server transcoding failed:', error);
-        toast.error('Video transcoding failed', {
-          description: error.message || 'Server could not process this video format. Trying client-side fallback.'
-        });
+        
+        // Check if it's a 404 error (endpoint not found)
+        if (error.response && error.response.status === 404) {
+          toast.error('Transcoding service not available', {
+            description: 'The server endpoint is not available. Check if the backend server is running correctly.'
+          });
+        } else {
+          toast.error('Video transcoding failed', {
+            description: error.message || 'Server could not process this video format. Trying client-side fallback.'
+          });
+        }
         
         // Fallback to client-side processing
         return clientSideProcessVideo(file);
@@ -236,10 +244,19 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
       formData.append('stream_name', streamName);
     }
     
+    // Log the request details for debugging
+    console.log('Sending stream request to /transcode/stream with parameters:', {
+      stream_url: streamUrl,
+      output_format: 'hls',
+      stream_name: streamName || 'not provided'
+    });
+    
     try {
       // Updated endpoint to match backend route - /transcode/stream
       const response = await axios.post('/transcode/stream', formData);
       const { stream_id, stream_url, status } = response.data;
+      
+      console.log('Stream response received:', response.data);
       
       if (status !== 'processing') {
         throw new Error('Failed to start stream processing');
@@ -322,7 +339,7 @@ export const convertToPlayableFormat = async (videoFile: File): Promise<string> 
   } catch (error) {
     console.error('Error handling video:', error);
     toast.error('Video format processing failed', {
-      description: 'The video format may not be supported for direct playback'
+      description: 'The video format may not be supported for direct playback. Please try enabling server-side transcoding in Settings.'
     });
     throw new Error('Failed to process video format');
   }
@@ -332,24 +349,33 @@ export const convertToPlayableFormat = async (videoFile: File): Promise<string> 
  * Client-side video processing - with failover for unsupported formats
  */
 const clientSideProcessVideo = async (videoFile: File): Promise<string> => {
-  const fileData = await fetchFileData(videoFile);
-  const formatInfo = detectVideoFormat(videoFile);
-  
-  // If this is a Hikvision format or another special format
-  if (formatInfo.isHikvision) {
-    return convertDavToMP4(videoFile);
-  }
-  
-  // Try to create a direct blob URL with MP4 mime type as fallback
   try {
-    return createDirectBlobUrl(fileData, new File([fileData], videoFile.name, { type: 'video/mp4' }));
-  } catch (error) {
-    console.error('Client-side processing failed:', error);
+    const fileData = await fetchFileData(videoFile);
+    const formatInfo = detectVideoFormat(videoFile);
     
-    // Last resort - return original file blob URL with warning
-    toast.error('Video format not supported', {
-      description: 'This video format cannot be played directly. Please use server-side transcoding.'
+    // If this is a Hikvision format or another special format
+    if (formatInfo.isHikvision) {
+      return convertDavToMP4(videoFile);
+    }
+    
+    // Try to create a direct blob URL with MP4 mime type as fallback
+    try {
+      return createDirectBlobUrl(fileData, new File([fileData], videoFile.name, { type: 'video/mp4' }));
+    } catch (error) {
+      console.error('Client-side processing failed:', error);
+      
+      // Last resort - return original file blob URL with warning
+      toast.error('Video format not supported', {
+        description: 'This video format cannot be played directly. Please try enabling server-side transcoding in Settings.'
+      });
+      return URL.createObjectURL(videoFile);
+    }
+  } catch (error) {
+    console.error('Client-side processing failed completely:', error);
+    toast.error('Video processing failed', {
+      description: 'Could not process the video format. Please enable server-side transcoding in Settings.'
     });
+    // Return the original URL as last resort
     return URL.createObjectURL(videoFile);
   }
 };
