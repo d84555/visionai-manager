@@ -316,6 +316,7 @@ async def clear_unused_models():
 
 @router.websocket("/inference")
 async def websocket_inference(websocket: WebSocket):
+    # Remove authentication checks and accept all connections
     await websocket.accept()
     client_id = f"client-{time.time()}"
     connected_clients[client_id] = websocket
@@ -354,4 +355,3 @@ async def websocket_inference(websocket: WebSocket):
         traceback.print_exc()
         if client_id in connected_clients:
             del connected_clients[client_id]
-

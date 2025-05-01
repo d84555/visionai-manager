@@ -1,7 +1,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import health, models
+from app.routers import health, models, websocket
 import os
 import logging
 
@@ -24,6 +24,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router)
 app.include_router(models.router)
+app.include_router(websocket.router)  # Add the WebSocket router
 
 @app.get("/")
 async def root():

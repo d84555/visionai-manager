@@ -9,10 +9,12 @@ const API_URL = (() => {
     return import.meta.env.VITE_API_URL;
   }
   
-  // Fall back to current origin with port 8000
+  // Fall back to current origin
   try {
-    const { protocol, hostname } = window.location;
-    return `${protocol}//${hostname}:8000`;
+    const { protocol, hostname, port } = window.location;
+    // If we're in development, use the dev server port, otherwise use the same origin
+    const apiPort = process.env.NODE_ENV === 'development' ? '8000' : port;
+    return `${protocol}//${hostname}${apiPort ? `:${apiPort}` : ''}`;
   } catch (e) {
     // Final fallback
     return 'http://localhost:8000';
@@ -163,9 +165,9 @@ class WebSocketManager {
           }
         };
 
-        this.socket.onclose = () => {
+        this.socket.onclose = (event) => {
           this.isConnected = false;
-          console.log('WebSocket connection closed');
+          console.log(`WebSocket connection closed with code: ${event.code}, reason: ${event.reason}`);
           
           if (this.reconnectAttempts < this.maxReconnectAttempts) {
             const delay = Math.min(1000 * (this.reconnectAttempts + 1), 5000);
@@ -575,7 +577,6 @@ class EdgeAIInference {
   } {
     return {
       websocketAvailable: this.webSocketManager?.isWebSocketAvailable() || false,
-      // Use the getter methods instead of directly accessing private properties
       websocketConnected: this.useWebSocket && !!this.webSocketManager && 
                           this.webSocketManager.getConnectionStatus() || false,
       pendingRequests: this.webSocketManager?.getPendingRequestsCount() || this.pendingHttpRequests
