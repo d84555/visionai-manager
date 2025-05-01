@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 import { StorageServiceInterface, ModelInfo } from './StorageServiceInterface';
 
@@ -7,11 +8,15 @@ export default class APIStorageService implements StorageServiceInterface {
   constructor(baseUrl = '') {
     // Default to relative path (same origin) instead of absolute URL
     this.baseUrl = baseUrl || '/api';
+    console.log(`API Storage Service initialized with baseUrl: ${this.baseUrl}`);
   }
 
   async uploadModel(file: File, name: string, options?: any): Promise<ModelInfo> {
     try {
-      console.log(`Uploading model ${name} to ${this.baseUrl}/models/upload`);
+      // Log full URL to help with debugging
+      const uploadUrl = `${this.baseUrl}/models/upload`;
+      console.log(`Uploading model ${name} to ${uploadUrl}`);
+      
       const formData = new FormData();
       formData.append('file', file);
       formData.append('name', name);
@@ -25,9 +30,9 @@ export default class APIStorageService implements StorageServiceInterface {
           formData.append('convertToOnnx', 'true');
         }
       }
-      
-      // Use the /models/upload endpoint which matches models.py router
-      const response = await axios.post(`${this.baseUrl}/models/upload`, formData, {
+
+      // Send the request to the backend
+      const response = await axios.post(uploadUrl, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         },

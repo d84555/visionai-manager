@@ -38,7 +38,6 @@ class MultipleModelsRequest(BaseModel):
 
 def get_models() -> List[Dict[str, Any]]:
     """Get list of available models"""
-    # ... keep existing code (get_models function content)
     models = []
     
     try:
@@ -96,7 +95,7 @@ async def list_models() -> List[Dict[str, Any]]:
 async def upload_model(file: UploadFile = File(...), name: str = Form("")):
     """Upload a new AI model"""
     try:
-        logger.info(f"Received model upload request for {name}")
+        logger.info(f"Models router: Received model upload request for {name}")
         
         # Ensure the models directory exists
         os.makedirs(MODELS_DIR, exist_ok=True)
@@ -116,7 +115,7 @@ async def upload_model(file: UploadFile = File(...), name: str = Form("")):
         safe_filename = name.replace(' ', '_')
         filepath = os.path.join(MODELS_DIR, safe_filename)
         
-        logger.info(f"Saving model to {filepath}")
+        logger.info(f"Models router: Saving model to {filepath}")
         
         # Write the file
         with open(filepath, "wb") as f:
@@ -137,7 +136,7 @@ async def upload_model(file: UploadFile = File(...), name: str = Form("")):
         # Replace underscores with spaces for display
         display_name = display_name.replace('_', ' ')
         
-        logger.info(f"Model upload successful: {model_id}")
+        logger.info(f"Models router: Model upload successful: {model_id}")
         
         return {
             "id": model_id,
@@ -147,7 +146,7 @@ async def upload_model(file: UploadFile = File(...), name: str = Form("")):
             "fileSize": file_stat.st_size
         }
     except Exception as e:
-        logger.error(f"Error uploading model: {str(e)}")
+        logger.error(f"Models router: Error uploading model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to upload model: {str(e)}")
 
 @router.delete("/{model_id}")
