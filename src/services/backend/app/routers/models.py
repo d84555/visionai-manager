@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Query
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
@@ -8,6 +7,10 @@ from datetime import datetime
 import json
 from pydantic import BaseModel
 from pathlib import Path
+import logging
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Models directory - adjust as needed for your deployment
 MODELS_DIR = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"))
@@ -93,6 +96,8 @@ async def list_models() -> List[Dict[str, Any]]:
 async def upload_model(file: UploadFile = File(...), name: str = Form("")):
     """Upload a new AI model"""
     try:
+        logger.info(f"Received model upload request for {name}")
+        
         # Ensure the models directory exists
         os.makedirs(MODELS_DIR, exist_ok=True)
         
@@ -110,6 +115,8 @@ async def upload_model(file: UploadFile = File(...), name: str = Form("")):
         # Create a safe filename
         safe_filename = name.replace(' ', '_')
         filepath = os.path.join(MODELS_DIR, safe_filename)
+        
+        logger.info(f"Saving model to {filepath}")
         
         # Write the file
         with open(filepath, "wb") as f:
@@ -130,6 +137,8 @@ async def upload_model(file: UploadFile = File(...), name: str = Form("")):
         # Replace underscores with spaces for display
         display_name = display_name.replace('_', ' ')
         
+        logger.info(f"Model upload successful: {model_id}")
+        
         return {
             "id": model_id,
             "name": name.replace('_', ' ') if name else display_name,
@@ -138,10 +147,8 @@ async def upload_model(file: UploadFile = File(...), name: str = Form("")):
             "fileSize": file_stat.st_size
         }
     except Exception as e:
-        print(f"Error uploading model: {str(e)}")
+        logger.error(f"Error uploading model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to upload model: {str(e)}")
-
-# ... keep existing code (remaining router endpoints)
 
 @router.delete("/{model_id}")
 async def delete_model(model_id: str):

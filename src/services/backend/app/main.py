@@ -31,11 +31,11 @@ os.makedirs(models_dir, exist_ok=True)
 os.environ["MODELS_DIR"] = models_dir
 logger.info(f"Using models directory: {models_dir}")
 
-# Include routers
+# Include routers - make sure models router is included before inference
 app.include_router(websocket.router)
 app.include_router(health.router)
+app.include_router(models.router)  # Include models router before inference
 app.include_router(inference.router)
-app.include_router(models.router)
 
 @app.get("/")
 async def root():

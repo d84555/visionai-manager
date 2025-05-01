@@ -25,9 +25,9 @@ async def health_check():
     """Simple health check endpoint"""
     return {"status": "ok", "message": "AI Vision API is running"}
 
-@router.post("/models/upload")
-async def upload_model(file: UploadFile = File(...), name: str = Form("")):
-    """Upload a new AI model via health router for testing"""
+@router.post("/test-upload")
+async def upload_model_test(file: UploadFile = File(...), name: str = Form("")):
+    """Test endpoint for uploading a new AI model - use /models/upload for production use"""
     logger.info(f"Health router: Received model upload request for {name}")
     try:
         # Ensure the models directory exists
