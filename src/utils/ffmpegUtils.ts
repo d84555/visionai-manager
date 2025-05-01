@@ -90,7 +90,7 @@ export const detectVideoFormat = (file: File): {
 };
 
 /**
- * Transcodes video on the server using FFmpeg
+ * Transcodes video on the server using FFmpeg and polls for completion
  */
 export const serverTranscodeVideo = async (file: File): Promise<string> => {
   try {
@@ -99,19 +99,24 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
     
     // If server-side transcoding is enabled in settings
     if (ffmpegSettings.serverTranscoding) {
+      toast.info('Starting video transcoding', { 
+        description: 'Converting video to web-compatible format...'
+      });
+      
       console.log('Using server-side transcoding for video:', file.name);
       
       // Create form data to send the file
       const formData = new FormData();
       formData.append('file', file);
       formData.append('outputFormat', ffmpegSettings.transcodeFormat || 'mp4');
+      formData.append('quality', ffmpegSettings.quality || 'medium');
+      formData.append('preset', ffmpegSettings.preset || 'fast');
       
       // Send to server endpoint for transcoding
       const response = await axios.post('/api/transcode', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
-        responseType: 'blob',
         onUploadProgress: (progressEvent) => {
           const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total!);
           console.log(`Upload progress: ${percentCompleted}%`);
@@ -124,9 +129,56 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
         },
       });
       
+      const { job_id } = response.data;
+      
+      if (!job_id) {
+        throw new Error('No job ID returned from transcoding service');
+      }
+      
+      // Poll for job completion
+      let completed = false;
+      let attempts = 0;
+      let status;
+      
+      while (!completed && attempts < 60) { // Poll for up to 1 minute (60 * 1sec)
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        
+        try {
+          const statusResponse = await axios.get(`/api/transcode/${job_id}/status`);
+          status = statusResponse.data;
+          
+          console.log('Transcoding status:', status);
+          
+          if (status.status === 'completed') {
+            completed = true;
+          } else if (status.status === 'failed') {
+            throw new Error(status.error || 'Transcoding failed');
+          }
+          
+          attempts++;
+        } catch (error) {
+          console.error('Error checking transcoding status:', error);
+          attempts++;
+        }
+      }
+      
+      if (!completed) {
+        throw new Error('Transcoding timed out');
+      }
+      
+      // Download the transcoded video
+      const downloadUrl = `/api/transcode/${job_id}/download`;
+      const downloadResponse = await axios.get(downloadUrl, {
+        responseType: 'blob'
+      });
+      
       // Create a URL for the transcoded video
-      const transcodedVideo = new Blob([response.data], { 
-        type: `video/${ffmpegSettings.transcodeFormat}` 
+      const transcodedVideo = new Blob([downloadResponse.data], { 
+        type: `video/${ffmpegSettings.transcodeFormat || 'mp4'}` 
+      });
+      
+      toast.success('Video transcoding completed', {
+        description: 'Video is ready to play'
       });
       
       return URL.createObjectURL(transcodedVideo);
@@ -142,6 +194,55 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
     
     // Fallback to client-side processing
     return clientSideProcessVideo(file);
+  }
+};
+
+/**
+ * Creates a new HLS stream from an IP camera URL
+ * @param streamUrl The URL of the IP camera stream
+ * @returns A Promise with the URL of the HLS stream
+ */
+export const createHlsStream = async (streamUrl: string, streamName?: string): Promise<string> => {
+  try {
+    const ffmpegSettings = SettingsService.getSettings('ffmpeg');
+    
+    // Check if server-side transcoding is enabled
+    if (!ffmpegSettings.serverTranscoding) {
+      throw new Error('Server-side transcoding is disabled in settings');
+    }
+    
+    toast.info('Setting up camera stream', { 
+      description: 'Connecting to camera and preparing stream...'
+    });
+    
+    // Create form data for the stream request
+    const formData = new FormData();
+    formData.append('stream_url', streamUrl);
+    formData.append('output_format', 'hls');
+    if (streamName) {
+      formData.append('stream_name', streamName);
+    }
+    
+    // Send request to create the stream
+    const response = await axios.post('/api/stream', formData);
+    const { stream_id, stream_url, status } = response.data;
+    
+    if (status !== 'processing') {
+      throw new Error('Failed to start stream processing');
+    }
+    
+    // Return the stream URL
+    toast.success('Stream ready', {
+      description: 'Camera stream is now available for playback'
+    });
+    
+    return stream_url;
+  } catch (error) {
+    console.error('Stream creation failed:', error);
+    toast.error('Failed to create camera stream', {
+      description: 'Please check camera URL and server settings'
+    });
+    throw error;
   }
 };
 
@@ -226,6 +327,10 @@ export const convertDavToMP4 = async (file: File): Promise<string> => {
   const ffmpeg = new FFmpeg();
   
   try {
+    toast.info('Converting Hikvision format', {
+      description: 'Processing DAV file for playback...'
+    });
+    
     // Load FFmpeg
     await ffmpeg.load();
     
@@ -252,9 +357,16 @@ export const convertDavToMP4 = async (file: File): Promise<string> => {
     const blob = new Blob([outputData], { type: 'video/mp4' });
     const url = URL.createObjectURL(blob);
     
+    toast.success('Video conversion complete', {
+      description: 'Hikvision format successfully converted to MP4'
+    });
+    
     return url;
   } catch (error) {
     console.error('FFmpeg error:', error);
+    toast.error('Hikvision format conversion failed', {
+      description: 'Please try server-side transcoding instead'
+    });
     throw new Error('Failed to convert DAV file');
   }
 };

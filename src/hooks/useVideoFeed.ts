@@ -1,6 +1,5 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { convertToPlayableFormat, detectVideoFormat } from '../utils/ffmpegUtils';
+import { convertToPlayableFormat, detectVideoFormat, createHlsStream } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
 
 interface Detection {
@@ -42,6 +41,7 @@ export const useVideoFeed = ({
   streamType = 'main',
   fps = 10
 }: VideoFeedProps) => {
+  // State variables
   const [videoUrl, setVideoUrl] = useState(initialVideoUrl || '');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -57,7 +57,10 @@ export const useVideoFeed = ({
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [isTranscoding, setIsTranscoding] = useState(false);
   const [formatNotSupported, setFormatNotSupported] = useState(false);
+  const [isLiveStream, setIsLiveStream] = useState(false);
+  const [streamProcessing, setStreamProcessing] = useState(false);
   
+  // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
@@ -66,6 +69,9 @@ export const useVideoFeed = ({
   const processingRef = useRef<boolean>(false);
   const requestAnimationFrameIdRef = useRef<number | null>(null);
   const activeModelsRef = useRef<{ name: string; path: string }[]>(activeModels);
+  const retryConnectionRef = useRef<boolean>(false);
+  const connectionAttemptsRef = useRef<number>(0);
+  const maxConnectionAttempts = 5;
 
   // Keep activeModelsRef in sync with activeModels prop
   useEffect(() => {
@@ -73,13 +79,16 @@ export const useVideoFeed = ({
     console.log('Active models updated:', activeModels);
   }, [activeModels]);
 
-  // Initialize WebSocket connection
+  // Initialize WebSocket connection with retry logic
   const initWebSocket = useCallback(() => {
     try {
       // Close existing connection if any
       if (socketRef.current) {
         socketRef.current.close();
       }
+      
+      // Reset retry flag
+      retryConnectionRef.current = false;
       
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsHost = process.env.NODE_ENV === 'production' 
@@ -93,6 +102,9 @@ export const useVideoFeed = ({
       
       socket.onopen = () => {
         console.log('WebSocket connection established');
+        // Reset connection attempts on successful connection
+        connectionAttemptsRef.current = 0;
+        
         // Send a ping message to test connection
         socket.send(JSON.stringify({
           type: 'ping',
@@ -132,22 +144,12 @@ export const useVideoFeed = ({
                   height: d.height || (typeof d.bbox === 'object' ? d.bbox.height : 0)
                 }
               }));
-              
-              console.log(`Formatted ${formattedDetections.length} detections from flat array`);
-              if (formattedDetections.length > 0) {
-                console.log('Sample formatted detection:', formattedDetections[0]);
-              }
             }
             
-            // Check if we have model-specific results (this is the new format we want to support)
+            // Check if we have model-specific results
             if (data.modelResults) {
-              console.log("Multi-model results found:", Object.keys(data.modelResults));
-              
-              // Process each model's results
               Object.entries(data.modelResults).forEach(([modelName, modelDetections]) => {
                 if (Array.isArray(modelDetections)) {
-                  console.log(`Processing ${(modelDetections as any[]).length} detections from model ${modelName}`);
-                  
                   const modelFormattedDetections = (modelDetections as any[]).map((d: any) => ({
                     id: d.id || `${modelName}-${Math.random().toString(36).substring(2, 9)}`,
                     label: d.label || d.class_name || d.class || modelName,
@@ -165,17 +167,11 @@ export const useVideoFeed = ({
                   
                   // Add this model's detections to the combined results
                   formattedDetections = [...formattedDetections, ...modelFormattedDetections];
-                  
-                  console.log(`Added ${modelFormattedDetections.length} detections from model ${modelName}`);
-                  if (modelFormattedDetections.length > 0) {
-                    console.log('Sample model detection:', modelFormattedDetections[0]);
-                  }
                 }
               });
             }
             
             // Set the combined detections from all models
-            console.log(`Setting ${formattedDetections.length} total detections`);
             setDetections(formattedDetections);
             
             // Update inference stats
@@ -203,13 +199,41 @@ export const useVideoFeed = ({
         }
       };
       
-      socket.onclose = () => {
-        console.log('WebSocket connection closed');
+      socket.onclose = (event) => {
+        console.log(`WebSocket connection closed with code ${event.code}`);
+        
+        // Only attempt reconnection if we're still streaming
+        if (isStreaming) {
+          // Attempt reconnection if not intentionally closed
+          if (event.code !== 1000 && !retryConnectionRef.current && connectionAttemptsRef.current < maxConnectionAttempts) {
+            console.log('WebSocket connection lost, attempting to reconnect...');
+            connectionAttemptsRef.current++;
+            
+            // Exponential backoff with jitter for reconnection attempts
+            const baseDelay = 1000; // 1 second
+            const maxDelay = 10000; // 10 seconds max
+            const delay = Math.min(baseDelay * Math.pow(1.5, connectionAttemptsRef.current), maxDelay);
+            const jitter = delay * 0.2 * Math.random(); // Add up to 20% random jitter
+            
+            console.log(`Attempting reconnection in ${Math.round((delay + jitter)/1000)} seconds (attempt ${connectionAttemptsRef.current})`);
+            
+            setTimeout(() => {
+              if (isStreaming) {
+                initWebSocket();
+              }
+            }, delay + jitter);
+          } else if (connectionAttemptsRef.current >= maxConnectionAttempts) {
+            console.log('Maximum reconnection attempts reached, giving up');
+            toast.error('Connection to inference service lost', {
+              description: 'Failed to reconnect after multiple attempts'
+            });
+          }
+        }
       };
       
       socket.onerror = (error) => {
         console.error('WebSocket error:', error);
-        toast.error('Connection to inference service failed');
+        // Don't show toast here, we'll handle retries in onclose
       };
       
       socketRef.current = socket;
@@ -217,31 +241,11 @@ export const useVideoFeed = ({
       console.error('Error initializing WebSocket:', error);
       toast.error('Failed to connect to inference service');
     }
-  }, []);
+  }, [isStreaming, maxConnectionAttempts]);
 
   // Start sending frames for processing
   const startFrameProcessing = useCallback(() => {
     if (!videoRef.current || !socketRef.current || !isStreaming || processingRef.current) {
-      console.log('Skipping frame processing:', {
-        videoReady: !!videoRef.current,
-        socketReady: !!socketRef.current,
-        isStreaming,
-        alreadyProcessing: processingRef.current
-      });
-      
-      // If we have video element but it's not fully ready, log more details
-      if (videoRef.current) {
-        console.log('Video element details:', {
-          readyState: videoRef.current.readyState,
-          videoWidth: videoRef.current.videoWidth,
-          videoHeight: videoRef.current.videoHeight,
-          currentSrc: videoRef.current.currentSrc,
-          networkState: videoRef.current.networkState,
-          paused: videoRef.current.paused
-        });
-      }
-      
-      // Schedule next check regardless
       requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
       return;
     }
@@ -251,10 +255,6 @@ export const useVideoFeed = ({
     
     // Skip if no models are selected or if not playing
     if (currentActiveModels.length === 0 || !isPlaying) {
-      console.log('No active models or video paused, skipping frame processing', {
-        modelCount: currentActiveModels.length,
-        isPlaying
-      });
       if (requestAnimationFrameIdRef.current !== null) {
         cancelAnimationFrame(requestAnimationFrameIdRef.current);
         requestAnimationFrameIdRef.current = null;
@@ -270,16 +270,8 @@ export const useVideoFeed = ({
       videoRef.current.videoHeight === 0 ||
       videoRef.current.paused
     ) {
-      console.log('Video not fully ready for frame processing', {
-        readyState: videoRef.current?.readyState,
-        width: videoRef.current?.videoWidth,
-        height: videoRef.current?.videoHeight,
-        paused: videoRef.current?.paused
-      });
-      
       // Add a force play attempt if video is paused
       if (videoRef.current && videoRef.current.paused && isPlaying) {
-        console.log('Video is paused but should be playing, attempting to play...');
         videoRef.current.play().catch(err => {
           console.error('Error forcing video to play:', err);
         });
@@ -329,7 +321,6 @@ export const useVideoFeed = ({
       
       // Draw the current video frame to the canvas
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      console.log(`Captured frame: ${canvas.width}x${canvas.height}`);
       
       // Get the image data as a Base64 string
       const imageData = canvas.toDataURL('image/jpeg', 0.7);
@@ -339,14 +330,10 @@ export const useVideoFeed = ({
       
       // Skip if no models are selected
       if (modelPaths.length === 0) {
-        console.log('No model paths available, skipping inference');
         processingRef.current = false;
         requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
         return;
       }
-      
-      // Log what models we're sending for detection
-      console.log(`Sending frame for inference with models: ${currentActiveModels.map(m => m.name).join(', ')}`);
       
       // Add timestamp for debugging
       const timestamp = new Date().toISOString();
@@ -358,8 +345,6 @@ export const useVideoFeed = ({
         threshold: 0.5,
         timestamp: timestamp
       }));
-      
-      console.log(`Frame sent at ${timestamp}`);
     } catch (error) {
       console.error('Error processing frame:', error);
       processingRef.current = false;
@@ -368,6 +353,37 @@ export const useVideoFeed = ({
     // Schedule next frame
     requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
   }, [isStreaming, isPlaying, fps]);
+
+  // Process RTSP stream
+  const processRtspStream = useCallback(async (url: string) => {
+    try {
+      setStreamProcessing(true);
+      setIsLiveStream(true);
+      
+      // Use FFmpeg to convert RTSP to HLS
+      const streamUrl = await createHlsStream(url, `camera_${Date.now()}`);
+      
+      setVideoUrl(streamUrl);
+      setStreamProcessing(false);
+      
+      return streamUrl;
+    } catch (error) {
+      console.error('Failed to process RTSP stream:', error);
+      toast.error('Failed to process camera stream', {
+        description: 'Please check that the camera URL is correct and accessible'
+      });
+      setStreamProcessing(false);
+      throw error;
+    }
+  }, []);
+
+  // Check if URL is RTSP or other streaming format
+  const isStreamingUrl = (url: string): boolean => {
+    return url.startsWith('rtsp://') || 
+           url.startsWith('rtsps://') ||
+           url.startsWith('rtmp://') ||
+           url.startsWith('http://') && (url.includes('.m3u8') || url.includes('mjpg/video') || url.includes('mjpeg'));
+  };
 
   // Start streaming video
   const startStream = useCallback(async () => {
@@ -382,12 +398,44 @@ export const useVideoFeed = ({
     setInferenceTime(null);
     setFormatNotSupported(false);
     
+    // Handle RTSP or other streaming URLs
+    if (videoUrl && isStreamingUrl(videoUrl)) {
+      setIsProcessing(true);
+      
+      try {
+        // If it's an RTSP URL, process it
+        if (videoUrl.startsWith('rtsp://') || videoUrl.startsWith('rtsps://') || videoUrl.startsWith('rtmp://')) {
+          const processedUrl = await processRtspStream(videoUrl);
+          
+          // Model loading can proceed in parallel
+          if (activeModelsRef.current.length > 0) {
+            setIsModelLoading(true);
+            setTimeout(() => { setIsModelLoading(false); }, 1500);
+          }
+          
+          // Initialize WebSocket connection
+          initWebSocket();
+          
+          // Start streaming
+          setIsStreaming(true);
+          setIsPlaying(true);
+          setIsProcessing(false);
+          
+          return;
+        }
+      } catch (error) {
+        console.error('Error processing stream:', error);
+        setIsProcessing(false);
+        return;
+      }
+    }
+    
     // Handle uploaded files with potential format issues
     if (hasUploadedFile && originalFile) {
       setIsProcessing(true);
       
       try {
-        // Check if it's a Hikvision DAV file or other special format
+        // Check if it's a special format
         const formatInfo = detectVideoFormat(originalFile);
         setIsHikvisionFormat(formatInfo.isHikvision || false);
         
@@ -404,6 +452,7 @@ export const useVideoFeed = ({
         // Model loading can proceed in parallel with conversion
         if (activeModelsRef.current.length > 0) {
           setIsModelLoading(true);
+          setTimeout(() => { setIsModelLoading(false); }, 1500);
         }
         
         // Initialize WebSocket connection
@@ -420,8 +469,6 @@ export const useVideoFeed = ({
         setFormatNotSupported(true);
       } finally {
         setIsProcessing(false);
-        setIsModelLoading(false);
-        setIsTranscoding(false);
       }
     } else {
       // Standard video streaming (URL)
@@ -470,10 +517,15 @@ export const useVideoFeed = ({
         }
       }
     }
-  }, [videoUrl, hasUploadedFile, originalFile, initWebSocket]);
+  }, [videoUrl, hasUploadedFile, originalFile, initWebSocket, processRtspStream, isStreamingUrl]);
 
   // Stop streaming
   const stopStream = useCallback(() => {
+    // Signal not to attempt reconnection
+    if (socketRef.current) {
+      retryConnectionRef.current = true;
+    }
+    
     setIsStreaming(false);
     setIsPlaying(false);
     setDetections([]);
@@ -481,6 +533,7 @@ export const useVideoFeed = ({
     setInferenceTime(null);
     setActualFps(null);
     setFormatNotSupported(false);
+    setIsLiveStream(false);
     
     // Cancel any pending animation frame
     if (requestAnimationFrameIdRef.current !== null) {
@@ -493,6 +546,9 @@ export const useVideoFeed = ({
       socketRef.current.close();
       socketRef.current = null;
     }
+    
+    // Reset connection attempts
+    connectionAttemptsRef.current = 0;
   }, []);
 
   // Toggle play/pause
@@ -520,6 +576,7 @@ export const useVideoFeed = ({
   const handleFileUpload = useCallback(async (file: File) => {
     setOriginalFile(file);
     setHasUploadedFile(true);
+    setIsLiveStream(false);
     
     // Check file format
     const formatInfo = detectVideoFormat(file);
@@ -669,6 +726,8 @@ export const useVideoFeed = ({
     isModelLoading,
     isTranscoding,
     formatNotSupported,
+    isLiveStream,
+    streamProcessing,
     videoRef,
     containerRef,
     startStream,
@@ -678,6 +737,8 @@ export const useVideoFeed = ({
     handleVideoMetadata,
     handleVideoError,
     setHasUploadedFile,
-    setOriginalFile
+    setOriginalFile,
+    processRtspStream,
+    isStreamingUrl
   };
 };
