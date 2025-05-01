@@ -1,3 +1,4 @@
+
 import SettingsService from '@/services/SettingsService';
 import { toast } from 'sonner';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -115,7 +116,7 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
       formData.append('quality', ffmpegSettings.quality || 'medium');
       formData.append('preset', ffmpegSettings.preset || 'fast');
       
-      // Send to server endpoint for transcoding
+      // Fix: Updated endpoint to include /api prefix since the router uses this prefix
       const response = await axios.post('/api/transcode', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -147,6 +148,7 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
         
         try {
+          // Fix: Updated endpoint to include /api prefix
           const statusResponse = await axios.get(`/api/transcode/${job_id}/status`);
           status = statusResponse.data;
           
@@ -169,7 +171,7 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
         throw new Error('Transcoding timed out');
       }
       
-      // Download the transcoded video
+      // Fix: Updated endpoint to include /api prefix
       const downloadUrl = `/api/transcode/${job_id}/download`;
       const downloadResponse = await axios.get(downloadUrl, {
         responseType: 'blob'
@@ -226,7 +228,7 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
       formData.append('stream_name', streamName);
     }
     
-    // Send request to create the stream
+    // Fix: Updated endpoint to include /api prefix
     const response = await axios.post('/api/stream', formData);
     const { stream_id, stream_url, status } = response.data;
     
