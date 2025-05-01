@@ -1,4 +1,3 @@
-
 import SettingsService from '@/services/SettingsService';
 import { toast } from 'sonner';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -116,8 +115,9 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
       formData.append('quality', ffmpegSettings.quality || 'medium');
       formData.append('preset', ffmpegSettings.preset || 'fast');
       
-      // Fix: Updated endpoint to include /api prefix since the router uses this prefix
-      const response = await axios.post('/api/transcode', formData, {
+      // Fix: Use the correct API endpoint without /api prefix 
+      // since FastAPI is handling the routes directly
+      const response = await axios.post('/transcode', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -148,8 +148,8 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
         
         try {
-          // Fix: Updated endpoint to include /api prefix
-          const statusResponse = await axios.get(`/api/transcode/${job_id}/status`);
+          // Fix: Use the correct API endpoint without /api prefix
+          const statusResponse = await axios.get(`/transcode/${job_id}/status`);
           status = statusResponse.data;
           
           console.log('Transcoding status:', status);
@@ -171,8 +171,8 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
         throw new Error('Transcoding timed out');
       }
       
-      // Fix: Updated endpoint to include /api prefix
-      const downloadUrl = `/api/transcode/${job_id}/download`;
+      // Fix: Use the correct API endpoint without /api prefix
+      const downloadUrl = `/transcode/${job_id}/download`;
       const downloadResponse = await axios.get(downloadUrl, {
         responseType: 'blob'
       });
@@ -228,8 +228,8 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
       formData.append('stream_name', streamName);
     }
     
-    // Fix: Updated endpoint to include /api prefix
-    const response = await axios.post('/api/stream', formData);
+    // Fix: Use the correct API endpoint without /api prefix
+    const response = await axios.post('/stream', formData);
     const { stream_id, stream_url, status } = response.data;
     
     if (status !== 'processing') {

@@ -42,7 +42,7 @@ app.include_router(inference.router)
 app.include_router(models.router)    
 app.include_router(websocket.router)
 app.include_router(health.router)
-app.include_router(transcode.router, prefix="/api")  # Add the transcode router with /api prefix
+app.include_router(transcode.router)  # Include the transcode router directly without any prefix
 
 @app.get("/")
 async def root():

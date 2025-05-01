@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response
 from fastapi.responses import StreamingResponse
 import os
@@ -32,7 +31,7 @@ logger.info(f"Using transcode directory: {TRANSCODE_DIR}")
 # Keep track of transcoding jobs
 transcode_jobs = {}
 
-@router.post("/", status_code=202)
+@router.post("/transcode", status_code=202)
 async def transcode_video(
     backgroundTasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -159,7 +158,7 @@ def transcode_file(job_id, input_path, output_path, output_format, quality, pres
                 "error": str(e)
             }, f)
 
-@router.get("/{job_id}/status")
+@router.get("/transcode/{job_id}/status")
 async def get_job_status(job_id: str):
     """
     Get the status of a transcoding job
@@ -174,7 +173,7 @@ async def get_job_status(job_id: str):
     
     return status
 
-@router.get("/{job_id}/download")
+@router.get("/transcode/{job_id}/download")
 async def download_transcoded_file(job_id: str):
     """
     Download the transcoded file
