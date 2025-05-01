@@ -115,14 +115,22 @@ def get_model_path(model_path: str) -> str:
     # If path already starts with the models directory or is an absolute path, return as is
     if model_path.startswith(MODELS_DIR) or os.path.isabs(model_path):
         return model_path
-        
-    # If path starts with /models/, replace with actual models directory
+    
+    # Check if the model path is a full path with the specific file
+    if os.path.exists(model_path):
+        return model_path
+    
+    # Try without the /models/ prefix if it exists
     if model_path.startswith('/models/'):
-        base_name = os.path.basename(model_path)
-        return os.path.join(MODELS_DIR, base_name)
-        
+        filename = os.path.basename(model_path)
+        full_path = os.path.join(MODELS_DIR, filename)
+        if os.path.exists(full_path):
+            return full_path
+        return full_path  # Return this path even if file doesn't exist for clear error reporting
+    
     # Otherwise, assume it's a relative path from the models directory
-    return os.path.join(MODELS_DIR, model_path)
+    full_path = os.path.join(MODELS_DIR, model_path)
+    return full_path
 
 def optimize_pytorch_model(model_path: str) -> str:
     """Optimize a PyTorch model (e.g., convert to ONNX) if needed"""

@@ -11,7 +11,7 @@ export default class APIStorageService implements StorageServiceInterface {
 
   async uploadModel(file: File, name: string, options?: any): Promise<ModelInfo> {
     try {
-      console.log(`Uploading model ${name} to ${this.baseUrl}/health/models/upload`);
+      console.log(`Uploading model ${name} to ${this.baseUrl}/models/upload`);
       const formData = new FormData();
       formData.append('file', file);
       formData.append('name', name);
@@ -26,8 +26,8 @@ export default class APIStorageService implements StorageServiceInterface {
         }
       }
       
-      // Updated endpoint to match the backend route structure
-      const response = await axios.post(`${this.baseUrl}/health/models/upload`, formData, {
+      // Use the correct endpoint path that matches the backend router
+      const response = await axios.post(`${this.baseUrl}/models/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         },

@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Query
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
@@ -34,6 +35,7 @@ class MultipleModelsRequest(BaseModel):
 
 def get_models() -> List[Dict[str, Any]]:
     """Get list of available models"""
+    # ... keep existing code (get_models function content)
     models = []
     
     try:
@@ -138,6 +140,8 @@ async def upload_model(file: UploadFile = File(...), name: str = Form("")):
     except Exception as e:
         print(f"Error uploading model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to upload model: {str(e)}")
+
+# ... keep existing code (remaining router endpoints)
 
 @router.delete("/{model_id}")
 async def delete_model(model_id: str):
