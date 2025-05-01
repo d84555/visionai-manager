@@ -117,7 +117,7 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
       formData.append('preset', ffmpegSettings.preset || 'fast');
       
       try {
-        // Make the API call with proper error handling
+        // Make the API call to /transcode endpoint (no /api prefix)
         const response = await axios.post('/transcode', formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
@@ -237,6 +237,7 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
     }
     
     try {
+      // Updated endpoint to match backend route - /transcode/stream
       const response = await axios.post('/transcode/stream', formData);
       const { stream_id, stream_url, status } = response.data;
       
@@ -252,9 +253,27 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
       return stream_url;
     } catch (error: any) {
       console.error('Stream creation failed:', error);
-      toast.error('Failed to create camera stream', {
-        description: error.message || 'Please check camera URL and server settings'
-      });
+      
+      // Improved error messages with troubleshooting suggestions
+      if (error.response) {
+        if (error.response.status === 404) {
+          toast.error('Stream creation failed: Endpoint not found', {
+            description: 'The transcoding service may not be running or is unreachable. Check server logs.'
+          });
+        } else {
+          toast.error(`Stream creation failed: Server returned ${error.response.status}`, {
+            description: error.response.data?.message || 'Check camera URL format and server settings'
+          });
+        }
+      } else if (error.request) {
+        toast.error('Stream creation failed: No response from server', {
+          description: 'The server may be down or unreachable. Check network connection.'
+        });
+      } else {
+        toast.error('Stream creation failed', {
+          description: error.message || 'Please check camera URL and server settings'
+        });
+      }
       throw error;
     }
   } catch (error: any) {
