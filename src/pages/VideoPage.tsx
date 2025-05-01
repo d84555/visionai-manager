@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { VideoIcon, Camera } from 'lucide-react';
@@ -225,7 +224,7 @@ const VideoPage = () => {
         <div className="border rounded-md p-4">
           <h2 className="text-lg font-medium mb-2">Detection Settings</h2>
           <p className="text-sm text-muted-foreground mb-3">
-            Detection settings can be configured in the Settings page. For advanced configuration, visit the Settings > AI Models section.
+            Detection settings can be configured in the Settings page. For advanced configuration, visit the Settings {'>'}  AI Models section.
           </p>
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
