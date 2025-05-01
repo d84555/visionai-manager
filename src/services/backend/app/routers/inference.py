@@ -215,13 +215,152 @@ async def transcode_video(
     file: UploadFile = File(...),
     outputFormat: str = Form("mp4")
 ):
-    # ... keep existing code
-    
+    """Transcode an uploaded video file to a specified format using FFmpeg."""
+    try:
+        # Generate a unique job ID
+        job_id = str(uuid.uuid4())
+        
+        # Save the uploaded file temporarily
+        temp_input_path = os.path.join(temp_dir, f"input_{job_id}")
+        with open(temp_input_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Define output path
+        output_filename = f"transcoded_{job_id}.{outputFormat}"
+        temp_output_path = os.path.join(temp_dir, output_filename)
+        
+        # Get FFmpeg binary path from environment variable or use default
+        ffmpeg_binary = os.environ.get("FFMPEG_BINARY_PATH", "ffmpeg")
+        
+        # Build FFmpeg command
+        command = [
+            ffmpeg_binary,
+            "-i", temp_input_path,
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            temp_output_path
+        ]
+        
+        # Execute FFmpeg command
+        logger.info(f"Starting transcoding job {job_id}: {' '.join(command)}")
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Track the job
+        active_jobs[job_id] = {
+            "input_file": temp_input_path,
+            "output_file": temp_output_path,
+            "status": "processing",
+            "process": process
+        }
+        
+        # Return job information
+        return {
+            "job_id": job_id,
+            "status": "processing",
+            "message": "Transcoding started",
+            "output_format": outputFormat
+        }
+        
+    except Exception as e:
+        logger.error(f"Transcoding error: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Transcoding failed: {str(e)}"}
+        )
+
 @router.post("/inference")
 async def inference(request: Request):
     """
     Process an image for object detection
     """
-    # ... keep existing code
-
-# Add more inference-related endpoints as needed
+    try:
+        # Parse the JSON request
+        data = await request.json()
+        
+        # Extract model paths and image data
+        model_paths = data.get("modelPaths", [])
+        threshold = float(data.get("threshold", 0.5))
+        image_data = data.get("imageData", "")
+        
+        # Decode base64 image
+        if image_data:
+            image_parts = image_data.split(",")
+            if len(image_parts) > 1:
+                image_bytes = base64.b64decode(image_parts[1])
+            else:
+                image_bytes = base64.b64decode(image_parts[0])
+                
+            # Convert to PIL Image for processing
+            try:
+                from PIL import Image
+                image = Image.open(io.BytesIO(image_bytes))
+                width, height = image.size
+            except Exception as e:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Invalid image data: {str(e)}"}
+                )
+                
+            # Process with models if available
+            if TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE and model_paths:
+                all_detections = []
+                
+                # Process each model
+                for model_path in model_paths:
+                    try:
+                        # Get the actual model path
+                        resolved_path = get_model_path(model_path)
+                        model_name = os.path.basename(resolved_path).split('.')[0]
+                        
+                        # Load model
+                        model = YOLO(resolved_path)
+                        
+                        # Run inference
+                        start_time = time.time()
+                        results = model.predict(source=image, conf=threshold, verbose=False)
+                        inference_time = (time.time() - start_time) * 1000
+                        
+                        # Convert to our format
+                        detections = convert_ultralytics_results_to_detections(
+                            results, width, height, threshold, model_name
+                        )
+                        all_detections.extend(detections)
+                        
+                    except Exception as e:
+                        logger.error(f"Model inference error with {model_path}: {str(e)}")
+                        continue
+                        
+                # Create result
+                result = InferenceResult(
+                    detections=all_detections,
+                    inference_time=inference_time,
+                    processed_at="edge",
+                    timestamp=time.strftime("%Y-%m-%d %H:%M:%S")
+                )
+                
+                # Return results
+                return JSONResponse(content=result.dict())
+            else:
+                # Fallback to simulation
+                sim_detections = simulate_detection()
+                result = InferenceResult(
+                    detections=sim_detections,
+                    inference_time=10.0,
+                    processed_at="simulation",
+                    timestamp=time.strftime("%Y-%m-%d %H:%M:%S")
+                )
+                return JSONResponse(content=result.dict())
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No image data provided"}
+            )
+                
+    except Exception as e:
+        logger.error(f"Inference endpoint error: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Inference failed: {str(e)}"}
+        )

@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
 import logging
-from app.routers import websocket, health, inference, models
+from app.routers import inference, models, websocket, health
 
 # Configure logging
 logging.basicConfig(
