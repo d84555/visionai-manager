@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Settings, Save, Mail, Database, Logs, Server, Layers, Info, Upload, Type, Image, Palette } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -57,7 +56,11 @@ const SettingsPage = () => {
     corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
     customPath: false,
     localBinaryPath: '/usr/bin/ffmpeg',
-    useLocalBinary: false
+    useLocalBinary: false,
+    serverBinaryPath: '/usr/bin/ffmpeg',
+    useServerBinary: false,
+    serverTranscoding: false,
+    transcodeFormat: 'hls'
   });
 
   const [brandingSettings, setBrandingSettings] = useState<BrandingSettings>({
@@ -569,7 +572,63 @@ const SettingsPage = () => {
               </div>
             )}
             
-            {!ffmpegSettings.useLocalBinary && (
+            <div className="flex items-center space-x-2 pt-4 border-t">
+              <Switch
+                id="use-server-ffmpeg"
+                checked={ffmpegSettings.useServerBinary}
+                onCheckedChange={(checked) => setFfmpegSettings({...ffmpegSettings, useServerBinary: checked})}
+              />
+              <Label htmlFor="use-server-ffmpeg">Use server-side FFmpeg for video processing</Label>
+            </div>
+            
+            {ffmpegSettings.useServerBinary && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="ffmpeg-server-path">Server FFmpeg Binary Path</Label>
+                  <Input
+                    id="ffmpeg-server-path"
+                    value={ffmpegSettings.serverBinaryPath || '/usr/bin/ffmpeg'}
+                    onChange={(e) => setFfmpegSettings({...ffmpegSettings, serverBinaryPath: e.target.value})}
+                    placeholder="Enter path to server FFmpeg binary (e.g. /usr/bin/ffmpeg)"
+                  />
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="server-transcoding"
+                    checked={ffmpegSettings.serverTranscoding}
+                    onCheckedChange={(checked) => setFfmpegSettings({...ffmpegSettings, serverTranscoding: checked})}
+                  />
+                  <Label htmlFor="server-transcoding">Enable server-side video transcoding</Label>
+                </div>
+                
+                {ffmpegSettings.serverTranscoding && (
+                  <div className="space-y-2">
+                    <Label htmlFor="transcode-format">Transcoding Format</Label>
+                    <Select 
+                      value={ffmpegSettings.transcodeFormat} 
+                      onValueChange={(value: 'hls' | 'mp4' | 'webm') => 
+                        setFfmpegSettings({...ffmpegSettings, transcodeFormat: value})
+                      }
+                    >
+                      <SelectTrigger id="transcode-format" className="w-full">
+                        <SelectValue placeholder="Select format" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="hls">HLS (HTTP Live Streaming)</SelectItem>
+                        <SelectItem value="mp4">MP4 (Better Compatibility)</SelectItem>
+                        <SelectItem value="webm">WebM (Efficient Web Format)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      HLS is recommended for live streams, MP4 for better compatibility, WebM for efficient streaming
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+            
+            {!ffmpegSettings.useLocalBinary && !ffmpegSettings.useServerBinary && (
               <>
                 <div className="flex items-center space-x-2">
                   <Switch
@@ -599,9 +658,8 @@ const SettingsPage = () => {
             
             <div className="mt-4 p-3 border rounded-md bg-yellow-50">
               <p className="text-sm text-amber-800">
-                <strong>Note:</strong> Using a local FFmpeg binary requires FFmpeg to be installed on your system.
-                The web application cannot directly access local system binaries due to browser security restrictions.
-                This option is intended for cases where video processing happens server-side.
+                <strong>Note:</strong> Using server-side FFmpeg requires proper backend configuration and permissions.
+                Server-side transcoding can significantly improve playback compatibility and reduce client-side processing.
               </p>
             </div>
           </div>
@@ -617,7 +675,7 @@ const SettingsPage = () => {
             <div>
               <h3 className="text-lg font-medium">AVIANET Vision</h3>
               <p className="text-sm text-muted-foreground">
-                AVIANET specialize in disruptive IT/OT Cybersecurity services, IoT and Industrial Automation solutions, corporate IT Strategy Consultancy, seamless Digital AI Integration, DevOps services, bespoke Software Development, and cutting-edge Metaverse Technology within 2D/3D Virtual Event Platforms.
+                AVIANET develops AI-driven solutions to support worker safety and health compliance using Vision AI. Our technology helps organizations monitor safety practices in real time, with a focus on sectors such as energy and industrial operations.
               </p>
             </div>
             

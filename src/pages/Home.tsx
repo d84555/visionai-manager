@@ -231,10 +231,6 @@ const Home = () => {
           </Card>
         ))}
       </div>
-      
-      <div className="text-center p-4 text-sm text-muted-foreground border-t mt-6">
-        <p>Avianet Vision • Version 1.0.0 • Powered by YOLOv11</p>
-      </div>
     </div>
   );
 };

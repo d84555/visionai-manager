@@ -521,7 +521,7 @@ export const useVideoFeed = ({
   useEffect(() => {
     if (autoStart && (initialVideoUrl || camera)) {
       // If camera is provided, use its stream URL
-      if (camera) {
+      if (camera && camera.streamUrl && camera.streamUrl[streamType]) {
         setVideoUrl(camera.streamUrl[streamType]);
       }
       
@@ -533,7 +533,7 @@ export const useVideoFeed = ({
       return () => clearTimeout(timer);
     }
   }, [autoStart, initialVideoUrl, camera, streamType, startStream]);
-
+  
   // Start/stop frame processing based on streaming state
   useEffect(() => {
     if (isStreaming && isPlaying) {

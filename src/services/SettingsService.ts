@@ -1,4 +1,3 @@
-
 import { CacheService } from './CacheService';
 
 interface GridLayout {
@@ -73,6 +72,10 @@ export interface FFmpegSettings {
   customPath: boolean;
   localBinaryPath: string;
   useLocalBinary: boolean;
+  serverBinaryPath: string;  // Added for server-side FFmpeg
+  useServerBinary: boolean;  // Added for server-side FFmpeg
+  serverTranscoding: boolean; // Added for server-side transcoding option
+  transcodeFormat: 'hls' | 'mp4' | 'webm'; // Added for transcoding format selection
 }
 
 // Interface for branding settings
@@ -339,7 +342,11 @@ class SettingsService {
           corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
           customPath: false,
           localBinaryPath: '/usr/bin/ffmpeg',
-          useLocalBinary: false
+          useLocalBinary: false,
+          serverBinaryPath: '/usr/bin/ffmpeg',
+          useServerBinary: false,
+          serverTranscoding: false,
+          transcodeFormat: 'hls'
         };
       case 'syslog':
         return {
