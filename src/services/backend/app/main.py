@@ -1,52 +1,50 @@
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import health, models, websocket, inference
+from fastapi.responses import JSONResponse
 import os
 import logging
+from app.routers import websocket, health, inference, models
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+)
 logger = logging.getLogger(__name__)
 
-# Set default models directory and make it accessible as a global variable
-# Do this BEFORE creating the app to ensure routers have access to the environment variable
-MODELS_DIR = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"))
-os.environ["MODELS_DIR"] = MODELS_DIR
-
 # Create FastAPI app
-app = FastAPI(title="AI Vision API", version="1.0.0")
+app = FastAPI(title="Vision AI API", description="Computer Vision AI API for object detection and video analysis")
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],  # In production, replace with specific origins
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
+# Set models directory from environment variable or use default
+models_dir = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"))
+os.makedirs(models_dir, exist_ok=True)
+os.environ["MODELS_DIR"] = models_dir
+logger.info(f"Using models directory: {models_dir}")
+
 # Include routers
+app.include_router(websocket.router)
 app.include_router(health.router)
+app.include_router(inference.router)
 app.include_router(models.router)
-app.include_router(websocket.router)  # Add the WebSocket router
-app.include_router(inference.router)  # Add the inference router
 
 @app.get("/")
 async def root():
-    """Root endpoint to check if API is running"""
-    return {"message": "Welcome to AI Vision API"}
+    return {"message": "Vision AI API is running. Go to /docs for API documentation."}
 
-# Log application startup
-@app.on_event("startup")
-async def startup_event():
-    logger.info(f"Starting server with models directory: {MODELS_DIR}")
-    
-    # Create models directory if it doesn't exist
-    os.makedirs(MODELS_DIR, exist_ok=True)
-    logger.info(f"Models directory exists: {os.path.exists(MODELS_DIR)}")
-    
-    # List available models
-    if os.path.exists(MODELS_DIR):
-        model_files = [f for f in os.listdir(MODELS_DIR) if os.path.isfile(os.path.join(MODELS_DIR, f))]
-        logger.info(f"Available models: {model_files}")
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Global exception handler: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"message": f"An unexpected error occurred: {str(exc)}"}
+    )
