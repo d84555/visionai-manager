@@ -1,7 +1,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import health, models, websocket
+from app.routers import health, models, websocket, inference
 import os
 import logging
 
@@ -25,6 +25,11 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(models.router)
 app.include_router(websocket.router)  # Add the WebSocket router
+app.include_router(inference.router)  # Add the inference router
+
+# Set default models directory and make it accessible as a global variable
+MODELS_DIR = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"))
+os.environ["MODELS_DIR"] = MODELS_DIR
 
 @app.get("/")
 async def root():

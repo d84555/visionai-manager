@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from datetime import datetime
 import copy
 import traceback
+import os
 
 try:
     import torch
@@ -19,7 +20,7 @@ except ImportError:
     TORCH_AVAILABLE = False
 
 # Import models and detection functions
-from .inference import InferenceResult, Detection, optimize_pytorch_model
+from .inference import InferenceResult, Detection, optimize_pytorch_model, get_model_path
 from .inference import YOLO, TORCH_AVAILABLE, ULTRALYTICS_AVAILABLE, CUDA_AVAILABLE, FP16_SUPPORTED
 from .inference import simulate_detection, convert_ultralytics_results_to_detections
 
@@ -29,6 +30,10 @@ router = APIRouter(prefix="/ws", tags=["websocket"])
 # Cache for active models to avoid reloading
 active_models = {}
 connected_clients = {}
+
+# Get the models directory from environment variable or use default
+MODELS_DIR = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"))
+print(f"WebSocket module using models directory: {MODELS_DIR}")
 
 class VideoFrame(BaseModel):
     modelPaths: List[str]
@@ -215,23 +220,33 @@ async def process_frame(websocket: WebSocket, frame_data: Dict[str, Any]):
 async def process_single_model(model_path: str, original_image: Image.Image, img_width: int, img_height: int, threshold: float):
     """Process a single model independently to avoid shared buffer issues"""
     start_time = time.time()
-    model_name = model_path.split('/')[-1].split('.')[0]  # Get model name without extension
+    model_name = os.path.basename(model_path).split('.')[0]  # Get model name without extension
     
     try:
         print(f"[DEBUG] Processing model: {model_path} (name: {model_name})")
         
+        # Resolve the model path to the actual filesystem path
+        resolved_model_path = get_model_path(model_path)
+        print(f"[DEBUG] Resolved model path: {resolved_model_path}")
+        
+        # Check if model file exists
+        if not os.path.exists(resolved_model_path):
+            print(f"[ERROR] Model file does not exist: {resolved_model_path}")
+            print(f"[DEBUG] Models directory contents: {os.listdir(MODELS_DIR) if os.path.exists(MODELS_DIR) else 'directory not found'}")
+            return None
+            
         # Create a deep copy of the image to avoid shared buffer issues
         image = copy.deepcopy(original_image)
         
         # Get or load model
-        if model_path in active_models:
-            model = active_models[model_path]
-            print(f"[DEBUG] Using cached model: {model_path}")
-        elif TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE and model_path.lower().endswith(('.pt', '.pth')):
+        if resolved_model_path in active_models:
+            model = active_models[resolved_model_path]
+            print(f"[DEBUG] Using cached model: {resolved_model_path}")
+        elif TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE and resolved_model_path.lower().endswith(('.pt', '.pth')):
             try:
-                print(f"[DEBUG] Loading PyTorch model: {model_path}")
+                print(f"[DEBUG] Loading PyTorch model: {resolved_model_path}")
                 # Load PyTorch model
-                model = YOLO(model_path)
+                model = YOLO(resolved_model_path)
                 
                 # Move to device
                 if CUDA_AVAILABLE:
@@ -242,15 +257,15 @@ async def process_single_model(model_path: str, original_image: Image.Image, img
                     print(f"[DEBUG] Model using CPU")
                     
                 # Store for reuse
-                active_models[model_path] = model
-                print(f"[DEBUG] Model loaded and cached: {model_path}")
+                active_models[resolved_model_path] = model
+                print(f"[DEBUG] Model loaded and cached: {resolved_model_path}")
             except Exception as e:
-                print(f"[ERROR] Error loading model {model_path}: {str(e)}")
+                print(f"[ERROR] Error loading model {resolved_model_path}: {str(e)}")
                 traceback.print_exc()
                 return None
         else:
             # Skip unsupported models
-            print(f"[WARNING] Unsupported model format or model not found: {model_path}")
+            print(f"[WARNING] Unsupported model format or model not found: {resolved_model_path}")
             return None
                 
         # Run inference
@@ -327,7 +342,9 @@ async def websocket_inference(websocket: WebSocket):
         await websocket.send_json({
             "status": "connected",
             "clientId": client_id,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "modelsDir": MODELS_DIR,
+            "availableModels": os.listdir(MODELS_DIR) if os.path.exists(MODELS_DIR) else []
         })
         
         # Start background task for cache management

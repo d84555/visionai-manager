@@ -33,8 +33,9 @@ try:
 except ImportError:
     logger.warning("PyTorch not available. Install with 'pip install torch' for hardware acceleration")
 
-# Models directory
+# Get the models directory from environment variable or use default
 MODELS_DIR = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"))
+logger.info(f"Inference module using models directory: {MODELS_DIR}")
 
 # Detection class for consistent format
 class Detection(BaseModel):
@@ -103,6 +104,20 @@ def simulate_detection() -> List[Detection]:
         detections.append(detection)
     
     return detections
+
+def get_model_path(model_path: str) -> str:
+    """Get the full path to a model file, handling both absolute and relative paths"""
+    # If path already starts with the models directory or is an absolute path, return as is
+    if model_path.startswith(MODELS_DIR) or os.path.isabs(model_path):
+        return model_path
+        
+    # If path starts with /models/, replace with actual models directory
+    if model_path.startswith('/models/'):
+        base_name = os.path.basename(model_path)
+        return os.path.join(MODELS_DIR, base_name)
+        
+    # Otherwise, assume it's a relative path from the models directory
+    return os.path.join(MODELS_DIR, model_path)
 
 def optimize_pytorch_model(model_path: str) -> str:
     """Optimize a PyTorch model (e.g., convert to ONNX) if needed"""
