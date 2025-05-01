@@ -9,6 +9,11 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Set default models directory and make it accessible as a global variable
+# Do this BEFORE creating the app to ensure routers have access to the environment variable
+MODELS_DIR = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"))
+os.environ["MODELS_DIR"] = MODELS_DIR
+
 # Create FastAPI app
 app = FastAPI(title="AI Vision API", version="1.0.0")
 
@@ -27,10 +32,6 @@ app.include_router(models.router)
 app.include_router(websocket.router)  # Add the WebSocket router
 app.include_router(inference.router)  # Add the inference router
 
-# Set default models directory and make it accessible as a global variable
-MODELS_DIR = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"))
-os.environ["MODELS_DIR"] = MODELS_DIR
-
 @app.get("/")
 async def root():
     """Root endpoint to check if API is running"""
@@ -39,14 +40,13 @@ async def root():
 # Log application startup
 @app.on_event("startup")
 async def startup_event():
-    models_dir = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"))
-    logger.info(f"Starting server with models directory: {models_dir}")
+    logger.info(f"Starting server with models directory: {MODELS_DIR}")
     
     # Create models directory if it doesn't exist
-    os.makedirs(models_dir, exist_ok=True)
-    logger.info(f"Models directory exists: {os.path.exists(models_dir)}")
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    logger.info(f"Models directory exists: {os.path.exists(MODELS_DIR)}")
     
     # List available models
-    if os.path.exists(models_dir):
-        model_files = [f for f in os.listdir(models_dir) if os.path.isfile(os.path.join(models_dir, f))]
+    if os.path.exists(MODELS_DIR):
+        model_files = [f for f in os.listdir(MODELS_DIR) if os.path.isfile(os.path.join(MODELS_DIR, f))]
         logger.info(f"Available models: {model_files}")

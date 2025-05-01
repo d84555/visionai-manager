@@ -4,9 +4,13 @@ from pydantic import BaseModel
 import random
 import os
 import logging
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Create API router
+router = APIRouter(prefix="/inference", tags=["inference"])
 
 # Constants for feature availability
 TORCH_AVAILABLE = False
@@ -66,6 +70,7 @@ class InferenceResult(BaseModel):
 
 def simulate_detection() -> List[Detection]:
     """Generate simulated detections for testing"""
+    # ... keep existing code (simulation function content)
     classes = ["person", "car", "bicycle", "motorcycle", "truck", "bus", "traffic light", "stop sign"]
     
     # Generate a random number of detections (1-5)
@@ -133,6 +138,7 @@ def convert_ultralytics_results_to_detections(
     model_name: str = "unknown"
 ) -> List[Detection]:
     """Convert Ultralytics YOLO results to our Detection format"""
+    # ... keep existing code (conversion function content)
     detections = []
     
     try:
@@ -199,3 +205,38 @@ def convert_ultralytics_results_to_detections(
         traceback.print_exc()
     
     return detections
+
+# Add some basic HTTP endpoints for model information
+@router.get("/models")
+async def list_models():
+    """List all available models"""
+    try:
+        if os.path.exists(MODELS_DIR):
+            model_files = [f for f in os.listdir(MODELS_DIR) 
+                          if os.path.isfile(os.path.join(MODELS_DIR, f)) and 
+                          f.lower().endswith(('.pt', '.pth', '.onnx'))]
+            return {
+                "models": model_files,
+                "models_dir": MODELS_DIR,
+                "torch_available": TORCH_AVAILABLE,
+                "cuda_available": CUDA_AVAILABLE,
+                "fp16_supported": FP16_SUPPORTED,
+                "ultralytics_available": ULTRALYTICS_AVAILABLE
+            }
+        else:
+            return {"error": f"Models directory {MODELS_DIR} does not exist"}
+    except Exception as e:
+        logger.error(f"Error listing models: {str(e)}")
+        return {"error": str(e)}
+
+@router.get("/status")
+async def inference_status():
+    """Check inference service status"""
+    return {
+        "status": "running",
+        "torch_available": TORCH_AVAILABLE,
+        "cuda_available": CUDA_AVAILABLE,
+        "fp16_supported": FP16_SUPPORTED,
+        "ultralytics_available": ULTRALYTICS_AVAILABLE,
+        "models_dir": MODELS_DIR
+    }
