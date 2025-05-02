@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -75,139 +76,7 @@ def terminate_processes():
 # Register the shutdown handler
 atexit.register(terminate_processes)
 
-@router.post("/transcode", status_code=202)
-async def transcode_video(
-    backgroundTasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    outputFormat: str = Form("mp4"),
-    quality: str = Form("medium"),
-    preset: str = Form("fast")
-):
-    """
-    Upload and transcode a video file
-    """
-    # Generate unique job ID
-    job_id = str(uuid.uuid4())
-    
-    # Create job directory
-    job_dir = os.path.join(TRANSCODE_DIR, job_id)
-    os.makedirs(job_dir, exist_ok=True)
-    
-    # Save input file
-    input_path = os.path.join(job_dir, file.filename)
-    output_path = os.path.join(job_dir, f"output.{outputFormat}")
-    
-    # Create status file
-    status_path = os.path.join(job_dir, "status.json")
-    
-    # Save the uploaded file
-    logger.info(f"Saving uploaded file to {input_path}")
-    with open(input_path, "wb") as buffer:
-        # Read file in chunks to handle large files
-        shutil.copyfileobj(file.file, buffer)
-    
-    # Update status
-    transcode_jobs[job_id] = {
-        "status": "queued",
-        "input_file": input_path,
-        "output_file": output_path,
-        "format": outputFormat,
-        "created_at": time.time()
-    }
-    
-    with open(status_path, "w") as f:
-        json.dump({
-            "status": "queued",
-            "progress": 0
-        }, f)
-    
-    # Start transcoding in background
-    backgroundTasks.add_task(
-        transcode_file, job_id, input_path, output_path, outputFormat, quality, preset
-    )
-    
-    return {"job_id": job_id, "status": "queued"}
-
-def transcode_file(job_id, input_path, output_path, output_format, quality, preset):
-    """Background task for transcoding video"""
-    status_path = os.path.join(os.path.dirname(output_path), "status.json")
-    
-    try:
-        # Update status
-        transcode_jobs[job_id]["status"] = "processing"
-        with open(status_path, "w") as f:
-            json.dump({
-                "status": "processing",
-                "progress": 0
-            }, f)
-        
-        # Set quality parameters based on quality setting
-        crf = "23"  # Default medium quality
-        if quality == "high":
-            crf = "18"
-        elif quality == "low":
-            crf = "28"
-        
-        # Build FFmpeg command
-        cmd = [
-            ffmpeg_binary_path,
-            "-i", input_path,
-            "-c:v", "libx264",
-            "-preset", preset,
-            "-crf", crf,
-            "-c:a", "aac",
-            "-strict", "experimental",
-            output_path
-        ]
-        
-        logger.info(f"Running FFmpeg command: {' '.join(cmd)}")
-        
-        # Run FFmpeg
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
-        
-        # Store process reference for potential termination
-        active_processes[job_id] = process
-        
-        # Wait for completion
-        stdout, stderr = process.communicate()
-        
-        # Remove process from active processes
-        if job_id in active_processes:
-            del active_processes[job_id]
-        
-        # Check if successful
-        if process.returncode == 0:
-            logger.info(f"Transcoding completed successfully for job {job_id}")
-            transcode_jobs[job_id]["status"] = "completed"
-            with open(status_path, "w") as f:
-                json.dump({
-                    "status": "completed",
-                    "progress": 100
-                }, f)
-        else:
-            logger.error(f"Transcoding failed for job {job_id}: {stderr}")
-            transcode_jobs[job_id]["status"] = "failed"
-            transcode_jobs[job_id]["error"] = stderr
-            with open(status_path, "w") as f:
-                json.dump({
-                    "status": "failed",
-                    "error": stderr
-                }, f)
-    
-    except Exception as e:
-        logger.exception(f"Error during transcoding job {job_id}")
-        transcode_jobs[job_id]["status"] = "failed"
-        transcode_jobs[job_id]["error"] = str(e)
-        with open(status_path, "w") as f:
-            json.dump({
-                "status": "failed",
-                "error": str(e)
-            }, f)
+# ... keep existing code (transcode_video and transcode_file functions)
 
 @router.get("/transcode/{job_id}/status")
 async def get_job_status(job_id: str):
@@ -269,7 +138,8 @@ async def create_stream(
     request: Request,
     stream_url: str = Form(...),
     output_format: str = Form("hls"),
-    stream_name: str = Form(None)
+    stream_name: str = Form(None),
+    browser_compatibility: str = Form("high")
 ):
     """
     Create a streaming endpoint from an RTSP or other stream URL
@@ -355,7 +225,7 @@ async def create_stream(
         
         # Start streaming in background
         backgroundTasks.add_task(
-            process_stream, stream_id, encoded_url, output_path, output_format
+            process_stream, stream_id, encoded_url, output_path, output_format, browser_compatibility
         )
         
         # Construct the public URL for the stream - using relative URL
@@ -376,7 +246,7 @@ async def create_stream(
             detail=f"Error creating stream: {str(e)}"
         )
 
-def process_stream(stream_id, input_url, output_path, output_format):
+def process_stream(stream_id, input_url, output_path, output_format, browser_compatibility="high"):
     """Background task for processing stream"""
     status_path = os.path.join(os.path.dirname(output_path), "status.json")
     stream_dir = os.path.dirname(output_path)
@@ -395,30 +265,38 @@ def process_stream(stream_id, input_url, output_path, output_format):
         segment_pattern = f"segment_{timestamp}_%d.ts"
         
         if output_format == "hls":
+            # IMPROVED SETTINGS: Increased buffer sizes and timeouts for better stream initialization
             cmd = [
                 ffmpeg_binary_path,
-                # FFmpeg input options
-                "-analyzeduration", "20000000",     # 20 seconds
-                "-probesize", "20000000",           # 20MB 
+                # FFmpeg input options - IMPROVED with longer analyzeduration and probesize
                 "-rtsp_transport", "tcp",           # Use TCP for more stable connections
+                "-analyzeduration", "100000000",    # 100 seconds (increased from 20s)
+                "-probesize", "100000000",          # 100MB (increased from 20MB)
+                "-reorder_queue_size", "100",       # NEW: Buffer more packets for reordering
                 "-stimeout", "10000000",            # 10 second timeout (microseconds)
+                "-fflags", "+genpts+discardcorrupt",# Generate timestamps, discard corrupt
                 "-i", input_url,                    # Input stream URL
                 
-                # Video codec settings
+                # Video codec settings - IMPROVED for better compatibility
                 "-c:v", "libx264",                  # H.264 video codec
                 "-preset", "ultrafast",             # Fastest encoding
                 "-tune", "zerolatency",             # Optimize for low latency
+                "-profile:v", "baseline",           # NEW: Use baseline profile for compatibility
+                "-level", "3.0",                    # NEW: Compatible level
+                "-pix_fmt", "yuv420p",              # NEW: Standard pixel format for compatibility
                 "-r", "15",                         # Force 15fps to reduce bandwidth
                 "-g", "30",                         # GOP size (2 seconds)
                 "-keyint_min", "15",                # Minimum GOP size
                 "-sc_threshold", "0",               # Disable scene detection
+                "-bufsize", "5000k",                # NEW: Video buffer size
+                "-maxrate", "5000k",                # NEW: Maximum bitrate
                 
                 # Audio codec settings (if audio exists)
                 "-c:a", "aac",                      # AAC audio codec
                 "-ar", "44100",                     # Audio sample rate
                 "-b:a", "64k",                      # Audio bitrate
                 
-                # HLS specific settings
+                # HLS specific settings - IMPROVED
                 "-f", "hls",                        # HLS format
                 "-hls_time", "2",                   # Segment duration
                 "-hls_list_size", "10",             # Number of segments to keep in playlist
@@ -426,9 +304,8 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 "-hls_segment_type", "mpegts",      # Use MPEG-TS format for segments
                 "-hls_segment_filename", os.path.join(stream_dir, segment_pattern),  # Use unique segment names
                 
-                # Error handling and recovery options
+                # Error handling and recovery options - IMPROVED
                 "-max_muxing_queue_size", "9999",   # Increase queue size
-                "-fflags", "+genpts+discardcorrupt",# Generate timestamps, discard corrupt
                 "-err_detect", "ignore_err",        # Ignore errors
                 "-reconnect", "1",                  # Enable reconnections
                 "-reconnect_at_eof", "1",
@@ -438,12 +315,20 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 # Output path
                 output_path
             ]
+            
+            # For high browser compatibility, add more conservative settings
+            if browser_compatibility == "high":
+                # Insert these options right after the output codec selection
+                cmd[11:11] = [
+                    "-movflags", "+faststart",      # Web optimized output
+                    "-vsync", "1",                  # Video sync method
+                ]
         else:
             # For formats other than HLS
             cmd = [
                 ffmpeg_binary_path,
-                "-analyzeduration", "20000000",
-                "-probesize", "20000000",
+                "-analyzeduration", "100000000",    # IMPROVED: 100 seconds
+                "-probesize", "100000000",          # IMPROVED: 100MB
                 "-rtsp_transport", "tcp",
                 "-stimeout", "10000000",
                 "-i", input_url,
@@ -501,13 +386,40 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 "progress": 100,
                 "pid": process.pid
             }, f)
+            
+        # KEY CHANGE: Wait a specific amount of time to let FFmpeg generate the first segments
+        # This ensures the m3u8 file is properly created before clients try to access it
+        logger.info(f"Waiting for initial HLS segments to be generated for stream {stream_id}...")
+        time.sleep(3)
+        
+        # Check if any segments were actually created
+        segment_count = len(list(Path(stream_dir).glob("segment_*.ts")))
+        if segment_count == 0:
+            logger.warning(f"No segments were created after startup delay for stream {stream_id}")
+            # Update status to indicate potential issues
+            with open(status_path, "w") as f:
+                json.dump({
+                    "status": "warning",
+                    "progress": 100,
+                    "pid": process.pid,
+                    "message": "Stream started but no segments created yet"
+                }, f)
+        else:
+            logger.info(f"Successfully created {segment_count} initial segments for stream {stream_id}")
+            # Update status to confirm segments are available
+            with open(status_path, "w") as f:
+                json.dump({
+                    "status": "streaming",
+                    "progress": 100,
+                    "pid": process.pid,
+                    "segments": segment_count
+                }, f)
         
         # Wait for completion or error
         stdout, stderr = process.communicate()
         
-        # Remove process from active processes
-        if stream_id in active_processes:
-            del active_processes[stream_id]
+        # Remove process from active processes safely
+        active_processes.pop(stream_id, None)
         
         # Check result
         if process.returncode == 0:
@@ -527,6 +439,8 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 "status": "failed",
                 "error": str(e)
             }, f)
+        # Clean up process reference if it exists
+        active_processes.pop(stream_id, None)
 
 @router.delete("/transcode/stream/{stream_id}", status_code=202)
 async def stop_stream(stream_id: str):
@@ -545,7 +459,7 @@ async def stop_stream(stream_id: str):
             process = active_processes[stream_id]
             
             # Terminate the process if it's still running
-            if process.poll() is None:
+            if process and process.poll() is None:
                 logger.info(f"Terminating FFmpeg process for stream {stream_id}")
                 process.terminate()
                 
@@ -583,8 +497,10 @@ async def stop_stream(stream_id: str):
     
     except Exception as e:
         logger.exception(f"Error stopping stream {stream_id}")
+        # Make this more robust by safely removing the process reference
+        active_processes.pop(stream_id, None)
+        
         # We'll still return a 202 status but include the error in the response
-        # This avoids the 500 Internal Server Error
         return {
             "status": "error",
             "stream_id": stream_id, 

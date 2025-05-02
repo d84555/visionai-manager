@@ -233,6 +233,49 @@ export function isInternalStreamUrl(url: string): boolean {
   return internalStreamPattern.test(url);
 }
 
+// Check if an HLS stream is healthy by examining its M3U8 playlist
+export async function checkHlsStreamHealth(streamUrl: string): Promise<boolean> {
+  try {
+    // Request the HLS playlist
+    const response = await axios.get(streamUrl, {
+      timeout: 5000,
+      headers: {
+        'Accept': 'application/vnd.apple.mpegurl',
+        'Cache-Control': 'no-cache'
+      }
+    });
+    
+    if (response.status !== 200) {
+      console.warn(`HLS playlist returned status ${response.status}`);
+      return false;
+    }
+    
+    const playlist = response.data;
+    
+    // Check if playlist is empty or has the "waiting" pattern
+    if (!playlist || 
+        playlist.includes('#EXT-X-ENDLIST') && 
+        !playlist.includes('segment_') &&
+        !playlist.includes('.ts')) {
+      console.warn('HLS playlist appears to be empty or waiting');
+      return false;
+    }
+    
+    // Check if playlist contains segment references
+    if (!playlist.includes('EXTINF:') || 
+        (!playlist.includes('.ts') && !playlist.includes('segment_'))) {
+      console.warn('HLS playlist does not contain any segments');
+      return false;
+    }
+    
+    // If we get here, the playlist looks valid
+    return true;
+  } catch (error) {
+    console.error('Error checking HLS stream health:', error);
+    return false;
+  }
+}
+
 // Track active streams for cleanup
 const activeStreams: Map<string, string> = new Map();
 
@@ -360,7 +403,39 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
         
         // Add a longer waiting period for the stream to initialize
         console.log('Waiting for HLS stream segments to be generated...');
-        await new Promise(resolve => setTimeout(resolve, 5000)); // 5 seconds wait
+        
+        // IMPORTANT IMPROVEMENT: Wait and check if stream is actually ready
+        const streamUrl = response.data.stream_url;
+        
+        // Wait 4 seconds for initial segments to be generated
+        await new Promise(resolve => setTimeout(resolve, 4000));
+        
+        // Check if HLS playlist contains valid segments
+        let isStreaming = false;
+        let healthCheckAttempts = 0;
+        const maxHealthChecks = 3;
+        
+        while (!isStreaming && healthCheckAttempts < maxHealthChecks) {
+          healthCheckAttempts++;
+          
+          console.log(`Checking if stream is healthy (attempt ${healthCheckAttempts}/${maxHealthChecks})...`);
+          isStreaming = await checkHlsStreamHealth(streamUrl);
+          
+          if (!isStreaming && healthCheckAttempts < maxHealthChecks) {
+            console.log('Stream not ready yet, waiting 2 more seconds...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        }
+        
+        if (!isStreaming) {
+          console.warn('Stream did not initialize properly - playlist does not contain segments');
+          // We'll still return the URL and let the video player handle errors
+          toast.warning('Stream may take longer to start', {
+            description: 'Please wait a few seconds for stream to initialize'
+          });
+        } else {
+          console.log('HLS stream is healthy and ready to play');
+        }
         
         // Return the stream URL path (this will be relative)
         return response.data.stream_url;
@@ -418,4 +493,63 @@ if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => {
     cleanupAllStreams();
   });
+}
+
+// Function to monitor HLS stream health and attempt recovery if needed
+export async function monitorHlsStream(
+  streamUrl: string, 
+  onError: () => void,
+  onRecovery: () => void
+): Promise<() => void> {
+  if (!isInternalStreamUrl(streamUrl)) {
+    // Only monitor our own internal streams
+    return () => {}; // Return empty cleanup function
+  }
+  
+  let isRunning = true;
+  let consecutiveFailures = 0;
+  const maxFailures = 3;
+  
+  const checkInterval = setInterval(async () => {
+    if (!isRunning) {
+      return;
+    }
+    
+    try {
+      const isHealthy = await checkHlsStreamHealth(streamUrl);
+      
+      if (!isHealthy) {
+        consecutiveFailures++;
+        console.warn(`HLS stream health check failed ${consecutiveFailures}/${maxFailures} times`);
+        
+        if (consecutiveFailures >= maxFailures) {
+          console.error('Stream health monitoring detected dead stream');
+          onError();
+          clearInterval(checkInterval);
+          isRunning = false;
+        }
+      } else {
+        if (consecutiveFailures > 0) {
+          console.log('Stream recovered from previous failures');
+          onRecovery();
+        }
+        consecutiveFailures = 0;
+      }
+    } catch (error) {
+      console.error('Error in stream health monitoring:', error);
+      consecutiveFailures++;
+      
+      if (consecutiveFailures >= maxFailures) {
+        onError();
+        clearInterval(checkInterval);
+        isRunning = false;
+      }
+    }
+  }, 10000); // Check every 10 seconds
+  
+  // Return a cleanup function
+  return () => {
+    isRunning = false;
+    clearInterval(checkInterval);
+  };
 }
