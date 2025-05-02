@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
 import logging
+import subprocess
 from app.routers import inference, models, websocket, health, transcode
 
 # Configure logging
@@ -32,22 +33,35 @@ os.environ["MODELS_DIR"] = models_dir
 logger.info(f"Using models directory: {models_dir}")
 
 # Set FFmpeg binary path from environment variable or use default
-# Using a more reliable default path that's common on many Linux systems
-ffmpeg_binary_path = os.environ.get("FFMPEG_BINARY_PATH", "/usr/bin/ffmpeg")
-if not os.path.exists(ffmpeg_binary_path):
-    # Try alternate common paths
+# Try to detect FFmpeg location using 'which' command first
+try:
+    ffmpeg_binary_path = subprocess.check_output(['which', 'ffmpeg']).decode().strip()
+    logger.info(f"FFmpeg detected at: {ffmpeg_binary_path}")
+except (subprocess.SubprocessError, FileNotFoundError):
+    # If 'which' fails, try common paths
+    ffmpeg_binary_path = os.environ.get("FFMPEG_BINARY_PATH", "/usr/bin/ffmpeg")
     common_paths = ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"]
-    for path in common_paths:
-        if os.path.exists(path):
-            ffmpeg_binary_path = path
-            logger.info(f"Found FFmpeg at {ffmpeg_binary_path}")
-            break
-    else:
-        logger.warning(f"FFmpeg binary not found at common paths, falling back to system path")
-        ffmpeg_binary_path = "ffmpeg"  # Fall back to system path if not found
+    
+    if not os.path.exists(ffmpeg_binary_path):
+        for path in common_paths:
+            if os.path.exists(path):
+                ffmpeg_binary_path = path
+                logger.info(f"Found FFmpeg at {ffmpeg_binary_path}")
+                break
+        else:
+            logger.warning(f"FFmpeg binary not found at common paths, falling back to system path")
+            ffmpeg_binary_path = "ffmpeg"  # Fall back to system path if not found
 
 os.environ["FFMPEG_BINARY_PATH"] = ffmpeg_binary_path
 logger.info(f"Using FFmpeg binary path: {ffmpeg_binary_path}")
+
+# Test FFmpeg installation
+try:
+    version_output = subprocess.check_output([ffmpeg_binary_path, '-version']).decode()
+    logger.info(f"FFmpeg version info: {version_output.splitlines()[0]}")
+except Exception as e:
+    logger.error(f"Error testing FFmpeg installation: {e}")
+    logger.warning("Transcoding functionality may not work correctly!")
 
 # Include routers - IMPORTANT: Do not add prefixes to transcode router
 app.include_router(inference.router)

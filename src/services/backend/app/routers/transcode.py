@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -234,11 +235,8 @@ async def create_stream(
     stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
     os.makedirs(stream_dir, exist_ok=True)
     
-    # Set output paths - Use index.m3u8 instead of stream.m3u8 to match frontend expectations
-    if output_format == "hls":
-        output_path = os.path.join(stream_dir, "index.m3u8")
-    else:
-        output_path = os.path.join(stream_dir, f"stream.{output_format}")
+    # Set output paths - Always use index.m3u8 for HLS
+    output_path = os.path.join(stream_dir, "index.m3u8")
     
     # Create status file
     status_path = os.path.join(stream_dir, "status.json")

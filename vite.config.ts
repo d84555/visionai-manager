@@ -1,3 +1,4 @@
+
 import { defineConfig, ConfigEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -19,6 +20,7 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
       '/transcode': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        rewrite: (path) => path
       },
       // Add proxy for API endpoints (including model routes)
       '/api': {

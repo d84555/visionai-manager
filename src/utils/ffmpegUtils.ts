@@ -113,10 +113,9 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
   const ffmpeg = new FFmpeg();
   
   try {
-    // Load the FFmpeg core - the API has changed in newer versions
+    // Load the FFmpeg core - API has changed in newer versions
     await ffmpeg.load({
-      coreURL: settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-      log: true
+      coreURL: settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
     });
     
     const inputFileName = 'input_file';
@@ -137,7 +136,9 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
     
     // Read the output file - API changed to readFile method
     const data = await ffmpeg.readFile(outputFileName);
-    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    // Use Uint8Array instead of accessing .buffer property
+    const uint8Array = new Uint8Array(data);
+    const blob = new Blob([uint8Array], { type: 'video/mp4' });
     
     // Clean up files - API changed to deleteFile method
     await ffmpeg.deleteFile(inputFileName);
@@ -160,6 +161,8 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
       console.warn('Server-side transcoding is disabled but required for RTSP streams. Using server anyway.');
     }
     
+    console.log('Sending stream request to backend with URL:', streamUrl);
+    
     const formData = new FormData();
     formData.append('stream_url', streamUrl);
     formData.append('output_format', 'hls');
@@ -171,6 +174,11 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     const response = await axios.post('/transcode/stream', formData);
     
     console.log('Stream response received:', response.data);
+    
+    // Check if we have a valid stream URL in the response
+    if (!response.data.stream_url) {
+      throw new Error('No stream URL returned from server');
+    }
     
     // Return the stream URL path (this will be relative)
     return response.data.stream_url;
