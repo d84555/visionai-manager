@@ -1,4 +1,3 @@
-
 import { defineConfig, ConfigEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -16,7 +15,7 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
         ws: true,
         changeOrigin: true,
       },
-      // Add proxy for transcode endpoints (both REST and streaming)
+      // Add proxy for transcode endpoints - keep this without the /api prefix
       '/transcode': {
         target: 'http://localhost:8000',
         changeOrigin: true,
@@ -26,11 +25,6 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
         target: 'http://localhost:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
-      },
-      // Add proxy for local FFmpeg access if needed
-      '/api/ffmpeg': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
       }
     }
   },

@@ -342,9 +342,9 @@ class SettingsService {
           corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
           customPath: false,
           localBinaryPath: '/usr/bin/ffmpeg',
-          useLocalBinary: true,  // Set to true to use the system FFmpeg
+          useLocalBinary: true,
           serverBinaryPath: '/usr/bin/ffmpeg', // Use the correct server path
-          useServerBinary: true, // Enable server-side FFmpeg
+          useServerBinary: true,
           serverTranscoding: true, // Enable server-side transcoding by default
           transcodeFormat: 'hls'
         };

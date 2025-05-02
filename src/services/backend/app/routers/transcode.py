@@ -1,4 +1,5 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response
+
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
 import uuid
@@ -216,6 +217,7 @@ async def download_transcoded_file(job_id: str):
 @router.post("/transcode/stream", status_code=202)
 async def create_stream(
     backgroundTasks: BackgroundTasks,
+    request: Request,
     stream_url: str = Form(...),
     output_format: str = Form("hls"),
     stream_name: str = Form(None)
@@ -262,15 +264,15 @@ async def create_stream(
         process_stream, stream_id, stream_url, output_path, output_format
     )
     
-    # Construct the public URL for the stream
-    stream_url = f"/transcode/stream/{stream_id}/index.m3u8"
+    # Construct the public URL for the stream - using relative URL
+    stream_url_path = f"/transcode/stream/{stream_id}/index.m3u8"
     
-    logger.info(f"Stream job created: {stream_id}, URL: {stream_url}")
+    logger.info(f"Stream job created: {stream_id}, URL: {stream_url_path}")
     
     return {
         "stream_id": stream_id, 
         "status": "processing",
-        "stream_url": stream_url
+        "stream_url": stream_url_path
     }
 
 def process_stream(stream_id, input_url, output_path, output_format):
@@ -384,3 +386,4 @@ def cleanup_old_jobs():
             if os.path.exists(job_dir):
                 shutil.rmtree(job_dir)
             del transcode_jobs[job_id]
+

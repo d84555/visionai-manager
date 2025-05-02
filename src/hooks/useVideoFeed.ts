@@ -123,15 +123,11 @@ export const useVideoFeed = ({
       // Reset retry flag
       retryConnectionRef.current = false;
       
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsHost = process.env.NODE_ENV === 'production' 
-        ? window.location.host
-        : window.location.host;
-      
-      const wsUrl = `${wsProtocol}//${wsHost}/ws/inference`;
+      // Use relative WebSocket URL to work with the proxy
+      const wsUrl = '/ws/inference';
       console.log(`Connecting to WebSocket at ${wsUrl}`);
       
-      const socket = new WebSocket(wsUrl);
+      const socket = new WebSocket(`${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.host}${wsUrl}`);
       
       socket.onopen = () => {
         console.log('WebSocket connection established');
@@ -395,6 +391,10 @@ export const useVideoFeed = ({
       
       // Use FFmpeg to convert RTSP to HLS
       const streamUrl = await createHlsStream(url, `camera_${Date.now()}`);
+      console.log('Stream URL received:', streamUrl);
+      
+      // Ensure we're using the correct relative URL for the stream
+      console.log('Using relative stream URL:', streamUrl);
       
       setVideoUrl(streamUrl);
       setStreamProcessing(false);
@@ -585,7 +585,9 @@ export const useVideoFeed = ({
           toast.error('Video playback aborted');
           break;
         case MediaError.MEDIA_ERR_NETWORK:
-          toast.error('Network error while loading video');
+          toast.error('Network error while loading video', {
+            description: 'Make sure the video URL or camera is accessible'
+          });
           break;
         case MediaError.MEDIA_ERR_DECODE:
           toast.error('Video decode error', {
