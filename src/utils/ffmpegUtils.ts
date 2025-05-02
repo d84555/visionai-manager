@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 import { toast } from 'sonner';
 
@@ -44,11 +45,11 @@ export async function convertToPlayableFormat(file: File): Promise<string> {
  */
 export async function createHlsStream(sourceUrl: string, streamName: string = `stream_${Date.now()}`): Promise<string> {
   try {
-    console.log(`Sending stream request to backend with parameters: ${JSON.stringify({
+    console.log(`Sending stream request to backend with parameters:`, {
       stream_url: sourceUrl,
       output_format: 'hls',
       stream_name: streamName
-    })}`);
+    });
 
     // Create form data for the request
     const formData = new FormData();
@@ -73,7 +74,7 @@ export async function createHlsStream(sourceUrl: string, streamName: string = `s
     const streamUrl = response.data.stream_url;
     
     // Return the relative path to the stream
-    return streamUrl || response.data.stream_url;
+    return streamUrl;
   } catch (error) {
     console.error('Stream creation failed:', error);
     toast.error('Failed to create stream. Check your camera URL and try again.');

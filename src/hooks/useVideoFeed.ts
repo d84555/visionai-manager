@@ -122,14 +122,11 @@ export const useVideoFeed = ({
       // Reset retry flag
       retryConnectionRef.current = false;
       
-      // Use relative path for WebSocket connections
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsHost = window.location.host;
-      
-      const wsUrl = `${wsProtocol}//${wsHost}/ws/inference`;
+      // Use self-relative path for WebSocket connections
+      const wsUrl = `/ws/inference`;
       console.log(`Connecting to WebSocket at ${wsUrl}`);
       
-      const socket = new WebSocket(wsUrl);
+      const socket = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}${window.location.host}${wsUrl}`);
       
       socket.onopen = () => {
         console.log('WebSocket connection established');
@@ -601,9 +598,15 @@ export const useVideoFeed = ({
           setFormatNotSupported(true);
           break;
         case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-          toast.error('Video format not supported', {
-            description: 'This video format cannot be played in your browser. Please use server-side transcoding or upload a compatible format like MP4.'
-          });
+          if (isLiveStream) {
+            toast.error('Failed to load camera stream', {
+              description: 'The stream URL may be incorrect or the RTSP server is not accessible. Check server logs for more details.'
+            });
+          } else {
+            toast.error('Video format not supported', {
+              description: 'This video format cannot be played in your browser. Please use server-side transcoding or upload a compatible format like MP4.'
+            });
+          }
           setFormatNotSupported(true);
           break;
         default:
