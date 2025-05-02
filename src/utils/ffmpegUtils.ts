@@ -225,9 +225,23 @@ function encodeRtspUrl(url: string): string {
   }
 }
 
+// Check if a URL is one of our own HLS streams
+function isInternalStreamUrl(url: string): boolean {
+  // Check if this URL is a path to one of our own stream endpoints
+  const internalStreamPattern = /\/transcode\/stream\/[a-f0-9-]+\/index\.m3u8/;
+  return internalStreamPattern.test(url);
+}
+
 // Create HLS Stream from RTSP URL with improved browser compatibility
 export async function createHlsStream(streamUrl: string, streamName: string = 'camera'): Promise<string> {
   try {
+    // Check if this is one of our own stream URLs - prevent recursion
+    if (isInternalStreamUrl(streamUrl)) {
+      console.log('URL is already an internal stream URL, using as-is:', 
+                  streamUrl.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@'));
+      return streamUrl;
+    }
+
     const settings = getFFmpegSettings();
     
     // Always use server-side transcoding for RTSP streams

@@ -11,6 +11,7 @@ from pathlib import Path
 import time
 import json
 import urllib.parse
+import re
 
 # Define the router with no prefix but explicitly setting the correct tags
 router = APIRouter(
@@ -230,6 +231,14 @@ async def create_stream(
     logger.info(f"Received stream request with URL: {stream_url}, format: {output_format}")
     
     try:
+        # Check if the URL is already pointing to our own stream
+        internal_stream_pattern = re.compile(r'/transcode/stream/[a-f0-9-]+/index\.m3u8')
+        if internal_stream_pattern.search(stream_url):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot create a stream from our own stream URL"
+            )
+            
         # Properly handle RTSP URLs with special characters in credentials
         # Especially with @ symbols in username or password
         encoded_url = stream_url
