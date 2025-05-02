@@ -15,21 +15,23 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
         target: 'ws://localhost:8000',
         ws: true,
         changeOrigin: true,
-        secure: false,
       },
       // Add proxy for transcode endpoints (both REST and streaming)
       '/transcode': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        secure: false,
       },
       // Add proxy for API endpoints (including model routes)
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        secure: false,
         rewrite: (path) => path.replace(/^\/api/, '')
       },
+      // Add proxy for local FFmpeg access if needed
+      '/api/ffmpeg': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      }
     }
   },
   plugins: [

@@ -106,7 +106,7 @@ class SettingsService {
   // Default paths for various storage locations
   localStorageConfig: StorageConfig = {
     mode: 'api',
-    apiUrl: '/api', // Use relative path for API calls
+    apiUrl: '/api', // Changed from http://localhost:8000 to relative path
     recordingsPath: '/recordings',
     modelsPath: '/models',
     settingsPath: '/config',
@@ -343,10 +343,10 @@ class SettingsService {
           customPath: false,
           localBinaryPath: '/usr/bin/ffmpeg',
           useLocalBinary: true,  // Set to true to use the system FFmpeg
-          serverBinaryPath: '/usr/bin/ffmpeg', // Server FFmpeg path
+          serverBinaryPath: '/usr/bin/ffmpeg', // Use the correct server path
           useServerBinary: true, // Enable server-side FFmpeg
           serverTranscoding: true, // Enable server-side transcoding by default
-          transcodeFormat: 'hls'  // Use HLS as default format
+          transcodeFormat: 'hls'
         };
       case 'syslog':
         return {

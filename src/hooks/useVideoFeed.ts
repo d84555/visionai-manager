@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { convertToPlayableFormat, detectVideoFormat, createHlsStream } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
@@ -122,11 +123,15 @@ export const useVideoFeed = ({
       // Reset retry flag
       retryConnectionRef.current = false;
       
-      // Use self-relative path for WebSocket connections
-      const wsUrl = `/ws/inference`;
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = process.env.NODE_ENV === 'production' 
+        ? window.location.host
+        : window.location.host;
+      
+      const wsUrl = `${wsProtocol}//${wsHost}/ws/inference`;
       console.log(`Connecting to WebSocket at ${wsUrl}`);
       
-      const socket = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}${window.location.host}${wsUrl}`);
+      const socket = new WebSocket(wsUrl);
       
       socket.onopen = () => {
         console.log('WebSocket connection established');
@@ -390,18 +395,11 @@ export const useVideoFeed = ({
       
       // Use FFmpeg to convert RTSP to HLS
       const streamUrl = await createHlsStream(url, `camera_${Date.now()}`);
-      console.log(`Stream URL received: ${streamUrl}`);
       
-      // Make sure we're using relative URLs for streams
-      const relativeStreamUrl = streamUrl.startsWith('http') 
-        ? new URL(streamUrl).pathname 
-        : streamUrl;
-        
-      console.log(`Using relative stream URL: ${relativeStreamUrl}`);
-      setVideoUrl(relativeStreamUrl);
+      setVideoUrl(streamUrl);
       setStreamProcessing(false);
       
-      return relativeStreamUrl;
+      return streamUrl;
     } catch (error) {
       console.error('Failed to process RTSP stream:', error);
       toast.error('Failed to process camera stream', {
@@ -575,7 +573,7 @@ export const useVideoFeed = ({
     });
   }, []);
 
-  // Handle video error with improved logging
+  // Handle video error
   const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.target as HTMLVideoElement;
     console.error('Video error:', e, video.error);
@@ -587,9 +585,7 @@ export const useVideoFeed = ({
           toast.error('Video playback aborted');
           break;
         case MediaError.MEDIA_ERR_NETWORK:
-          toast.error('Network error while loading video', {
-            description: 'Check that your backend server is running and properly configured'
-          });
+          toast.error('Network error while loading video');
           break;
         case MediaError.MEDIA_ERR_DECODE:
           toast.error('Video decode error', {
@@ -598,21 +594,13 @@ export const useVideoFeed = ({
           setFormatNotSupported(true);
           break;
         case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-          if (isLiveStream) {
-            toast.error('Failed to load camera stream', {
-              description: 'The stream URL may be incorrect or the RTSP server is not accessible. Check server logs for more details.'
-            });
-          } else {
-            toast.error('Video format not supported', {
-              description: 'This video format cannot be played in your browser. Please use server-side transcoding or upload a compatible format like MP4.'
-            });
-          }
+          toast.error('Video format not supported', {
+            description: 'This video format cannot be played in your browser. Please use server-side transcoding or upload a compatible format like MP4.'
+          });
           setFormatNotSupported(true);
           break;
         default:
-          toast.error('Failed to load video', {
-            description: `Error code: ${video.error.code}, Message: ${video.error.message || 'Unknown error'}`
-          });
+          toast.error('Failed to load video');
       }
     } else {
       toast.error('Failed to load video');
