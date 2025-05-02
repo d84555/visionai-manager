@@ -816,6 +816,7 @@ export const useVideoFeed = ({
     detections,
     resolution,
     isProcessing,
+    setIsProcessing,
     hasUploadedFile,
     inferenceLocation,
     inferenceTime,
