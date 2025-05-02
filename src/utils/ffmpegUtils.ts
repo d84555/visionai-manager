@@ -108,8 +108,14 @@ async function sendToServerTranscoder(file: File): Promise<string> {
   }
 }
 
-// Define a type for possible FFmpeg output data formats
-type FFmpegFileData = Uint8Array | string | { buffer?: ArrayBuffer } | unknown;
+// Define a type for possible FFmpeg output data formats 
+type FFmpegFileData = 
+  | Uint8Array 
+  | string 
+  | { buffer: ArrayBuffer } 
+  | { buffer?: ArrayBuffer }
+  | Record<string, unknown>
+  | unknown;
 
 // Client-side transcoding using FFmpeg.wasm
 async function transcodeClientSide(file: File, formatInfo: any): Promise<string> {
@@ -182,7 +188,7 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
   }
 }
 
-// Function to properly encode RTSP URL with special characters in credentials
+// Enhanced function to properly encode RTSP URL with special characters in credentials
 function encodeRtspUrl(url: string): string {
   try {
     // Check if this is an RTSP URL
@@ -190,28 +196,28 @@ function encodeRtspUrl(url: string): string {
       return url;
     }
 
-    // Parse the URL to handle components separately
-    const match = url.match(/^(rtsp[s]?):\/\/([^@]+@)?([^:/]+)(?::(\d+))?(\/.*)?$/);
-    if (!match) return url;
-
-    const [, protocol, credentialsPart, host, port, path] = match;
+    // Parse the URL properly to handle special characters, especially @ in passwords
+    const rtspRegex = /^(rtsp[s]?):\/\/([^:@]+):([^@]+)@([^:/]+)(?::(\d+))?(\/.*)?$/;
+    const match = url.match(rtspRegex);
     
-    // If no credentials, just return original URL
-    if (!credentialsPart) return url;
+    if (!match) {
+      console.log('URL format not recognized for encoding, using as-is');
+      return url;
+    }
     
-    // Extract and encode credentials
-    const credentials = credentialsPart.slice(0, -1); // Remove trailing @
-    let [username, ...passwordParts] = credentials.split(':');
+    const [, protocol, username, password, host, port, path] = match;
     
-    // Handle case where password contains colons
-    const password = passwordParts.join(':');
-    
-    // Encode username and password to handle special characters
+    // Properly encode username and password
     const encodedUsername = encodeURIComponent(username);
     const encodedPassword = encodeURIComponent(password);
     
-    // Reconstruct URL with encoded credentials
-    return `${protocol}://${encodedUsername}:${encodedPassword}@${host}${port ? `:${port}` : ''}${path || ''}`;
+    // Reconstruct URL with properly encoded credentials
+    const encodedUrl = `${protocol}://${encodedUsername}:${encodedPassword}@${host}${port ? `:${port}` : ''}${path || ''}`;
+    
+    console.log('Original URL (masked):', url.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@'));
+    console.log('Encoded URL (masked):', encodedUrl.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@'));
+    
+    return encodedUrl;
   } catch (error) {
     console.error('Error encoding RTSP URL:', error);
     // Return original URL if there's an error
@@ -231,7 +237,7 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     
     // Encode the URL to handle special characters in credentials
     const encodedUrl = encodeRtspUrl(streamUrl);
-    console.log('Encoded URL for backend (credentials masked):', 
+    console.log('Sending encoded URL to backend (credentials masked):', 
       encodedUrl.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@'));
     
     const formData = new FormData();
@@ -256,7 +262,7 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
         
         // Make the request with timeout
         const response = await axios.post('/transcode/stream', formData, {
-          timeout: 15000 // 15-second timeout
+          timeout: 30000 // 30-second timeout (increased from 15s)
         });
         
         console.log('Stream response received:', response.data);
@@ -265,6 +271,10 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
         if (!response.data.stream_url) {
           throw new Error('No stream URL returned from server');
         }
+        
+        // Add a longer waiting period for the stream to initialize
+        console.log('Waiting for HLS stream segments to be generated...');
+        await new Promise(resolve => setTimeout(resolve, 5000)); // 5 seconds wait
         
         // Return the stream URL path (this will be relative)
         return response.data.stream_url;
@@ -275,7 +285,7 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
         // Only retry if not the last attempt
         if (attempts < maxAttempts) {
           // Wait before retrying (exponential backoff)
-          const delay = Math.min(1000 * Math.pow(2, attempts - 1), 5000);
+          const delay = Math.min(3000 * Math.pow(2, attempts - 1), 10000);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }

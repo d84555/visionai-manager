@@ -230,150 +230,199 @@ async def create_stream(
     logger.info(f"Received stream request with URL: {stream_url}, format: {output_format}")
     
     try:
-        # Fix potential issues with RTSP URL containing @ symbols in credentials
-        # Parse the URL first
-        parsed_url = urllib.parse.urlparse(stream_url)
+        # Properly handle RTSP URLs with special characters in credentials
+        # Especially with @ symbols in username or password
+        encoded_url = stream_url
         
-        # If the URL has authentication that includes @ symbols, handle it properly
-        if '@' in parsed_url.netloc and ':' in parsed_url.netloc.split('@')[0]:
-            logger.info("URL contains authentication with special characters, properly encoding it")
+        try:
+            # Try to parse the URL using urllib to handle encoding properly
+            parsed = urllib.parse.urlparse(stream_url)
             
-            # Split netloc into auth and host parts
-            auth, host = parsed_url.netloc.split('@', 1)
-            
-            # If auth part contains multiple @ symbols, encode it properly
-            if '@' in auth:
-                username_password = auth.split(':', 1)
-                if len(username_password) == 2:
-                    username = urllib.parse.quote(username_password[0])
-                    password = urllib.parse.quote(username_password[1])
-                    new_auth = f"{username}:{password}"
-                    new_netloc = f"{new_auth}@{host}"
-                    parsed_url = parsed_url._replace(netloc=new_netloc)
-                    stream_url = urllib.parse.urlunparse(parsed_url)
-                    logger.info(f"Encoded URL: {stream_url}")
-    except Exception as e:
-        logger.warning(f"Failed to parse/encode URL: {e}, will use as-is")
+            # Check if it has credentials that need encoding
+            if '@' in parsed.netloc:
+                logger.info("URL contains authentication, checking if encoding is needed")
+                
+                netloc_parts = parsed.netloc.split('@')
+                if len(netloc_parts) > 1:
+                    # Extract credentials and host parts
+                    auth = netloc_parts[0]
+                    host = '@'.join(netloc_parts[1:])  # In case host contains @ symbols
+                    
+                    # Further split auth into username and password
+                    if ':' in auth:
+                        username, password = auth.split(':', 1)  # Split only on first : in case password contains :
+                        
+                        # Check if username or password contains special chars
+                        if ('@' in password) or ('%' not in password and 
+                                               any(c in password for c in [' ', '?', '&', '=', '#', '+'])):
+                            logger.info("URL contains authentication with special characters, properly encoding it")
+                            # Encode username and password
+                            encoded_username = urllib.parse.quote(username, safe='')
+                            encoded_password = urllib.parse.quote(password, safe='')
+                            
+                            # Reassemble the URL with encoded credentials
+                            new_netloc = f"{encoded_username}:{encoded_password}@{host}"
+                            encoded_parsed = parsed._replace(netloc=new_netloc)
+                            encoded_url = urllib.parse.urlunparse(encoded_parsed)
+                            
+                            logger.info(f"Successfully encoded URL with special characters")
+        except Exception as e:
+            logger.warning(f"Error during URL parsing/encoding, using original URL: {e}")
     
-    # Generate unique stream ID
-    stream_id = str(uuid.uuid4())
-    
-    # Create stream directory
-    stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
-    os.makedirs(stream_dir, exist_ok=True)
-    
-    # Set output paths - Always use index.m3u8 for HLS
-    output_path = os.path.join(stream_dir, "index.m3u8")
-    
-    # Create status file
-    status_path = os.path.join(stream_dir, "status.json")
-    
-    # Update status
-    transcode_jobs[stream_id] = {
-        "status": "processing",
-        "input_url": stream_url,
-        "output_file": output_path,
-        "format": output_format,
-        "created_at": time.time()
-    }
-    
-    with open(status_path, "w") as f:
-        json.dump({
+        # Generate unique stream ID
+        stream_id = str(uuid.uuid4())
+        
+        # Create stream directory
+        stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
+        os.makedirs(stream_dir, exist_ok=True)
+        
+        # Set output paths - Always use index.m3u8 for HLS
+        output_path = os.path.join(stream_dir, "index.m3u8")
+        
+        # Create status file
+        status_path = os.path.join(stream_dir, "status.json")
+        
+        # Update status
+        transcode_jobs[stream_id] = {
             "status": "processing",
-            "progress": 0
-        }, f)
+            "input_url": stream_url,  # Store original URL for reference
+            "output_file": output_path,
+            "format": output_format,
+            "created_at": time.time()
+        }
+        
+        with open(status_path, "w") as f:
+            json.dump({
+                "status": "processing",
+                "progress": 0
+            }, f)
+        
+        # Start streaming in background
+        backgroundTasks.add_task(
+            process_stream, stream_id, encoded_url, output_path, output_format
+        )
+        
+        # Construct the public URL for the stream - using relative URL
+        stream_url_path = f"/transcode/stream/{stream_id}/index.m3u8"
+        
+        logger.info(f"Stream job created: {stream_id}, URL: {stream_url_path}")
+        
+        return {
+            "stream_id": stream_id, 
+            "status": "processing",
+            "stream_url": stream_url_path
+        }
     
-    # Start streaming in background
-    backgroundTasks.add_task(
-        process_stream, stream_id, stream_url, output_path, output_format
-    )
-    
-    # Construct the public URL for the stream - using relative URL
-    stream_url_path = f"/transcode/stream/{stream_id}/index.m3u8"
-    
-    logger.info(f"Stream job created: {stream_id}, URL: {stream_url_path}")
-    
-    return {
-        "stream_id": stream_id, 
-        "status": "processing",
-        "stream_url": stream_url_path
-    }
+    except Exception as e:
+        logger.exception(f"Error creating stream: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error creating stream: {str(e)}"
+        )
 
 def process_stream(stream_id, input_url, output_path, output_format):
     """Background task for processing stream"""
     status_path = os.path.join(os.path.dirname(output_path), "status.json")
+    stream_dir = os.path.dirname(output_path)
     
     try:
+        # Update status file to indicate we're starting
+        with open(status_path, "w") as f:
+            json.dump({
+                "status": "starting",
+                "progress": 0
+            }, f)
+        
         # Build FFmpeg command for HLS streaming
+        # Updated command with better parameters for stability
         if output_format == "hls":
-            # Fixed FFmpeg command with proper RTSP handling
             cmd = [
                 ffmpeg_binary_path,
-                # Add increased analyze duration and probe size for better stream detection
-                "-analyzeduration", "10000000",  # 10 seconds
-                "-probesize", "10000000",        # 10MB
-                # Use TCP for RTSP to improve stability
-                "-rtsp_transport", "tcp",
-                # Remove deprecated timeout option
-                # "-timeout", "5000000",
-                # Add stimeout instead (milliseconds)
-                "-stimeout", "5000000",          # 5 seconds in microseconds
-                "-i", input_url,
-                # Explicitly select video and audio streams if available
-                "-map", "0:v?",                  # Video stream if exists
-                "-map", "0:a?",                  # Audio stream if exists
-                # Video codec settings - only if video stream exists
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                # Lower latency settings
-                "-tune", "zerolatency",
-                "-g", "30",                      # GOP size (1 second at 30fps)
-                "-sc_threshold", "0",            # Disable scene change detection
-                # Audio codec settings - only if audio stream exists
-                "-c:a", "aac",
-                "-strict", "experimental",
-                "-ar", "44100",                  # Standard audio sample rate
+                # FFmpeg input options
+                "-analyzeduration", "20000000",     # 20 seconds
+                "-probesize", "20000000",           # 20MB 
+                "-rtsp_transport", "tcp",           # Use TCP for more stable connections
+                "-stimeout", "10000000",            # 10 second timeout (microseconds)
+                "-i", input_url,                    # Input stream URL
+                
+                # Video codec settings
+                "-c:v", "libx264",                  # H.264 video codec
+                "-preset", "ultrafast",             # Fastest encoding
+                "-tune", "zerolatency",             # Optimize for low latency
+                "-r", "15",                         # Force 15fps to reduce bandwidth
+                "-g", "30",                         # GOP size (2 seconds)
+                "-keyint_min", "15",                # Minimum GOP size
+                "-sc_threshold", "0",               # Disable scene detection
+                
+                # Audio codec settings (if audio exists)
+                "-c:a", "aac",                      # AAC audio codec
+                "-ar", "44100",                     # Audio sample rate
+                "-b:a", "64k",                      # Audio bitrate
+                
                 # HLS specific settings
-                "-f", "hls",
-                "-hls_time", "2",                # Duration of each segment
-                "-hls_list_size", "10",          # Number of segments to keep
-                "-hls_wrap", "10",               # Wrap around after this many segments
-                "-hls_flags", "delete_segments+append_list",  # Auto delete old segments
-                "-hls_segment_type", "mpegts",   # Use MPEG-TS format for segments
-                # Add option to continue on errors
-                "-max_muxing_queue_size", "9999",
-                "-reconnect", "1",
+                "-f", "hls",                        # HLS format
+                "-hls_time", "2",                   # Segment duration
+                "-hls_list_size", "10",             # Number of segments to keep in playlist
+                "-hls_wrap", "10",                  # Wrap around after this many segments
+                "-hls_flags", "delete_segments+append_list+discont_start",  # HLS flags
+                "-hls_segment_type", "mpegts",      # Use MPEG-TS format for segments
+                
+                # Error handling and recovery options
+                "-max_muxing_queue_size", "9999",   # Increase queue size
+                "-fflags", "+genpts+discardcorrupt",# Generate timestamps, discard corrupt
+                "-err_detect", "ignore_err",        # Ignore errors
+                "-reconnect", "1",                  # Enable reconnections
                 "-reconnect_at_eof", "1",
                 "-reconnect_streamed", "1",
-                "-reconnect_delay_max", "10",
+                "-reconnect_delay_max", "30",       # Max 30 seconds between reconnect attempts
+                
                 # Output path
                 output_path
             ]
         else:
-            # For other formats (mp4, webm, etc.)
+            # For formats other than HLS
             cmd = [
                 ffmpeg_binary_path,
-                "-analyzeduration", "10000000",  # 10 seconds
-                "-probesize", "10000000",        # 10MB
+                "-analyzeduration", "20000000",
+                "-probesize", "20000000",
                 "-rtsp_transport", "tcp",
-                "-stimeout", "5000000",          # 5 seconds in microseconds
+                "-stimeout", "10000000",
                 "-i", input_url,
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
                 "-tune", "zerolatency",
                 "-c:a", "aac",
-                "-strict", "experimental",
+                "-ar", "44100",
+                "-f", output_format,
                 "-reconnect", "1",
                 "-reconnect_at_eof", "1",
-                "-reconnect_streamed", "1", 
-                "-reconnect_delay_max", "10",
-                "-f", output_format,
+                "-reconnect_streamed", "1",
+                "-reconnect_delay_max", "30",
                 output_path
             ]
         
         logger.info(f"Running FFmpeg stream command: {' '.join(cmd)}")
         
-        # Run FFmpeg
+        # Create a dummy index.m3u8 file to avoid 404 errors while FFmpeg is starting
+        with open(output_path, "w") as f:
+            f.write("""#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:2
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-DISCONTINUITY
+#EXT-X-PLAYLIST-TYPE:EVENT
+#EXTINF:2.000000,
+#EXT-X-DISCONTINUITY
+#EXT-X-ENDLIST""")
+        
+        # Update status to indicate we're about to start FFmpeg
+        with open(status_path, "w") as f:
+            json.dump({
+                "status": "launching",
+                "progress": 0
+            }, f)
+        
+        # Run FFmpeg with non-blocking IO
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -381,14 +430,15 @@ def process_stream(stream_id, input_url, output_path, output_format):
             universal_newlines=True
         )
         
-        # Update status
+        # Update status to streaming once FFmpeg is running
         with open(status_path, "w") as f:
             json.dump({
                 "status": "streaming",
-                "progress": 100
+                "progress": 100,
+                "pid": process.pid
             }, f)
         
-        # This will block until the stream is terminated
+        # Wait for completion or error
         stdout, stderr = process.communicate()
         
         # Check result
@@ -420,15 +470,69 @@ async def get_stream_file(stream_id: str, file_name: str):
     stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
     file_path = os.path.join(stream_dir, file_name)
     
+    # First check for the status file 
+    status_path = os.path.join(stream_dir, "status.json")
+    if os.path.exists(status_path):
+        with open(status_path, "r") as f:
+            try:
+                status = json.load(f)
+                # If stream is in starting or launching state, return a wait message
+                if status.get("status") in ["starting", "launching"] and file_name == "index.m3u8":
+                    # Return a minimal HLS playlist that indicates stream is starting
+                    wait_playlist = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-DISCONTINUITY
+#EXT-X-PLAYLIST-TYPE:EVENT
+#EXTINF:10.0,
+#EXT-X-DISCONTINUITY
+#EXT-X-ENDLIST"""
+                    return Response(
+                        content=wait_playlist,
+                        media_type="application/vnd.apple.mpegurl"
+                    )
+            except json.JSONDecodeError:
+                pass
+    
+    # Check if file exists
     if not os.path.exists(file_path):
-        logger.error(f"Stream file not found: {file_path}")
-        raise HTTPException(status_code=404, detail="Stream file not found")
+        if file_name.endswith(".ts"):
+            logger.warning(f"Stream segment not found: {file_path}, returning 404")
+            raise HTTPException(status_code=404, detail="Stream segment not found")
+        elif file_name == "index.m3u8":
+            # For the main playlist, if it doesn't exist, check if the stream is still initializing
+            if os.path.exists(stream_dir) and os.path.exists(status_path):
+                try:
+                    with open(status_path, "r") as f:
+                        status = json.load(f)
+                    if status.get("status") in ["processing", "starting", "launching"]:
+                        # Return a temporary playlist that indicates stream is starting
+                        wait_playlist = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-DISCONTINUITY
+#EXT-X-PLAYLIST-TYPE:EVENT
+#EXTINF:10.0,
+#EXT-X-DISCONTINUITY
+#EXT-X-ENDLIST"""
+                        return Response(
+                            content=wait_playlist,
+                            media_type="application/vnd.apple.mpegurl"
+                        )
+                except Exception as e:
+                    logger.error(f"Error reading status file: {e}")
+            
+            logger.error(f"Stream index file not found: {file_path}")
+            raise HTTPException(status_code=404, detail="Stream file not found")
     
     # Determine content type
     content_type = "application/vnd.apple.mpegurl"
     if file_name.endswith(".ts"):
         content_type = "video/mp2t"
     
+    # Return the file content
     return StreamingResponse(
         open(file_path, "rb"),
         media_type=content_type
