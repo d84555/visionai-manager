@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { convertToPlayableFormat, detectVideoFormat, createHlsStream } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
@@ -15,7 +14,7 @@ interface Detection {
     width: number;
     height: number;
   };
-  model?: string; // Add model field to track which model produced detection
+  model?: string;
 }
 
 interface VideoFeedProps {
@@ -60,6 +59,7 @@ export const useVideoFeed = ({
   const [formatNotSupported, setFormatNotSupported] = useState(false);
   const [isLiveStream, setIsLiveStream] = useState(false);
   const [streamProcessing, setStreamProcessing] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
   
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -73,6 +73,8 @@ export const useVideoFeed = ({
   const retryConnectionRef = useRef<boolean>(false);
   const connectionAttemptsRef = useRef<number>(0);
   const maxConnectionAttempts = 5;
+  const streamRetryAttemptsRef = useRef<number>(0);
+  const maxStreamRetryAttempts = 3;
 
   // Keep activeModelsRef in sync with activeModels prop
   useEffect(() => {
@@ -95,6 +97,7 @@ export const useVideoFeed = ({
     setActualFps(null);
     setFormatNotSupported(false);
     setIsLiveStream(false);
+    setStreamError(null);
     
     // Cancel any pending animation frame
     if (requestAnimationFrameIdRef.current !== null) {
@@ -110,6 +113,7 @@ export const useVideoFeed = ({
     
     // Reset connection attempts
     connectionAttemptsRef.current = 0;
+    streamRetryAttemptsRef.current = 0;
   }, []);
 
   // Initialize WebSocket connection with retry logic
@@ -383,32 +387,61 @@ export const useVideoFeed = ({
     requestAnimationFrameIdRef.current = requestAnimationFrame(startFrameProcessing);
   }, [isStreaming, isPlaying, fps]);
 
-  // Process RTSP stream
+  // Enhanced process RTSP stream with better error handling
   const processRtspStream = useCallback(async (url: string) => {
     try {
       setStreamProcessing(true);
       setIsLiveStream(true);
+      setStreamError(null);
+      streamRetryAttemptsRef.current = 0;
+      
+      // Display informative message about connecting to camera
+      toast.info('Connecting to camera stream...', {
+        description: 'This may take a few moments'
+      });
       
       // Use FFmpeg to convert RTSP to HLS
+      console.log('Creating HLS stream from RTSP URL:', 
+        url.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@')); // Log with credentials masked
+      
       const streamUrl = await createHlsStream(url, `camera_${Date.now()}`);
       console.log('Stream URL received:', streamUrl);
       
-      // Ensure we're using the correct relative URL for the stream
-      console.log('Using relative stream URL:', streamUrl);
+      // Add delay to allow server to start generating segments
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
+      // Set the stream URL for the video element
       setVideoUrl(streamUrl);
       setStreamProcessing(false);
       
       return streamUrl;
     } catch (error) {
       console.error('Failed to process RTSP stream:', error);
-      toast.error('Failed to process camera stream', {
-        description: 'Please check that the camera URL is correct and accessible'
-      });
+      
+      // If we haven't exceeded retry attempts, try again
+      if (streamRetryAttemptsRef.current < maxStreamRetryAttempts) {
+        streamRetryAttemptsRef.current++;
+        
+        const delayMs = 3000 * streamRetryAttemptsRef.current; // Increase delay with each retry
+        toast.info(`Retrying connection (attempt ${streamRetryAttemptsRef.current}/${maxStreamRetryAttempts})...`, {
+          description: 'The camera might be slow to respond'
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        return processRtspStream(url); // Recursive retry
+      }
+      
+      // If all retries failed
       setStreamProcessing(false);
+      setStreamError(error instanceof Error ? error.message : String(error));
+      
+      toast.error('Failed to connect to camera stream', {
+        description: 'Please check camera URL, credentials, and network connectivity'
+      });
+      
       throw error;
     }
-  }, []);
+  }, [maxStreamRetryAttempts]);
 
   // Check if URL is RTSP or other streaming format
   const isStreamingUrl = (url: string): boolean => {
@@ -420,7 +453,7 @@ export const useVideoFeed = ({
 
   // Start streaming video
   const startStream = useCallback(async () => {
-    if (!videoUrl && !hasUploadedFile) {
+    if (!videoUrl && !hasUploadedFile && !camera) {
       toast.error('Please enter a video URL or upload a file');
       return;
     }
@@ -430,81 +463,104 @@ export const useVideoFeed = ({
     setInferenceLocation(null);
     setInferenceTime(null);
     setFormatNotSupported(false);
+    setStreamError(null);
     
-    // Handle RTSP or other streaming URLs
-    if (videoUrl && isStreamingUrl(videoUrl)) {
-      setIsProcessing(true);
-      
-      try {
-        // If it's an RTSP URL, process it
-        if (videoUrl.startsWith('rtsp://') || videoUrl.startsWith('rtsps://') || videoUrl.startsWith('rtmp://')) {
-          const processedUrl = await processRtspStream(videoUrl);
+    try {
+      // Handle camera objects first
+      if (camera) {
+        const selectedStreamUrl = camera.streamUrl[streamType] || camera.streamUrl.main;
+        
+        if (!selectedStreamUrl) {
+          toast.error(`No stream URL defined for camera ${camera.name}`);
+          return;
+        }
+        
+        // If it's a streaming URL, process it
+        if (isStreamingUrl(selectedStreamUrl)) {
+          setIsProcessing(true);
+          await processRtspStream(selectedStreamUrl);
           
-          // Model loading can proceed in parallel
-          if (activeModelsRef.current.length > 0) {
-            setIsModelLoading(true);
-            setTimeout(() => { setIsModelLoading(false); }, 1500);
-          }
-          
-          // Initialize WebSocket connection
+          // Initialize WebSocket connection for inference
           initWebSocket();
-          
-          // Start streaming
           setIsStreaming(true);
           setIsPlaying(true);
           setIsProcessing(false);
-          
           return;
         }
-      } catch (error) {
-        console.error('Error processing stream:', error);
-        setIsProcessing(false);
-        return;
       }
-    }
-    
-    // Initialize WebSocket connection for any type of video
-    initWebSocket();
       
-    // Start streaming
-    setIsStreaming(true);
-    setIsPlaying(true);
-    
-    // Ensure video element plays
-    if (videoRef.current) {
-      try {
-        console.log('Attempting to play video...');
+      // Handle direct video URL
+      if (videoUrl && isStreamingUrl(videoUrl)) {
+        setIsProcessing(true);
         
-        // Add a small delay to ensure the video element has loaded properly
-        setTimeout(() => {
-          if (videoRef.current) {
-            const playPromise = videoRef.current.play();
-            
-            if (playPromise !== undefined) {
-              playPromise.then(() => {
-                console.log('Video playback started successfully');
-              }).catch(error => {
-                console.error('Error forcing video to play:', error);
-                
-                // Handle unsupported format
-                if (error.name === 'NotSupportedError') {
-                  toast.error('Video format not supported', {
-                    description: 'This video format cannot be played in your browser. Please enable server-side transcoding in Settings.'
-                  });
-                  setFormatNotSupported(true);
-                  stopStream();
-                } else {
-                  toast.error('Video playback failed. This may be due to browser autoplay policies.');
-                }
-              });
-            }
-          }
-        }, 500);
-      } catch (error) {
-        console.error('Error playing video:', error);
+        // If it's an RTSP URL, process it
+        if (videoUrl.startsWith('rtsp://') || videoUrl.startsWith('rtsps://') || videoUrl.startsWith('rtmp://')) {
+          await processRtspStream(videoUrl);
+          
+          // Initialize WebSocket connection for inference
+          initWebSocket();
+          setIsStreaming(true);
+          setIsPlaying(true);
+          setIsProcessing(false);
+          return;
+        }
+        
+        // For other streaming URLs that don't need processing
+        setIsProcessing(false);
       }
+      
+      // Initialize WebSocket connection for any type of video
+      initWebSocket();
+        
+      // Start streaming
+      setIsStreaming(true);
+      setIsPlaying(true);
+      
+      // Ensure video element plays
+      if (videoRef.current) {
+        try {
+          console.log('Attempting to play video...');
+          
+          // Add a small delay to ensure the video element has loaded properly
+          setTimeout(() => {
+            if (videoRef.current) {
+              const playPromise = videoRef.current.play();
+              
+              if (playPromise !== undefined) {
+                playPromise.then(() => {
+                  console.log('Video playback started successfully');
+                }).catch(error => {
+                  console.error('Error forcing video to play:', error);
+                  
+                  // Handle unsupported format
+                  if (error.name === 'NotSupportedError') {
+                    toast.error('Video format not supported', {
+                      description: 'This video format cannot be played in your browser. Please enable server-side transcoding in Settings.'
+                    });
+                    setFormatNotSupported(true);
+                    stopStream();
+                  } else {
+                    toast.error('Video playback failed. This may be due to browser autoplay policies.');
+                  }
+                });
+              }
+            }
+          }, 500);
+        } catch (error) {
+          console.error('Error playing video:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error starting stream:', error);
+      setIsProcessing(false);
+      stopStream();
+      
+      // Show specific error message
+      toast.error('Failed to start video stream', {
+        description: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
     }
-  }, [videoUrl, hasUploadedFile, initWebSocket, processRtspStream, isStreamingUrl, stopStream]);
+  }, [videoUrl, hasUploadedFile, camera, streamType, initWebSocket, processRtspStream, isStreamingUrl, stopStream]);
 
   // Toggle play/pause
   const togglePlayPause = useCallback(() => {
@@ -571,12 +627,24 @@ export const useVideoFeed = ({
       width: video.videoWidth,
       height: video.videoHeight
     });
-  }, []);
+    
+    // If we have a video now, but it was previously showing an error, clear the error
+    if (video.videoWidth > 0 && streamError) {
+      setStreamError(null);
+    }
+  }, [streamError]);
 
-  // Handle video error
+  // Enhanced video error handler
   const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.target as HTMLVideoElement;
     console.error('Video error:', e, video.error);
+    
+    // Set a general stream error state
+    if (video.error) {
+      setStreamError(`Video error code: ${video.error.code}`);
+    } else {
+      setStreamError('Unknown video error');
+    }
     
     if (video.error) {
       // Check specific error codes
@@ -586,20 +654,27 @@ export const useVideoFeed = ({
           break;
         case MediaError.MEDIA_ERR_NETWORK:
           toast.error('Network error while loading video', {
-            description: 'Make sure the video URL or camera is accessible'
+            description: 'Make sure the camera is online and accessible from your network'
           });
           break;
         case MediaError.MEDIA_ERR_DECODE:
           toast.error('Video decode error', {
-            description: 'The video format may not be supported. Try enabling server-side transcoding in settings.'
+            description: 'The stream format may not be supported. Try enabling server-side transcoding in settings.'
           });
           setFormatNotSupported(true);
           break;
         case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
           toast.error('Video format not supported', {
-            description: 'This video format cannot be played in your browser. Please use server-side transcoding or upload a compatible format like MP4.'
+            description: 'This camera stream format cannot be played in your browser. Please check the camera settings and URL.'
           });
           setFormatNotSupported(true);
+          
+          // For RTSP streams, suggest checking configuration
+          if (isLiveStream) {
+            toast.error('RTSP connection failed', {
+              description: 'Please verify camera credentials, network access, and RTSP port configuration'
+            });
+          }
           break;
         default:
           toast.error('Failed to load video');
@@ -608,8 +683,9 @@ export const useVideoFeed = ({
       toast.error('Failed to load video');
     }
     
+    // Stop the stream after error
     stopStream();
-  }, [stopStream]);
+  }, [stopStream, isLiveStream]);
 
   // Auto-start if requested
   useEffect(() => {
@@ -643,7 +719,7 @@ export const useVideoFeed = ({
   
   // Start/stop frame processing based on streaming state
   useEffect(() => {
-    if (isStreaming && isPlaying && !formatNotSupported) {
+    if (isStreaming && isPlaying && !formatNotSupported && !streamError) {
       console.log('Starting frame processing loop with active models:', activeModelsRef.current);
       
       // Short delay to ensure video has time to initialize
@@ -663,7 +739,15 @@ export const useVideoFeed = ({
       cancelAnimationFrame(requestAnimationFrameIdRef.current);
       requestAnimationFrameIdRef.current = null;
     }
-  }, [isStreaming, isPlaying, formatNotSupported, startFrameProcessing]);
+  }, [isStreaming, isPlaying, formatNotSupported, streamError, startFrameProcessing]);
+
+  // Add a new useEffect to monitor stream errors
+  useEffect(() => {
+    if (streamError) {
+      console.error('Stream error detected:', streamError);
+      // Additional handling can be added here
+    }
+  }, [streamError]);
 
   // Clean up resources on unmount
   useEffect(() => {
@@ -697,6 +781,7 @@ export const useVideoFeed = ({
     formatNotSupported,
     isLiveStream,
     streamProcessing,
+    streamError,
     videoRef,
     containerRef,
     startStream,

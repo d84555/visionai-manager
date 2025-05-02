@@ -151,10 +151,10 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
     } else if (typeof data === 'string') {
       // If data is a string (base64 or binary string)
       uint8Array = new TextEncoder().encode(data);
-    } else {
+    } else if (data && typeof data === 'object') {
       // Check if data is object-like with a buffer property
       const dataObj = data as { buffer?: ArrayBuffer };
-      if (dataObj && typeof dataObj === 'object' && dataObj.buffer && dataObj.buffer instanceof ArrayBuffer) {
+      if (dataObj.buffer && dataObj.buffer instanceof ArrayBuffer) {
         // If data has a buffer property (TypedArray-like)
         uint8Array = new Uint8Array(dataObj.buffer);
       } else {
@@ -163,6 +163,10 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
         const dataStr = String(data);
         uint8Array = new TextEncoder().encode(dataStr);
       }
+    } else {
+      // Last resort fallback
+      console.error('Unknown FFmpeg output format, using empty array');
+      uint8Array = new Uint8Array();
     }
     
     const blob = new Blob([uint8Array], { type: 'video/mp4' });
@@ -178,6 +182,43 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
   }
 }
 
+// Function to properly encode RTSP URL with special characters in credentials
+function encodeRtspUrl(url: string): string {
+  try {
+    // Check if this is an RTSP URL
+    if (!url.startsWith('rtsp://') && !url.startsWith('rtsps://')) {
+      return url;
+    }
+
+    // Parse the URL to handle components separately
+    const match = url.match(/^(rtsp[s]?):\/\/([^@]+@)?([^:/]+)(?::(\d+))?(\/.*)?$/);
+    if (!match) return url;
+
+    const [, protocol, credentialsPart, host, port, path] = match;
+    
+    // If no credentials, just return original URL
+    if (!credentialsPart) return url;
+    
+    // Extract and encode credentials
+    const credentials = credentialsPart.slice(0, -1); // Remove trailing @
+    let [username, ...passwordParts] = credentials.split(':');
+    
+    // Handle case where password contains colons
+    const password = passwordParts.join(':');
+    
+    // Encode username and password to handle special characters
+    const encodedUsername = encodeURIComponent(username);
+    const encodedPassword = encodeURIComponent(password);
+    
+    // Reconstruct URL with encoded credentials
+    return `${protocol}://${encodedUsername}:${encodedPassword}@${host}${port ? `:${port}` : ''}${path || ''}`;
+  } catch (error) {
+    console.error('Error encoding RTSP URL:', error);
+    // Return original URL if there's an error
+    return url;
+  }
+}
+
 // Create HLS Stream from RTSP URL
 export async function createHlsStream(streamUrl: string, streamName: string = 'camera'): Promise<string> {
   try {
@@ -188,29 +229,64 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
       console.warn('Server-side transcoding is disabled but required for RTSP streams. Using server anyway.');
     }
     
-    console.log('Sending stream request to backend with URL:', streamUrl);
+    // Encode the URL to handle special characters in credentials
+    const encodedUrl = encodeRtspUrl(streamUrl);
+    console.log('Encoded URL for backend (credentials masked):', 
+      encodedUrl.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@'));
     
     const formData = new FormData();
-    formData.append('stream_url', streamUrl);
+    formData.append('stream_url', encodedUrl);
     formData.append('output_format', 'hls');
     formData.append('stream_name', streamName);
     
-    console.log('Sending stream request to backend with parameters:', Object.fromEntries(formData.entries()));
+    // Add timeout and retry logic for stream creation request
+    let attempts = 0;
+    const maxAttempts = 3;
+    let lastError;
     
-    // Add timeout for stream creation request
-    const response = await axios.post('/transcode/stream', formData, {
-      timeout: 10000 // 10-second timeout
-    });
-    
-    console.log('Stream response received:', response.data);
-    
-    // Check if we have a valid stream URL in the response
-    if (!response.data.stream_url) {
-      throw new Error('No stream URL returned from server');
+    while (attempts < maxAttempts) {
+      try {
+        attempts++;
+        
+        // Log attempt number if retrying
+        if (attempts > 1) {
+          console.log(`Attempt ${attempts}/${maxAttempts} to connect to stream`);
+          toast.info(`Retrying connection (${attempts}/${maxAttempts})...`);
+        }
+        
+        // Make the request with timeout
+        const response = await axios.post('/transcode/stream', formData, {
+          timeout: 15000 // 15-second timeout
+        });
+        
+        console.log('Stream response received:', response.data);
+        
+        // Check if we have a valid stream URL in the response
+        if (!response.data.stream_url) {
+          throw new Error('No stream URL returned from server');
+        }
+        
+        // Return the stream URL path (this will be relative)
+        return response.data.stream_url;
+      } catch (error) {
+        console.error(`Error creating HLS stream (attempt ${attempts}/${maxAttempts}):`, error);
+        lastError = error;
+        
+        // Only retry if not the last attempt
+        if (attempts < maxAttempts) {
+          // Wait before retrying (exponential backoff)
+          const delay = Math.min(1000 * Math.pow(2, attempts - 1), 5000);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
     
-    // Return the stream URL path (this will be relative)
-    return response.data.stream_url;
+    // If we get here, all attempts failed
+    toast.error('Failed to connect to camera', {
+      description: 'Please check your camera URL, credentials, and network connection'
+    });
+    
+    throw new Error(`Failed to create HLS stream after ${maxAttempts} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
   } catch (error) {
     console.error('Error creating HLS stream:', error);
     toast.error('Failed to connect to camera', {

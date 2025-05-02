@@ -132,14 +132,22 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     if (cameraId && cameraId.length > 0 && camera && onClearAssignment) {
       // Create a new assignments object with just this assignment - don't modify all existing ones
       const newAssignments = { ...cameraAssignments };
+      
+      // Check if this camera is already assigned to another position
+      const existingPosition = Object.entries(newAssignments).find(
+        ([pos, id]) => id === cameraId && pos !== positionId
+      );
+      
+      // If found in another position, optionally warn the user
+      if (existingPosition) {
+        console.log(`Camera was already assigned to position ${existingPosition[0]}, moving to ${positionId}`);
+      }
+      
       newAssignments[positionId] = cameraId;
       
       // Update localStorage - but don't force refresh the page
       localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
-      toast.success('Camera assigned to grid position');
-      
-      // Instead of reloading the page, just return and let React update
-      // window.location.reload(); - This was causing the duplication bug
+      toast.success(`Camera ${camera.name} assigned to grid position`);
     }
   };
 
@@ -180,7 +188,7 @@ const CameraGrid: React.FC<CameraGridProps> = ({
 
           return (
             <CameraGridPosition
-              key={positionId}
+              key={`grid-${positionId}`}
               positionId={positionId}
               camera={assignedCamera}
               isPlaying={playingStreams[positionId]}

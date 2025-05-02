@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 import time
 import json
+import urllib.parse
 
 # Define the router with no prefix but explicitly setting the correct tags
 router = APIRouter(
@@ -228,6 +229,32 @@ async def create_stream(
     # Log the incoming request for debugging
     logger.info(f"Received stream request with URL: {stream_url}, format: {output_format}")
     
+    try:
+        # Fix potential issues with RTSP URL containing @ symbols in credentials
+        # Parse the URL first
+        parsed_url = urllib.parse.urlparse(stream_url)
+        
+        # If the URL has authentication that includes @ symbols, handle it properly
+        if '@' in parsed_url.netloc and ':' in parsed_url.netloc.split('@')[0]:
+            logger.info("URL contains authentication with special characters, properly encoding it")
+            
+            # Split netloc into auth and host parts
+            auth, host = parsed_url.netloc.split('@', 1)
+            
+            # If auth part contains multiple @ symbols, encode it properly
+            if '@' in auth:
+                username_password = auth.split(':', 1)
+                if len(username_password) == 2:
+                    username = urllib.parse.quote(username_password[0])
+                    password = urllib.parse.quote(username_password[1])
+                    new_auth = f"{username}:{password}"
+                    new_netloc = f"{new_auth}@{host}"
+                    parsed_url = parsed_url._replace(netloc=new_netloc)
+                    stream_url = urllib.parse.urlunparse(parsed_url)
+                    logger.info(f"Encoded URL: {stream_url}")
+    except Exception as e:
+        logger.warning(f"Failed to parse/encode URL: {e}, will use as-is")
+    
     # Generate unique stream ID
     stream_id = str(uuid.uuid4())
     
@@ -279,7 +306,7 @@ def process_stream(stream_id, input_url, output_path, output_format):
     try:
         # Build FFmpeg command for HLS streaming
         if output_format == "hls":
-            # Enhanced FFmpeg command with better RTSP handling
+            # Fixed FFmpeg command with proper RTSP handling
             cmd = [
                 ffmpeg_binary_path,
                 # Add increased analyze duration and probe size for better stream detection
@@ -287,20 +314,22 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 "-probesize", "10000000",        # 10MB
                 # Use TCP for RTSP to improve stability
                 "-rtsp_transport", "tcp",
-                # Add timeout settings to prevent hanging
-                "-timeout", "5000000",           # 5 seconds in microseconds
+                # Remove deprecated timeout option
+                # "-timeout", "5000000",
+                # Add stimeout instead (milliseconds)
+                "-stimeout", "5000000",          # 5 seconds in microseconds
                 "-i", input_url,
-                # Explicitly select video and audio streams
-                "-map", "0:v:0",                 # First video stream
-                "-map", "0:a:0?",                # First audio stream (if exists)
-                # Video codec settings
+                # Explicitly select video and audio streams if available
+                "-map", "0:v?",                  # Video stream if exists
+                "-map", "0:a?",                  # Audio stream if exists
+                # Video codec settings - only if video stream exists
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
                 # Lower latency settings
                 "-tune", "zerolatency",
                 "-g", "30",                      # GOP size (1 second at 30fps)
                 "-sc_threshold", "0",            # Disable scene change detection
-                # Audio codec settings
+                # Audio codec settings - only if audio stream exists
                 "-c:a", "aac",
                 "-strict", "experimental",
                 "-ar", "44100",                  # Standard audio sample rate
@@ -311,6 +340,12 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 "-hls_wrap", "10",               # Wrap around after this many segments
                 "-hls_flags", "delete_segments+append_list",  # Auto delete old segments
                 "-hls_segment_type", "mpegts",   # Use MPEG-TS format for segments
+                # Add option to continue on errors
+                "-max_muxing_queue_size", "9999",
+                "-reconnect", "1",
+                "-reconnect_at_eof", "1",
+                "-reconnect_streamed", "1",
+                "-reconnect_delay_max", "10",
                 # Output path
                 output_path
             ]
@@ -320,14 +355,18 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 ffmpeg_binary_path,
                 "-analyzeduration", "10000000",  # 10 seconds
                 "-probesize", "10000000",        # 10MB
-                "-rtsp_transport", "tcp", 
-                "-timeout", "5000000",           # 5 seconds
+                "-rtsp_transport", "tcp",
+                "-stimeout", "5000000",          # 5 seconds in microseconds
                 "-i", input_url,
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
                 "-tune", "zerolatency",
                 "-c:a", "aac",
                 "-strict", "experimental",
+                "-reconnect", "1",
+                "-reconnect_at_eof", "1",
+                "-reconnect_streamed", "1", 
+                "-reconnect_delay_max", "10",
                 "-f", output_format,
                 output_path
             ]
