@@ -226,7 +226,8 @@ function encodeRtspUrl(url: string): string {
 }
 
 // Check if a URL is one of our own HLS streams
-function isInternalStreamUrl(url: string): boolean {
+// Export this function since it's used in useVideoFeed.ts
+export function isInternalStreamUrl(url: string): boolean {
   // Check if this URL is a path to one of our own stream endpoints
   const internalStreamPattern = /\/transcode\/stream\/[a-f0-9-]+\/index\.m3u8/;
   return internalStreamPattern.test(url);
@@ -397,4 +398,3 @@ if (typeof window !== 'undefined') {
     cleanupAllStreams();
   });
 }
-
