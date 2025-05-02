@@ -137,8 +137,26 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
     // Read the output file
     const data = await ffmpeg.readFile(outputFileName);
     
-    // Fix: Convert FileData to the correct type for Blob constructor
-    const uint8Array = new Uint8Array(await data.arrayBuffer());
+    // Fix: Convert FileData to Uint8Array - in newer FFmpeg.wasm versions,
+    // data might be returned as Uint8Array directly or as a different type
+    let uint8Array: Uint8Array;
+    
+    if (data instanceof Uint8Array) {
+      // If data is already a Uint8Array, use it directly
+      uint8Array = data;
+    } else if (typeof data === 'string') {
+      // If data is a string (base64 or binary string)
+      uint8Array = new TextEncoder().encode(data);
+    } else if (data.buffer && data.buffer instanceof ArrayBuffer) {
+      // If data has a buffer property (TypedArray-like)
+      uint8Array = new Uint8Array(data.buffer);
+    } else {
+      // Fallback approach - try to convert to string first
+      console.warn('Unexpected FileData format, attempting conversion');
+      const dataStr = String(data);
+      uint8Array = new TextEncoder().encode(dataStr);
+    }
+    
     const blob = new Blob([uint8Array], { type: 'video/mp4' });
     
     // Clean up files
