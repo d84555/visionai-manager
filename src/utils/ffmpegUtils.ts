@@ -121,10 +121,10 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
     const inputFileName = 'input_file';
     const outputFileName = 'output.mp4';
     
-    // Write the input file - API changed to writeFile method
+    // Write the input file
     await ffmpeg.writeFile(inputFileName, await fetchFile(file));
     
-    // Execute FFmpeg command - API changed to exec method
+    // Execute FFmpeg command
     await ffmpeg.exec([
       '-i', inputFileName,
       '-c:v', 'libx264',
@@ -134,13 +134,14 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
       outputFileName
     ]);
     
-    // Read the output file - API changed to readFile method
+    // Read the output file
     const data = await ffmpeg.readFile(outputFileName);
-    // Use Uint8Array instead of accessing .buffer property
-    const uint8Array = new Uint8Array(data);
+    
+    // Fix: Convert FileData to the correct type for Blob constructor
+    const uint8Array = new Uint8Array(await data.arrayBuffer());
     const blob = new Blob([uint8Array], { type: 'video/mp4' });
     
-    // Clean up files - API changed to deleteFile method
+    // Clean up files
     await ffmpeg.deleteFile(inputFileName);
     await ffmpeg.deleteFile(outputFileName);
     
