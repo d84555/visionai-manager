@@ -60,6 +60,8 @@ export const useVideoFeed = ({
   const [isLiveStream, setIsLiveStream] = useState(false);
   const [streamProcessing, setStreamProcessing] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [streamRetries, setStreamRetries] = useState(0);
+  const [hlsLoaded, setHlsLoaded] = useState(false);
   
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -78,6 +80,8 @@ export const useVideoFeed = ({
   const hlsPlayerErrorsRef = useRef<number>(0);
   const maxHlsPlayerErrors = 5;
   const activeStreamUrlRef = useRef<string | null>(null);
+  const streamCheckTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hlsCheckRetryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   // Keep activeModelsRef in sync with activeModels prop
   useEffect(() => {
@@ -87,10 +91,9 @@ export const useVideoFeed = ({
 
   // Define stopStream function before it's used
   const stopStream = useCallback(() => {
+    console.log('Stopping stream...');
     // Signal not to attempt reconnection
-    if (socketRef.current) {
-      retryConnectionRef.current = true;
-    }
+    retryConnectionRef.current = true;
     
     setIsStreaming(false);
     setIsPlaying(false);
@@ -101,6 +104,18 @@ export const useVideoFeed = ({
     setFormatNotSupported(false);
     setIsLiveStream(false);
     setStreamError(null);
+    setHlsLoaded(false);
+    
+    // Clear any check timers
+    if (streamCheckTimerRef.current) {
+      clearTimeout(streamCheckTimerRef.current);
+      streamCheckTimerRef.current = null;
+    }
+    
+    if (hlsCheckRetryIntervalRef.current) {
+      clearInterval(hlsCheckRetryIntervalRef.current);
+      hlsCheckRetryIntervalRef.current = null;
+    }
     
     // Cancel any pending animation frame
     if (requestAnimationFrameIdRef.current !== null) {
@@ -135,7 +150,7 @@ export const useVideoFeed = ({
     connectionAttemptsRef.current = 0;
     streamRetryAttemptsRef.current = 0;
     hlsPlayerErrorsRef.current = 0;
-  }, [isInternalStreamUrl]);
+  }, []);
 
   // Initialize WebSocket connection with retry logic
   const initWebSocket = useCallback(() => {
@@ -441,6 +456,9 @@ export const useVideoFeed = ({
       setVideoUrl(streamUrl);
       setStreamProcessing(false);
       
+      // Setup periodic check for HLS stream health
+      setupHlsStreamCheck();
+      
       return streamUrl;
     } catch (error) {
       console.error('Failed to process RTSP stream:', error);
@@ -469,6 +487,78 @@ export const useVideoFeed = ({
       throw error;
     }
   }, [maxStreamRetryAttempts]);
+  
+  // Setup a periodic check for HLS stream health
+  const setupHlsStreamCheck = useCallback(() => {
+    // Clear any existing check timer
+    if (streamCheckTimerRef.current) {
+      clearTimeout(streamCheckTimerRef.current);
+    }
+    
+    // First check after 10 seconds
+    streamCheckTimerRef.current = setTimeout(() => {
+      if (!isLiveStream || !videoRef.current) return;
+      
+      // If video hasn't started playing yet after 10 seconds, there might be an issue
+      if (videoRef.current.readyState < 3 || videoRef.current.paused || !hlsLoaded) {
+        console.warn('HLS stream not playing properly after initial delay');
+        
+        // Try to restart the video element
+        if (videoRef.current && videoUrl) {
+          videoRef.current.load();
+          videoRef.current.play().catch(err => {
+            console.error('Error forcing video to play:', err);
+          });
+          
+          // Setup retry interval to check every 3 seconds
+          if (hlsCheckRetryIntervalRef.current) {
+            clearInterval(hlsCheckRetryIntervalRef.current);
+          }
+          
+          let retries = 0;
+          hlsCheckRetryIntervalRef.current = setInterval(() => {
+            retries++;
+            
+            // If video is now playing, clear the interval
+            if (videoRef.current && !videoRef.current.paused && videoRef.current.readyState >= 3) {
+              console.log('HLS stream is now playing properly');
+              if (hlsCheckRetryIntervalRef.current) {
+                clearInterval(hlsCheckRetryIntervalRef.current);
+                hlsCheckRetryIntervalRef.current = null;
+              }
+              setHlsLoaded(true);
+              return;
+            }
+            
+            // If we've tried too many times, show an error
+            if (retries >= 5) {
+              console.error('HLS stream failed to play after multiple retry attempts');
+              toast.error('Stream playback issues', {
+                description: 'The camera stream is not playing correctly. Try refreshing the page or reconnecting.'
+              });
+              
+              if (hlsCheckRetryIntervalRef.current) {
+                clearInterval(hlsCheckRetryIntervalRef.current);
+                hlsCheckRetryIntervalRef.current = null;
+              }
+            } else {
+              // Try to reload the video element
+              if (videoRef.current && videoUrl) {
+                console.log(`HLS retry ${retries}/5: Reloading video element`);
+                videoRef.current.load();
+                videoRef.current.play().catch(err => {
+                  console.error('Error forcing video to play:', err);
+                });
+              }
+            }
+          }, 3000);
+        }
+      } else {
+        console.log('HLS stream is playing properly');
+        setHlsLoaded(true);
+      }
+    }, 10000);
+  }, [isLiveStream, videoUrl, hlsLoaded]);
 
   // Check if URL is RTSP or other streaming format
   const isStreamingUrl = useCallback((url: string): boolean => {
@@ -496,6 +586,8 @@ export const useVideoFeed = ({
     setInferenceTime(null);
     setFormatNotSupported(false);
     setStreamError(null);
+    setStreamRetries(0);
+    setHlsLoaded(false);
     hlsPlayerErrorsRef.current = 0;
     
     try {
@@ -662,6 +754,14 @@ export const useVideoFeed = ({
   // Handle video metadata loaded event
   const handleVideoMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.target as HTMLVideoElement;
+    
+    console.log('Video metadata loaded:', {
+      width: video.videoWidth, 
+      height: video.videoHeight,
+      duration: video.duration,
+      readyState: video.readyState
+    });
+    
     setResolution({
       width: video.videoWidth,
       height: video.videoHeight
@@ -671,7 +771,12 @@ export const useVideoFeed = ({
     if (video.videoWidth > 0 && streamError) {
       setStreamError(null);
     }
-  }, [streamError]);
+    
+    // For HLS streams, mark as loaded
+    if (isLiveStream && video.videoWidth > 0 && videoUrl && videoUrl.includes('.m3u8')) {
+      setHlsLoaded(true);
+    }
+  }, [streamError, isLiveStream, videoUrl]);
 
   // Enhanced video error handler with HLS-specific improvements
   const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -699,6 +804,9 @@ export const useVideoFeed = ({
       } else {
         refreshUrl += `?cache=${Date.now()}`;
       }
+      
+      // Retry with incremented counter
+      setStreamRetries(prev => prev + 1);
       
       // Delay the reload slightly to avoid rapid retries
       setTimeout(() => {
@@ -787,6 +895,26 @@ export const useVideoFeed = ({
     }
   }, [autoStart, initialVideoUrl, camera, streamType, startStream]);
   
+  // Special effect for HLS streams to monitor for successful playback
+  useEffect(() => {
+    if (isLiveStream && videoUrl && videoUrl.includes('.m3u8') && videoRef.current) {
+      // Initial check for video playback state
+      const checkPlayback = () => {
+        if (videoRef.current && videoRef.current.readyState >= 3 && !videoRef.current.paused) {
+          setHlsLoaded(true);
+          console.log('HLS stream is initially playing correctly');
+        }
+      };
+      
+      // Check after a short delay
+      const initialTimer = setTimeout(checkPlayback, 2000);
+      
+      return () => {
+        clearTimeout(initialTimer);
+      };
+    }
+  }, [isLiveStream, videoUrl]);
+  
   // Start/stop frame processing based on streaming state
   useEffect(() => {
     if (isStreaming && isPlaying && !formatNotSupported && !streamError) {
@@ -836,6 +964,15 @@ export const useVideoFeed = ({
       if (requestAnimationFrameIdRef.current !== null) {
         cancelAnimationFrame(requestAnimationFrameIdRef.current);
       }
+      
+      // Clear any timers
+      if (streamCheckTimerRef.current) {
+        clearTimeout(streamCheckTimerRef.current);
+      }
+      
+      if (hlsCheckRetryIntervalRef.current) {
+        clearInterval(hlsCheckRetryIntervalRef.current);
+      }
     };
   }, [isStreaming, stopStream]);
 
@@ -860,6 +997,8 @@ export const useVideoFeed = ({
     isLiveStream,
     streamProcessing,
     streamError,
+    streamRetries,
+    hlsLoaded,
     videoRef,
     containerRef,
     startStream,

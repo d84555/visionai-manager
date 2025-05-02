@@ -255,14 +255,35 @@ export async function stopHlsStream(streamUrl: string): Promise<boolean> {
     console.log('Stopping stream with ID:', streamId);
     
     // Call the API to stop the stream
-    const response = await axios.delete(`/transcode/stream/${streamId}`);
-    
-    if (response.data && response.data.status === 'stopped') {
-      console.log('Stream stopped successfully:', streamId);
-      activeStreams.delete(streamId);
-      return true;
-    } else {
-      console.error('Failed to stop stream:', response.data);
+    try {
+      const response = await axios.delete(`/transcode/stream/${streamId}`);
+      
+      if (response.data && response.data.status === 'stopped') {
+        console.log('Stream stopped successfully:', streamId);
+        activeStreams.delete(streamId);
+        return true;
+      } else {
+        console.error('Failed to stop stream:', response.data);
+        return false;
+      }
+    } catch (error) {
+      // Handle 500 errors by trying one more time
+      console.warn('Error stopping HLS stream, retrying:', error);
+      
+      // Wait a moment before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      try {
+        const retryResponse = await axios.delete(`/transcode/stream/${streamId}`);
+        if (retryResponse.data) {
+          console.log('Stream stopped on retry:', streamId);
+          activeStreams.delete(streamId);
+          return true;
+        }
+      } catch (retryError) {
+        console.error('Failed to stop stream on retry:', retryError);
+      }
+      
       return false;
     }
   } catch (error) {

@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -45,7 +44,7 @@ def terminate_processes():
     """Terminate all active FFmpeg processes gracefully on shutdown"""
     logger.info(f"Shutting down {len(active_processes)} active FFmpeg processes...")
     
-    for stream_id, process in active_processes.items():
+    for stream_id, process in list(active_processes.items()):
         if process and process.poll() is None:  # Check if process is still running
             try:
                 logger.info(f"Sending graceful termination signal to FFmpeg process for stream {stream_id}")
@@ -558,8 +557,8 @@ async def stop_stream(stream_id: str):
                     logger.warning(f"FFmpeg process for stream {stream_id} not responding to SIGTERM, sending SIGKILL")
                     process.kill()
                 
-                # Remove from active processes
-                del active_processes[stream_id]
+                # Remove from active processes (safely)
+                active_processes.pop(stream_id, None)
             
             # Update status file
             with open(status_path, "w") as f:
@@ -570,24 +569,27 @@ async def stop_stream(stream_id: str):
             
             return {"status": "stopped", "stream_id": stream_id}
         else:
-            # Process might have already completed
+            # Process might have already completed - this is not an error case
             logger.info(f"No active FFmpeg process found for stream {stream_id}")
             
             # Update status file anyway
             with open(status_path, "w") as f:
                 json.dump({
                     "status": "stopped",
-                    "message": "Stream already stopped"
+                    "message": "Stream already stopped or completed"
                 }, f)
             
             return {"status": "stopped", "stream_id": stream_id}
     
     except Exception as e:
         logger.exception(f"Error stopping stream {stream_id}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error stopping stream: {str(e)}"
-        )
+        # We'll still return a 202 status but include the error in the response
+        # This avoids the 500 Internal Server Error
+        return {
+            "status": "error",
+            "stream_id": stream_id, 
+            "message": f"Error while stopping stream: {str(e)}"
+        }
 
 @router.get("/transcode/stream/{stream_id}/{file_name}")
 async def get_stream_file(stream_id: str, file_name: str):
@@ -679,4 +681,3 @@ def cleanup_old_jobs():
             if os.path.exists(job_dir):
                 shutil.rmtree(job_dir)
             del transcode_jobs[job_id]
-
