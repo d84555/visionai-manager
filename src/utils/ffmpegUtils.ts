@@ -1,3 +1,4 @@
+
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import axios from 'axios';
@@ -109,34 +110,38 @@ async function sendToServerTranscoder(file: File): Promise<string> {
 // Client-side transcoding using FFmpeg.wasm
 async function transcodeClientSide(file: File, formatInfo: any): Promise<string> {
   const settings = getFFmpegSettings();
-  const ffmpeg = new FFmpeg({
-    log: true,
-    corePath: settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-  });
+  const ffmpeg = new FFmpeg();
   
   try {
-    await ffmpeg.load();
+    // Load the FFmpeg core - the API has changed in newer versions
+    await ffmpeg.load({
+      coreURL: settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+      log: true
+    });
     
     const inputFileName = 'input_file';
     const outputFileName = 'output.mp4';
     
-    ffmpeg.FS('writeFile', inputFileName, await fetchFile(file));
+    // Write the input file - API changed to writeFile method
+    await ffmpeg.writeFile(inputFileName, await fetchFile(file));
     
-    await ffmpeg.run(
+    // Execute FFmpeg command - API changed to exec method
+    await ffmpeg.exec([
       '-i', inputFileName,
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-c:a', 'aac',
       '-strict', 'experimental',
       outputFileName
-    );
+    ]);
     
-    const data = ffmpeg.FS('readFile', outputFileName);
+    // Read the output file - API changed to readFile method
+    const data = await ffmpeg.readFile(outputFileName);
     const blob = new Blob([data.buffer], { type: 'video/mp4' });
     
-    // Clean up files
-    ffmpeg.FS('unlink', inputFileName);
-    ffmpeg.FS('unlink', outputFileName);
+    // Clean up files - API changed to deleteFile method
+    await ffmpeg.deleteFile(inputFileName);
+    await ffmpeg.deleteFile(outputFileName);
     
     return URL.createObjectURL(blob);
   } catch (error) {
