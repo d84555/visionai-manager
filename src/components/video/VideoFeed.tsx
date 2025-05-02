@@ -34,6 +34,7 @@ interface VideoFeedProps {
   activeModels?: { name: string; path: string }[];
   streamType?: 'main' | 'sub';
   fps?: number;
+  onError?: (error: string) => void; // Added this prop to fix the TypeScript error
 }
 
 interface Detection {
@@ -59,7 +60,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   onPinToggle,
   activeModels = [],
   streamType = 'main',
-  fps = 10
+  fps = 10,
+  onError // Added this to destructure the new prop
 }) => {
   const [selectedModels, setSelectedModels] = useState<{name: string; path: string}[]>([]);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
@@ -139,7 +141,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     setOriginalFile,
     originalFile,
     processRtspStream,
-    isStreamingUrl
+    isStreamingUrl,
+    streamError
   } = useVideoFeed({
     initialVideoUrl,
     autoStart,
@@ -148,6 +151,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     streamType,
     fps
   });
+
+  // Pass the stream error to the parent component if the onError prop exists
+  useEffect(() => {
+    if (streamError && onError) {
+      onError(streamError);
+    }
+  }, [streamError, onError]);
 
   const handleModelChange = async (modelIds: string[]) => {
     const models = modelIds.map(id => {
