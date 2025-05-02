@@ -279,25 +279,49 @@ def process_stream(stream_id, input_url, output_path, output_format):
     try:
         # Build FFmpeg command for HLS streaming
         if output_format == "hls":
+            # Enhanced FFmpeg command with better RTSP handling
             cmd = [
                 ffmpeg_binary_path,
+                # Add increased analyze duration and probe size for better stream detection
+                "-analyzeduration", "10000000",  # 10 seconds
+                "-probesize", "10000000",        # 10MB
+                # Use TCP for RTSP to improve stability
+                "-rtsp_transport", "tcp",
+                # Add timeout settings to prevent hanging
+                "-timeout", "5000000",           # 5 seconds in microseconds
                 "-i", input_url,
+                # Explicitly select video and audio streams
+                "-map", "0:v:0",                 # First video stream
+                "-map", "0:a:0?",                # First audio stream (if exists)
+                # Video codec settings
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
+                # Lower latency settings
                 "-tune", "zerolatency",
+                "-g", "30",                      # GOP size (1 second at 30fps)
+                "-sc_threshold", "0",            # Disable scene change detection
+                # Audio codec settings
                 "-c:a", "aac",
                 "-strict", "experimental",
+                "-ar", "44100",                  # Standard audio sample rate
+                # HLS specific settings
                 "-f", "hls",
-                "-hls_time", "2",
-                "-hls_list_size", "10",
-                "-hls_wrap", "10",
-                "-hls_flags", "delete_segments",
+                "-hls_time", "2",                # Duration of each segment
+                "-hls_list_size", "10",          # Number of segments to keep
+                "-hls_wrap", "10",               # Wrap around after this many segments
+                "-hls_flags", "delete_segments+append_list",  # Auto delete old segments
+                "-hls_segment_type", "mpegts",   # Use MPEG-TS format for segments
+                # Output path
                 output_path
             ]
         else:
             # For other formats (mp4, webm, etc.)
             cmd = [
                 ffmpeg_binary_path,
+                "-analyzeduration", "10000000",  # 10 seconds
+                "-probesize", "10000000",        # 10MB
+                "-rtsp_transport", "tcp", 
+                "-timeout", "5000000",           # 5 seconds
                 "-i", input_url,
                 "-c:v", "libx264",
                 "-preset", "ultrafast",

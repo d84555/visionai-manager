@@ -3,6 +3,7 @@ import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import axios from 'axios';
 import SettingsService from '../services/SettingsService';
+import { toast } from 'sonner';
 
 // Load FFmpeg settings
 const getFFmpegSettings = () => {
@@ -196,8 +197,10 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     
     console.log('Sending stream request to backend with parameters:', Object.fromEntries(formData.entries()));
     
-    // Use a relative URL to work with proxying
-    const response = await axios.post('/transcode/stream', formData);
+    // Add timeout for stream creation request
+    const response = await axios.post('/transcode/stream', formData, {
+      timeout: 10000 // 10-second timeout
+    });
     
     console.log('Stream response received:', response.data);
     
@@ -210,6 +213,9 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     return response.data.stream_url;
   } catch (error) {
     console.error('Error creating HLS stream:', error);
+    toast.error('Failed to connect to camera', {
+      description: 'Please check your camera URL, credentials, and network connection'
+    });
     throw new Error(`Failed to create HLS stream: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
