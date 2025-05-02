@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { convertToPlayableFormat, detectVideoFormat, createHlsStream } from '../utils/ffmpegUtils';
+import { convertToPlayableFormat, detectVideoFormat, createHlsStream, stopHlsStream } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
 
 interface Detection {
@@ -77,7 +77,8 @@ export const useVideoFeed = ({
   const maxStreamRetryAttempts = 3;
   const hlsPlayerErrorsRef = useRef<number>(0);
   const maxHlsPlayerErrors = 5;
-
+  const activeStreamUrlRef = useRef<string | null>(null);
+  
   // Keep activeModelsRef in sync with activeModels prop
   useEffect(() => {
     activeModelsRef.current = activeModels;
@@ -113,11 +114,28 @@ export const useVideoFeed = ({
       socketRef.current = null;
     }
     
+    // Stop HLS stream if it's one of our internal streams
+    if (activeStreamUrlRef.current && isInternalStreamUrl(activeStreamUrlRef.current)) {
+      console.log('Stopping internal HLS stream:', activeStreamUrlRef.current);
+      stopHlsStream(activeStreamUrlRef.current)
+        .then(success => {
+          if (success) {
+            console.log('Successfully stopped HLS stream');
+          } else {
+            console.warn('Failed to stop HLS stream, it may continue running on the server');
+          }
+          activeStreamUrlRef.current = null;
+        })
+        .catch(err => {
+          console.error('Error stopping HLS stream:', err);
+        });
+    }
+    
     // Reset connection attempts
     connectionAttemptsRef.current = 0;
     streamRetryAttemptsRef.current = 0;
     hlsPlayerErrorsRef.current = 0;
-  }, []);
+  }, [isInternalStreamUrl]);
 
   // Initialize WebSocket connection with retry logic
   const initWebSocket = useCallback(() => {
@@ -398,6 +416,9 @@ export const useVideoFeed = ({
       setStreamError(null);
       streamRetryAttemptsRef.current = 0;
       
+      // Clear any previous stream URL
+      activeStreamUrlRef.current = null;
+      
       // Display informative message about connecting to camera
       toast.info('Connecting to camera stream...', {
         description: 'This may take a few moments'
@@ -409,6 +430,9 @@ export const useVideoFeed = ({
       
       const streamUrl = await createHlsStream(url, `camera_${Date.now()}`);
       console.log('Stream URL received:', streamUrl);
+      
+      // Store the stream URL for later cleanup
+      activeStreamUrlRef.current = streamUrl;
       
       // Add delay to allow server to start generating segments
       await new Promise(resolve => setTimeout(resolve, 3000)); // Increased wait time for HLS initialization
@@ -447,17 +471,17 @@ export const useVideoFeed = ({
   }, [maxStreamRetryAttempts]);
 
   // Check if URL is RTSP or other streaming format
-  const isStreamingUrl = (url: string): boolean => {
+  const isStreamingUrl = useCallback((url: string): boolean => {
     return url.startsWith('rtsp://') || 
            url.startsWith('rtsps://') ||
            url.startsWith('rtmp://') ||
            url.startsWith('http://') && (url.includes('.m3u8') || url.includes('mjpg/video') || url.includes('mjpeg'));
-  };
+  }, []);
 
   // Utility function to check if streaming URL is using authentication
-  const hasAuthentication = (url: string): boolean => {
+  const hasAuthentication = useCallback((url: string): boolean => {
     return url.includes('@') && (url.includes('://') && url.split('://')[1].includes(':'));
-  };
+  }, []);
 
   // Start streaming video with enhanced error handling
   const startStream = useCallback(async () => {
@@ -650,7 +674,7 @@ export const useVideoFeed = ({
   }, [streamError]);
 
   // Enhanced video error handler with HLS-specific improvements
-  const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+  const handleVideoError = useCallback((e: React.SSyntheticEvent<HTMLVideoElement>) => {
     const video = e.target as HTMLVideoElement;
     console.error('Video error:', e, video.error);
     
@@ -798,15 +822,22 @@ export const useVideoFeed = ({
   // Clean up resources on unmount
   useEffect(() => {
     return () => {
+      // Stop the stream if it's active
+      if (isStreaming) {
+        stopStream();
+      }
+      
+      // Close WebSocket
       if (socketRef.current) {
         socketRef.current.close();
       }
       
+      // Cancel any pending animation frame
       if (requestAnimationFrameIdRef.current !== null) {
         cancelAnimationFrame(requestAnimationFrameIdRef.current);
       }
     };
-  }, []);
+  }, [isStreaming, stopStream]);
 
   return {
     videoUrl,
@@ -841,6 +872,7 @@ export const useVideoFeed = ({
     setOriginalFile,
     originalFile,
     processRtspStream,
-    isStreamingUrl
+    isStreamingUrl,
+    hasAuthentication
   };
 };

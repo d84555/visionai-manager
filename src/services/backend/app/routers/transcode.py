@@ -12,6 +12,8 @@ import time
 import json
 import urllib.parse
 import re
+import signal
+import atexit
 
 # Define the router with no prefix but explicitly setting the correct tags
 router = APIRouter(
@@ -34,6 +36,45 @@ logger.info(f"Using transcode directory: {TRANSCODE_DIR}")
 
 # Keep track of transcoding jobs
 transcode_jobs = {}
+
+# Keep track of active FFmpeg processes
+active_processes = {}
+
+# Function to terminate FFmpeg processes on shutdown
+def terminate_processes():
+    """Terminate all active FFmpeg processes gracefully on shutdown"""
+    logger.info(f"Shutting down {len(active_processes)} active FFmpeg processes...")
+    
+    for stream_id, process in active_processes.items():
+        if process and process.poll() is None:  # Check if process is still running
+            try:
+                logger.info(f"Sending graceful termination signal to FFmpeg process for stream {stream_id}")
+                # Try to send SIGTERM first for graceful shutdown
+                process.terminate()
+                
+                # Give it a moment to terminate gracefully
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    # If still running after timeout, force kill
+                    logger.warning(f"FFmpeg process for {stream_id} did not terminate gracefully, sending SIGKILL")
+                    process.kill()
+                    
+                logger.info(f"FFmpeg process for stream {stream_id} terminated")
+                
+                # Update status file
+                status_path = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}", "status.json")
+                if os.path.exists(status_path):
+                    with open(status_path, "w") as f:
+                        json.dump({
+                            "status": "stopped",
+                            "message": "Stream terminated due to server shutdown"
+                        }, f)
+            except Exception as e:
+                logger.error(f"Error terminating FFmpeg process for stream {stream_id}: {e}")
+
+# Register the shutdown handler
+atexit.register(terminate_processes)
 
 @router.post("/transcode", status_code=202)
 async def transcode_video(
@@ -130,8 +171,15 @@ def transcode_file(job_id, input_path, output_path, output_format, quality, pres
             universal_newlines=True
         )
         
+        # Store process reference for potential termination
+        active_processes[job_id] = process
+        
         # Wait for completion
         stdout, stderr = process.communicate()
+        
+        # Remove process from active processes
+        if job_id in active_processes:
+            del active_processes[job_id]
         
         # Check if successful
         if process.returncode == 0:
@@ -342,8 +390,11 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 "progress": 0
             }, f)
         
-        # Build FFmpeg command for HLS streaming
-        # Updated command with better parameters for stability
+        # Build FFmpeg command for HLS streaming with unique filenames
+        # Add timestamp to segment names to avoid collisions
+        timestamp = int(time.time())
+        segment_pattern = f"segment_{timestamp}_%d.ts"
+        
         if output_format == "hls":
             cmd = [
                 ffmpeg_binary_path,
@@ -372,9 +423,9 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 "-f", "hls",                        # HLS format
                 "-hls_time", "2",                   # Segment duration
                 "-hls_list_size", "10",             # Number of segments to keep in playlist
-                "-hls_wrap", "10",                  # Wrap around after this many segments
                 "-hls_flags", "delete_segments+append_list+discont_start",  # HLS flags
                 "-hls_segment_type", "mpegts",      # Use MPEG-TS format for segments
+                "-hls_segment_filename", os.path.join(stream_dir, segment_pattern),  # Use unique segment names
                 
                 # Error handling and recovery options
                 "-max_muxing_queue_size", "9999",   # Increase queue size
@@ -436,8 +487,13 @@ def process_stream(stream_id, input_url, output_path, output_format):
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_newlines=True
+            universal_newlines=True,
+            # Make process part of a new process group to handle signals properly
+            start_new_session=True
         )
+        
+        # Store process reference for potential termination
+        active_processes[stream_id] = process
         
         # Update status to streaming once FFmpeg is running
         with open(status_path, "w") as f:
@@ -449,6 +505,10 @@ def process_stream(stream_id, input_url, output_path, output_format):
         
         # Wait for completion or error
         stdout, stderr = process.communicate()
+        
+        # Remove process from active processes
+        if stream_id in active_processes:
+            del active_processes[stream_id]
         
         # Check result
         if process.returncode == 0:
@@ -468,6 +528,66 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 "status": "failed",
                 "error": str(e)
             }, f)
+
+@router.delete("/transcode/stream/{stream_id}", status_code=202)
+async def stop_stream(stream_id: str):
+    """
+    Stop an active stream
+    """
+    stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
+    status_path = os.path.join(stream_dir, "status.json")
+    
+    if not os.path.exists(status_path):
+        raise HTTPException(status_code=404, detail="Stream not found")
+    
+    try:
+        # Check if we have an active process for this stream
+        if stream_id in active_processes:
+            process = active_processes[stream_id]
+            
+            # Terminate the process if it's still running
+            if process.poll() is None:
+                logger.info(f"Terminating FFmpeg process for stream {stream_id}")
+                process.terminate()
+                
+                try:
+                    # Wait for termination
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # Force kill if not responding to terminate
+                    logger.warning(f"FFmpeg process for stream {stream_id} not responding to SIGTERM, sending SIGKILL")
+                    process.kill()
+                
+                # Remove from active processes
+                del active_processes[stream_id]
+            
+            # Update status file
+            with open(status_path, "w") as f:
+                json.dump({
+                    "status": "stopped",
+                    "message": "Stream manually stopped"
+                }, f)
+            
+            return {"status": "stopped", "stream_id": stream_id}
+        else:
+            # Process might have already completed
+            logger.info(f"No active FFmpeg process found for stream {stream_id}")
+            
+            # Update status file anyway
+            with open(status_path, "w") as f:
+                json.dump({
+                    "status": "stopped",
+                    "message": "Stream already stopped"
+                }, f)
+            
+            return {"status": "stopped", "stream_id": stream_id}
+    
+    except Exception as e:
+        logger.exception(f"Error stopping stream {stream_id}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error stopping stream: {str(e)}"
+        )
 
 @router.get("/transcode/stream/{stream_id}/{file_name}")
 async def get_stream_file(stream_id: str, file_name: str):
@@ -559,3 +679,4 @@ def cleanup_old_jobs():
             if os.path.exists(job_dir):
                 shutil.rmtree(job_dir)
             del transcode_jobs[job_id]
+

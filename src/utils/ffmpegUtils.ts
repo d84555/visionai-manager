@@ -232,6 +232,44 @@ function isInternalStreamUrl(url: string): boolean {
   return internalStreamPattern.test(url);
 }
 
+// Track active streams for cleanup
+const activeStreams: Map<string, string> = new Map();
+
+// Stop an active HLS stream
+export async function stopHlsStream(streamUrl: string): Promise<boolean> {
+  try {
+    if (!streamUrl || !isInternalStreamUrl(streamUrl)) {
+      console.error('Not a valid internal stream URL:', streamUrl);
+      return false;
+    }
+    
+    // Extract the stream ID from the URL
+    const match = streamUrl.match(/\/transcode\/stream\/([a-f0-9-]+)\/index\.m3u8/);
+    if (!match || !match[1]) {
+      console.error('Could not extract stream ID from URL:', streamUrl);
+      return false;
+    }
+    
+    const streamId = match[1];
+    console.log('Stopping stream with ID:', streamId);
+    
+    // Call the API to stop the stream
+    const response = await axios.delete(`/transcode/stream/${streamId}`);
+    
+    if (response.data && response.data.status === 'stopped') {
+      console.log('Stream stopped successfully:', streamId);
+      activeStreams.delete(streamId);
+      return true;
+    } else {
+      console.error('Failed to stop stream:', response.data);
+      return false;
+    }
+  } catch (error) {
+    console.error('Error stopping HLS stream:', error);
+    return false;
+  }
+}
+
 // Create HLS Stream from RTSP URL with improved browser compatibility
 export async function createHlsStream(streamUrl: string, streamName: string = 'camera'): Promise<string> {
   try {
@@ -292,6 +330,12 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
           throw new Error('No stream URL returned from server');
         }
         
+        // Store stream ID for potential cleanup later
+        const streamId = response.data.stream_id;
+        if (streamId) {
+          activeStreams.set(streamId, response.data.stream_url);
+        }
+        
         // Add a longer waiting period for the stream to initialize
         console.log('Waiting for HLS stream segments to be generated...');
         await new Promise(resolve => setTimeout(resolve, 5000)); // 5 seconds wait
@@ -325,3 +369,32 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     throw new Error(`Failed to create HLS stream: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
+
+// Helper function to clean up all active streams on page unload
+export function cleanupAllStreams(): void {
+  console.log(`Cleaning up ${activeStreams.size} active streams`);
+  
+  // Stop each stream
+  activeStreams.forEach((url, streamId) => {
+    try {
+      // Make a synchronous request to stop the stream
+      const xhr = new XMLHttpRequest();
+      xhr.open('DELETE', `/transcode/stream/${streamId}`, false);
+      xhr.send();
+      console.log(`Stopped stream ${streamId}`);
+    } catch (e) {
+      console.error(`Failed to stop stream ${streamId}:`, e);
+    }
+  });
+  
+  // Clear the map
+  activeStreams.clear();
+}
+
+// Register beforeunload event to clean up streams when the page is closed
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    cleanupAllStreams();
+  });
+}
+
