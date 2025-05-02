@@ -225,7 +225,7 @@ function encodeRtspUrl(url: string): string {
   }
 }
 
-// Create HLS Stream from RTSP URL
+// Create HLS Stream from RTSP URL with improved browser compatibility
 export async function createHlsStream(streamUrl: string, streamName: string = 'camera'): Promise<string> {
   try {
     const settings = getFFmpegSettings();
@@ -245,6 +245,12 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     formData.append('output_format', 'hls');
     formData.append('stream_name', streamName);
     
+    // Add additional parameters for better browser compatibility
+    formData.append('hls_time', '2'); // 2-second segments
+    formData.append('hls_list_size', '6'); // Keep 6 segments in playlist
+    formData.append('hls_flags', 'delete_segments+append_list+discont_start');
+    formData.append('browser_compatibility', 'high'); // Request high browser compatibility
+    
     // Add timeout and retry logic for stream creation request
     let attempts = 0;
     const maxAttempts = 3;
@@ -262,7 +268,7 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
         
         // Make the request with timeout
         const response = await axios.post('/transcode/stream', formData, {
-          timeout: 30000 // 30-second timeout (increased from 15s)
+          timeout: 30000 // 30-second timeout
         });
         
         console.log('Stream response received:', response.data);

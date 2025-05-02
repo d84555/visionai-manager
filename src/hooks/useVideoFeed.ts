@@ -75,6 +75,8 @@ export const useVideoFeed = ({
   const maxConnectionAttempts = 5;
   const streamRetryAttemptsRef = useRef<number>(0);
   const maxStreamRetryAttempts = 3;
+  const hlsPlayerErrorsRef = useRef<number>(0);
+  const maxHlsPlayerErrors = 5;
 
   // Keep activeModelsRef in sync with activeModels prop
   useEffect(() => {
@@ -114,6 +116,7 @@ export const useVideoFeed = ({
     // Reset connection attempts
     connectionAttemptsRef.current = 0;
     streamRetryAttemptsRef.current = 0;
+    hlsPlayerErrorsRef.current = 0;
   }, []);
 
   // Initialize WebSocket connection with retry logic
@@ -408,7 +411,7 @@ export const useVideoFeed = ({
       console.log('Stream URL received:', streamUrl);
       
       // Add delay to allow server to start generating segments
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 3000)); // Increased wait time for HLS initialization
       
       // Set the stream URL for the video element
       setVideoUrl(streamUrl);
@@ -451,7 +454,12 @@ export const useVideoFeed = ({
            url.startsWith('http://') && (url.includes('.m3u8') || url.includes('mjpg/video') || url.includes('mjpeg'));
   };
 
-  // Start streaming video
+  // Utility function to check if streaming URL is using authentication
+  const hasAuthentication = (url: string): boolean => {
+    return url.includes('@') && (url.includes('://') && url.split('://')[1].includes(':'));
+  };
+
+  // Start streaming video with enhanced error handling
   const startStream = useCallback(async () => {
     if (!videoUrl && !hasUploadedFile && !camera) {
       toast.error('Please enter a video URL or upload a file');
@@ -464,6 +472,7 @@ export const useVideoFeed = ({
     setInferenceTime(null);
     setFormatNotSupported(false);
     setStreamError(null);
+    hlsPlayerErrorsRef.current = 0;
     
     try {
       // Handle camera objects first
@@ -478,6 +487,12 @@ export const useVideoFeed = ({
         // If it's a streaming URL, process it
         if (isStreamingUrl(selectedStreamUrl)) {
           setIsProcessing(true);
+          
+          // Check if URL has authentication - if so, provide hints in UI
+          if (hasAuthentication(selectedStreamUrl)) {
+            console.log('Camera URL contains authentication credentials');
+          }
+          
           await processRtspStream(selectedStreamUrl);
           
           // Initialize WebSocket connection for inference
@@ -634,16 +649,47 @@ export const useVideoFeed = ({
     }
   }, [streamError]);
 
-  // Enhanced video error handler
+  // Enhanced video error handler with HLS-specific improvements
   const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.target as HTMLVideoElement;
     console.error('Video error:', e, video.error);
+    
+    hlsPlayerErrorsRef.current++;
+    console.log(`HLS player error count: ${hlsPlayerErrorsRef.current}/${maxHlsPlayerErrors}`);
     
     // Set a general stream error state
     if (video.error) {
       setStreamError(`Video error code: ${video.error.code}`);
     } else {
       setStreamError('Unknown video error');
+    }
+    
+    // For HLS streams, we'll try to recover by forcing a reload of the video
+    if (hlsPlayerErrorsRef.current < maxHlsPlayerErrors && isLiveStream && videoUrl && videoUrl.includes('.m3u8')) {
+      console.log('Attempting to recover HLS stream by reloading...');
+      
+      // Add cache-busting parameter to force reload
+      let refreshUrl = videoUrl;
+      if (refreshUrl.includes('?')) {
+        refreshUrl += `&cache=${Date.now()}`;
+      } else {
+        refreshUrl += `?cache=${Date.now()}`;
+      }
+      
+      // Delay the reload slightly to avoid rapid retries
+      setTimeout(() => {
+        if (videoRef.current && isStreaming) {
+          // For live HLS streams, sometimes we need to reload the video element
+          setVideoUrl(refreshUrl);
+          
+          videoRef.current.load();
+          videoRef.current.play().catch(err => {
+            console.error('Error recovering HLS stream:', err);
+          });
+        }
+      }, 2000);
+      
+      return; // Skip the error display since we're trying to recover
     }
     
     if (video.error) {
@@ -659,7 +705,7 @@ export const useVideoFeed = ({
           break;
         case MediaError.MEDIA_ERR_DECODE:
           toast.error('Video decode error', {
-            description: 'The stream format may not be supported. Try enabling server-side transcoding in settings.'
+            description: 'The stream format may not be supported by your browser. Try a different stream format.'
           });
           setFormatNotSupported(true);
           break;
@@ -685,7 +731,7 @@ export const useVideoFeed = ({
     
     // Stop the stream after error
     stopStream();
-  }, [stopStream, isLiveStream]);
+  }, [stopStream, isLiveStream, videoUrl, isStreaming, maxHlsPlayerErrors]);
 
   // Auto-start if requested
   useEffect(() => {
