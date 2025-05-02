@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { convertToPlayableFormat, detectVideoFormat, createHlsStream, stopHlsStream } from '../utils/ffmpegUtils';
+import { convertToPlayableFormat, detectVideoFormat, createHlsStream, stopHlsStream, isInternalStreamUrl } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
 
 interface Detection {
@@ -674,7 +674,7 @@ export const useVideoFeed = ({
   }, [streamError]);
 
   // Enhanced video error handler with HLS-specific improvements
-  const handleVideoError = useCallback((e: React.SSyntheticEvent<HTMLVideoElement>) => {
+  const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.target as HTMLVideoElement;
     console.error('Video error:', e, video.error);
     
