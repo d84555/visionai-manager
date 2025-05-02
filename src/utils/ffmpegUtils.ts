@@ -1,5 +1,5 @@
-
-import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile } from '@ffmpeg/util';
 import axios from 'axios';
 import SettingsService from '../services/SettingsService';
 
@@ -109,7 +109,7 @@ async function sendToServerTranscoder(file: File): Promise<string> {
 // Client-side transcoding using FFmpeg.wasm
 async function transcodeClientSide(file: File, formatInfo: any): Promise<string> {
   const settings = getFFmpegSettings();
-  const ffmpeg = createFFmpeg({
+  const ffmpeg = new FFmpeg({
     log: true,
     corePath: settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
   });

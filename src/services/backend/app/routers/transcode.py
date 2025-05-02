@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -235,9 +234,9 @@ async def create_stream(
     stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
     os.makedirs(stream_dir, exist_ok=True)
     
-    # Set output paths
+    # Set output paths - Use index.m3u8 instead of stream.m3u8 to match frontend expectations
     if output_format == "hls":
-        output_path = os.path.join(stream_dir, "stream.m3u8")
+        output_path = os.path.join(stream_dir, "index.m3u8")
     else:
         output_path = os.path.join(stream_dir, f"stream.{output_format}")
     
@@ -386,4 +385,3 @@ def cleanup_old_jobs():
             if os.path.exists(job_dir):
                 shutil.rmtree(job_dir)
             del transcode_jobs[job_id]
-
