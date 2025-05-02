@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useVideoFeed } from '@/hooks/useVideoFeed';
-import { VideoControls } from './VideoControls';
+import { VideoControls, InferenceLocationType } from './VideoControls';
 import { CanvasDetectionOverlay } from './CanvasDetectionOverlay';
 import { ModelSelector } from './ModelSelector';
 import { DemoVideoButtons } from './DemoVideoButtons';
@@ -34,7 +34,7 @@ interface VideoFeedProps {
   activeModels?: { name: string; path: string }[];
   streamType?: 'main' | 'sub';
   fps?: number;
-  onError?: (error: string) => void; // Added this prop to fix the TypeScript error
+  onError?: (error: string) => void;
 }
 
 interface Detection {
@@ -61,7 +61,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   activeModels = [],
   streamType = 'main',
   fps = 10,
-  onError // Added this to destructure the new prop
+  onError
 }) => {
   const [selectedModels, setSelectedModels] = useState<{name: string; path: string}[]>([]);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
@@ -293,6 +293,14 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     }
   };
 
+  // Helper to type-check inferenceLocation to ensure it's only 'edge' or 'server'
+  const getTypedInferenceLocation = (): InferenceLocationType => {
+    if (inferenceLocation === 'edge' || inferenceLocation === 'server') {
+      return inferenceLocation;
+    }
+    return null; // Return null if it's not one of the expected values
+  };
+
   if (!showControls) {
     return (
       <div className="video-feed relative" ref={containerRef}>
@@ -353,7 +361,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               isPinned={isPinned}
               onPinToggle={onPinToggle}
               onPlayPause={togglePlayPause}
-              inferenceLocation={inferenceLocation}
+              inferenceLocation={getTypedInferenceLocation()}
               isHikvisionFormat={isHikvisionFormat}
               isLiveStream={isLiveStream}
               showMinimalControls
@@ -697,7 +705,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 <VideoControls
                   isPlaying={isPlaying}
                   onPlayPause={togglePlayPause}
-                  inferenceLocation={inferenceLocation}
+                  inferenceLocation={getTypedInferenceLocation()}
                   inferenceTime={inferenceTime}
                   isHikvisionFormat={isHikvisionFormat}
                   isLiveStream={isLiveStream}
@@ -726,18 +734,18 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             </div>
           )}
           
-          {isStreaming && inferenceLocation && (
+          {isStreaming && getTypedInferenceLocation() && (
             <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 border rounded-md">
               <div className="flex items-center">
                 <Server className="mr-2 text-avianet-red" size={18} />
                 <div>
                   <p className="text-sm font-medium">
-                    {inferenceLocation === 'edge' 
+                    {getTypedInferenceLocation() === 'edge' 
                       ? 'Edge Computing Active' 
                       : 'Server Processing Active'}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {inferenceLocation === 'edge'
+                    {getTypedInferenceLocation() === 'edge'
                       ? 'AI processing on edge device for reduced latency'
                       : 'Fallback to server processing due to edge unavailability'}
                   </p>
@@ -747,7 +755,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 <p className="text-sm font-medium">Inference Stats</p>
                 <div className="flex gap-2 items-center">
                   {inferenceTime && (
-                    <p className={`text-sm ${inferenceLocation === 'edge' ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                    <p className={`text-sm ${getTypedInferenceLocation() === 'edge' ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
                       {inferenceTime.toFixed(1)} ms
                     </p>
                   )}
