@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Camera, VideoIcon, Loader, Server, FileVideo, Network, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -120,6 +119,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     detections,
     resolution,
     isProcessing,
+    setIsProcessing,
     hasUploadedFile,
     inferenceLocation,
     inferenceTime,
