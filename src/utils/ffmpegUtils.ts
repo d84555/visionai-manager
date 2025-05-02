@@ -107,6 +107,9 @@ async function sendToServerTranscoder(file: File): Promise<string> {
   }
 }
 
+// Define a type for possible FFmpeg output data formats
+type FFmpegFileData = Uint8Array | string | { buffer?: ArrayBuffer } | unknown;
+
 // Client-side transcoding using FFmpeg.wasm
 async function transcodeClientSide(file: File, formatInfo: any): Promise<string> {
   const settings = getFFmpegSettings();
@@ -135,7 +138,7 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
     ]);
     
     // Read the output file
-    const data = await ffmpeg.readFile(outputFileName);
+    const data = await ffmpeg.readFile(outputFileName) as FFmpegFileData;
     
     // Fix: Convert FileData to Uint8Array - in newer FFmpeg.wasm versions,
     // data might be returned as Uint8Array directly or as a different type
@@ -147,14 +150,18 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
     } else if (typeof data === 'string') {
       // If data is a string (base64 or binary string)
       uint8Array = new TextEncoder().encode(data);
-    } else if (data.buffer && data.buffer instanceof ArrayBuffer) {
-      // If data has a buffer property (TypedArray-like)
-      uint8Array = new Uint8Array(data.buffer);
     } else {
-      // Fallback approach - try to convert to string first
-      console.warn('Unexpected FileData format, attempting conversion');
-      const dataStr = String(data);
-      uint8Array = new TextEncoder().encode(dataStr);
+      // Check if data is object-like with a buffer property
+      const dataObj = data as { buffer?: ArrayBuffer };
+      if (dataObj && typeof dataObj === 'object' && dataObj.buffer && dataObj.buffer instanceof ArrayBuffer) {
+        // If data has a buffer property (TypedArray-like)
+        uint8Array = new Uint8Array(dataObj.buffer);
+      } else {
+        // Fallback approach - try to convert to string first
+        console.warn('Unexpected FileData format, attempting conversion');
+        const dataStr = String(data);
+        uint8Array = new TextEncoder().encode(dataStr);
+      }
     }
     
     const blob = new Blob([uint8Array], { type: 'video/mp4' });
