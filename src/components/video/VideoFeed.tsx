@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useVideoFeed } from '@/hooks/useVideoFeed';
-import { VideoControls } from './VideoControls';
+import { VideoControls, InferenceLocationType } from './VideoControls';
 import { CanvasDetectionOverlay } from './CanvasDetectionOverlay';
 import { ModelSelector } from './ModelSelector';
 import { DemoVideoButtons } from './DemoVideoButtons';
@@ -34,6 +34,7 @@ interface VideoFeedProps {
   activeModels?: { name: string; path: string }[];
   streamType?: 'main' | 'sub';
   fps?: number;
+  onError?: (error: string) => void;
 }
 
 interface Detection {
@@ -59,12 +60,14 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   onPinToggle,
   activeModels = [],
   streamType = 'main',
-  fps = 10
+  fps = 10,
+  onError
 }) => {
   const [selectedModels, setSelectedModels] = useState<{name: string; path: string}[]>([]);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
   const [ffmpegSettings, setFfmpegSettings] = useState<any>({});
   const [activeTab, setActiveTab] = useState<string>('url');
+  const [hlsRetried, setHlsRetried] = useState<boolean>(false);
 
   useEffect(() => {
     // Load FFmpeg settings
@@ -116,6 +119,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     detections,
     resolution,
     isProcessing,
+    setIsProcessing,
     hasUploadedFile,
     inferenceLocation,
     inferenceTime,
@@ -139,7 +143,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     setOriginalFile,
     originalFile,
     processRtspStream,
-    isStreamingUrl
+    isStreamingUrl,
+    streamError
   } = useVideoFeed({
     initialVideoUrl,
     autoStart,
@@ -148,6 +153,65 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     streamType,
     fps
   });
+
+  // Pass the stream error to the parent component if the onError prop exists
+  useEffect(() => {
+    if (streamError && onError) {
+      onError(streamError);
+    }
+  }, [streamError, onError]);
+
+  // Effect to handle HLS stream errors and retry automatically
+  useEffect(() => {
+    if (streamError && isLiveStream && videoUrl && videoUrl.includes('.m3u8') && !hlsRetried) {
+      console.log('HLS stream error detected, attempting to reload stream');
+      
+      // We'll try once to reload the stream with slightly different parameters
+      const retryStream = async () => {
+        try {
+          setHlsRetried(true);
+          // If the camera object is available, use its URL
+          if (camera) {
+            const selectedStreamUrl = camera.streamUrl[streamType] || camera.streamUrl.main;
+            if (selectedStreamUrl) {
+              stopStream();
+              setStreamingErrorRetryState();
+              // Give FFmpeg server time to clean up previous failed job
+              setTimeout(async () => {
+                await processRtspStream(selectedStreamUrl);
+                // Initialize WebSocket connection for inference
+                startStream();
+              }, 3000);
+            }
+          } else if (isStreamingUrl && videoUrl) {
+            // For direct URL entry
+            stopStream();
+            setStreamingErrorRetryState();
+            // Give FFmpeg server time to clean up previous failed job
+            setTimeout(async () => {
+              await processRtspStream(videoUrl);
+              startStream();
+            }, 3000);
+          }
+        } catch (error) {
+          console.error('Failed to retry HLS stream:', error);
+          // Don't retry again automatically
+        }
+      };
+      
+      // Retry after a short delay
+      retryStream();
+    }
+  }, [streamError, isLiveStream, videoUrl, hlsRetried, camera, streamType, stopStream, processRtspStream, startStream, isStreamingUrl]);
+
+  // Helper function to prepare for stream retry
+  const setStreamingErrorRetryState = () => {
+    toast.info('Retrying camera connection...', {
+      description: 'Attempting to establish a more stable connection'
+    });
+    
+    setIsProcessing(true);
+  };
 
   const handleModelChange = async (modelIds: string[]) => {
     const models = modelIds.map(id => {
@@ -198,6 +262,44 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
            url.toLowerCase().startsWith('rtsps://') || 
            url.toLowerCase().startsWith('rtmp://');
   };
+  
+  // Managed retry function for camera streams
+  const handleRetryConnection = async () => {
+    setHlsRetried(false);
+    
+    if (camera) {
+      const selectedStreamUrl = camera.streamUrl[streamType] || camera.streamUrl.main;
+      if (selectedStreamUrl) {
+        stopStream();
+        setStreamingErrorRetryState();
+        try {
+          await processRtspStream(selectedStreamUrl);
+          startStream();
+        } catch (error) {
+          console.error('Failed to retry connection:', error);
+          toast.error('Connection retry failed');
+        }
+      }
+    } else if (isRtspUrl(videoUrl)) {
+      stopStream();
+      setStreamingErrorRetryState();
+      try {
+        await processRtspStream(videoUrl);
+        startStream();
+      } catch (error) {
+        console.error('Failed to retry connection:', error);
+        toast.error('Connection retry failed');
+      }
+    }
+  };
+
+  // Helper to type-check inferenceLocation to ensure it's only 'edge' or 'server'
+  const getTypedInferenceLocation = (): InferenceLocationType => {
+    if (inferenceLocation === 'edge' || inferenceLocation === 'server') {
+      return inferenceLocation;
+    }
+    return null; // Return null if it's not one of the expected values
+  };
 
   if (!showControls) {
     return (
@@ -213,6 +315,22 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             <p className="text-sm mt-2 text-red-600 dark:text-red-400">
               Format not supported
             </p>
+          </div>
+        ) : streamError ? (
+          <div className="flex flex-col items-center justify-center bg-red-50 dark:bg-red-900/20 rounded-md" style={{ height: '160px' }}>
+            <AlertTriangle className="text-red-500" size={24} />
+            <p className="text-sm mt-2 text-red-600 dark:text-red-400">
+              Stream error
+            </p>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="mt-2 text-xs" 
+              onClick={handleRetryConnection}
+            >
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Retry
+            </Button>
           </div>
         ) : isStreaming ? (
           <div className="relative w-full h-full">
@@ -243,7 +361,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               isPinned={isPinned}
               onPinToggle={onPinToggle}
               onPlayPause={togglePlayPause}
-              inferenceLocation={inferenceLocation}
+              inferenceLocation={getTypedInferenceLocation()}
               isHikvisionFormat={isHikvisionFormat}
               isLiveStream={isLiveStream}
               showMinimalControls
@@ -311,6 +429,26 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                   <li>Upload an MP4 or WebM file instead</li>
                   <li>Use a streaming URL instead of a raw file</li>
                 </ul>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {streamError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Camera connection error</AlertTitle>
+              <AlertDescription>
+                <p className="mb-2">Failed to connect to camera stream. This could be due to:</p>
+                <ul className="list-disc pl-6 mb-3">
+                  <li>Incorrect camera credentials or URL</li>
+                  <li>Network connectivity issues</li>
+                  <li>Camera is offline or RTSP port is blocked</li>
+                  <li>Incompatible stream format</li>
+                </ul>
+                <Button onClick={handleRetryConnection} className="mt-2">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Retry Connection
+                </Button>
               </AlertDescription>
             </Alert>
           )}
@@ -528,6 +666,22 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 <p className="text-red-700 dark:text-red-400">Video format not supported</p>
                 <p className="text-red-600 dark:text-red-300 text-sm mt-1">Enable server-side transcoding in Settings or try a different format</p>
               </div>
+            ) : streamError ? (
+              <div className="flex flex-col items-center justify-center bg-red-50 dark:bg-red-900/20 rounded-md" style={{ height: '360px' }}>
+                <AlertTriangle className="text-red-500 mb-2" size={48} />
+                <p className="text-red-700 dark:text-red-400">Camera stream error</p>
+                <p className="text-red-600 dark:text-red-300 text-sm mt-2 mb-4">
+                  Unable to connect to camera. Please verify your camera is online and the URL is correct.
+                </p>
+                <Button 
+                  onClick={handleRetryConnection}
+                  variant="outline"
+                  className="bg-white dark:bg-gray-800"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Try Again with Different Settings
+                </Button>
+              </div>
             ) : isStreaming ? (
               <div className="relative">
                 <video
@@ -551,7 +705,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 <VideoControls
                   isPlaying={isPlaying}
                   onPlayPause={togglePlayPause}
-                  inferenceLocation={inferenceLocation}
+                  inferenceLocation={getTypedInferenceLocation()}
                   inferenceTime={inferenceTime}
                   isHikvisionFormat={isHikvisionFormat}
                   isLiveStream={isLiveStream}
@@ -580,18 +734,18 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             </div>
           )}
           
-          {isStreaming && inferenceLocation && (
+          {isStreaming && getTypedInferenceLocation() && (
             <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 border rounded-md">
               <div className="flex items-center">
                 <Server className="mr-2 text-avianet-red" size={18} />
                 <div>
                   <p className="text-sm font-medium">
-                    {inferenceLocation === 'edge' 
+                    {getTypedInferenceLocation() === 'edge' 
                       ? 'Edge Computing Active' 
                       : 'Server Processing Active'}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {inferenceLocation === 'edge'
+                    {getTypedInferenceLocation() === 'edge'
                       ? 'AI processing on edge device for reduced latency'
                       : 'Fallback to server processing due to edge unavailability'}
                   </p>
@@ -601,7 +755,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 <p className="text-sm font-medium">Inference Stats</p>
                 <div className="flex gap-2 items-center">
                   {inferenceTime && (
-                    <p className={`text-sm ${inferenceLocation === 'edge' ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                    <p className={`text-sm ${getTypedInferenceLocation() === 'edge' ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
                       {inferenceTime.toFixed(1)} ms
                     </p>
                   )}
