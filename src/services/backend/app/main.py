@@ -62,37 +62,47 @@ try:
     
     # Check if version supports movflags (requires FFmpeg 4.4+)
     version_line = version_output.splitlines()[0]
-    supports_movflags = False  # Default assumption - changed to False to fix the issue
+    supports_movflags = False  # Default assumption is false
     
     if "ffmpeg version" in version_line:
         try:
             version_str = version_line.split('ffmpeg version')[1].strip().split(' ')[0]
-            major_version = int(version_str.split('.')[0])
-            minor_version = int(version_str.split('.')[1]) if '.' in version_str else 0
             
-            # More strict check for movflags support - FFmpeg 5.0+ definitely supports it
+            # Parse version numbers with better error handling
+            parts = version_str.replace('-git', '').split('.')
+            major_version = int(parts[0]) if parts and parts[0].isdigit() else 0
+            minor_version = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+            
+            logger.info(f"Detected FFmpeg version: {major_version}.{minor_version}")
+            
+            # FFmpeg 5.0+ definitely supports movflags
             if major_version >= 5:
                 supports_movflags = True
-            elif major_version == 4 and minor_version >= 4:
-                # FFmpeg 4.4+ might support it - let's check specifically
-                # Test if movflags option is available by running a quick test
-                try:
-                    test_cmd = [
-                        ffmpeg_binary_path, "-hide_banner", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x64:rate=1",
-                        "-movflags", "+faststart", "-f", "null", "-"
-                    ]
-                    subprocess.check_output(test_cmd, stderr=subprocess.STDOUT)
-                    supports_movflags = True
-                    logger.info("FFmpeg supports movflags option")
-                except subprocess.CalledProcessError as e:
-                    logger.warning(f"FFmpeg does not support movflags option: {e}")
-                    supports_movflags = False
+                logger.info("FFmpeg 5.0+ detected, movflags supported")
+            # For FFmpeg 4.x, check more carefully
+            elif major_version == 4:
+                if minor_version >= 4:
+                    # Test movflags with a simple command
+                    try:
+                        test_cmd = [
+                            ffmpeg_binary_path, "-hide_banner", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x64:rate=1",
+                            "-c:v", "libx264", "-t", "1", "-f", "mp4", "-movflags", "faststart", "-"
+                        ]
+                        subprocess.check_output(test_cmd, stderr=subprocess.STDOUT)
+                        supports_movflags = True
+                        logger.info("FFmpeg supports movflags option (verified by test)")
+                    except subprocess.CalledProcessError as e:
+                        logger.warning(f"FFmpeg movflags test failed: {e}")
+                        supports_movflags = False
+                else:
+                    logger.info(f"FFmpeg version {version_str} may not fully support movflags")
             else:
-                logger.info(f"FFmpeg version {version_str} may not support movflags option")
-        except (IndexError, ValueError):
-            logger.warning("Could not parse FFmpeg version, proceeding with caution")
+                logger.info(f"FFmpeg version {version_str} likely doesn't support movflags")
+        except (IndexError, ValueError) as e:
+            logger.warning(f"Could not parse FFmpeg version ({e}), proceeding with caution")
     
     os.environ["FFMPEG_SUPPORTS_MOVFLAGS"] = "1" if supports_movflags else "0"
+    logger.info(f"FFMPEG_SUPPORTS_MOVFLAGS set to: {os.environ['FFMPEG_SUPPORTS_MOVFLAGS']}")
     
 except Exception as e:
     logger.error(f"Error testing FFmpeg installation: {e}")

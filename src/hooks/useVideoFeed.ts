@@ -78,7 +78,7 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
            url.toLowerCase().startsWith('rtsps://') || 
            url.toLowerCase().startsWith('rtmp://');
   }, []);
-
+  
   // Create a function to process RTSP streams
   const processRtspStream = useCallback(async (url: string) => {
     try {
@@ -99,6 +99,8 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
       
       // Create HLS stream
       console.log(`Creating HLS stream from URL: ${url.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@')}`);
+      
+      // Use relative URL for API call instead of hardcoded localhost
       const hlsUrl = await createHlsStream(url);
       
       console.log(`HLS stream URL: ${hlsUrl}`);
@@ -112,28 +114,6 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
       throw error;
     }
   }, []);
-
-  // Handle file upload
-  const handleFileUpload = useCallback(async (file: File) => {
-    console.log('File uploaded:', file.name, file.type, 'Size:', file.size);
-    
-    // First stop any current stream
-    if (isStreaming) {
-      await stopStream();
-    }
-    
-    setOriginalFile(file);
-    setHasUploadedFile(true);
-    setFormatNotSupported(false);
-    setStreamError(null);
-    setIsHikvisionFormat(false); // Will be set during processing
-    
-    // Store the file info but don't process it yet
-    // Processing will happen when the user clicks "Start"
-    toast.success('Video file loaded', {
-      description: `${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`
-    });
-  }, [isStreaming]);
 
   // Initialize the WebSocket connection for AI inference using the improved helper
   const initializeWebSocket = useCallback(() => {
@@ -156,10 +136,8 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
     isWSConnectingRef.current = true;
     
     try {
-      // Determine WebSocket protocol (wss:// for https, ws:// for http)
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/ws/inference`;
+      // Use relative WebSocket URL instead of hardcoded localhost to match the environment
+      const wsUrl = `/ws/inference`;
       
       console.log('Connecting to WebSocket:', wsUrl);
       
@@ -253,6 +231,70 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
     }
   }, [activeModels, fps]);
 
+  // Stop streaming and clean up resources
+  const stopStream = useCallback(async () => {
+    console.log('Stopping stream');
+    
+    // Cancel any active frame requests
+    if (activeFrameRequestRef.current !== null) {
+      cancelAnimationFrame(activeFrameRequestRef.current);
+      activeFrameRequestRef.current = null;
+    }
+    
+    // Clean up WebSocket connection
+    if (wsRef.current) {
+      console.log('Closing WebSocket connection');
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    
+    // Clean up WebSocket helper if exists
+    if (wsHelperRef.current) {
+      wsHelperRef.current.close();
+      wsHelperRef.current = null;
+    }
+    
+    // Stop monitoring HLS stream health
+    if (streamMonitor) {
+      console.log('Stopping HLS stream health monitoring');
+      streamMonitor();
+      setStreamMonitor(null);
+    }
+    
+    // Clean up our internal HLS stream if needed
+    if (isInternalStreamUrl(videoUrl)) {
+      console.log('Stopping and cleaning up HLS stream');
+      try {
+        await stopHlsStream(videoUrl);
+      } catch (error) {
+        console.error('Error stopping HLS stream:', error);
+      }
+    }
+    
+    // Clean up object URLs to avoid memory leaks
+    if (videoUrl && videoUrl.startsWith('blob:')) {
+      console.log('Revoking object URL');
+      URL.revokeObjectURL(videoUrl);
+    }
+    
+    // Reset UI state
+    setIsStreaming(false);
+    isStreamingRef.current = false;
+    setInferenceLocation(null);
+    setInferenceTime(null);
+    setActualFps(null);
+    setDetections([]);
+    setStreamError(null);
+    
+    // Stop video playback if ref exists
+    if (videoRef.current) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+    
+    console.log('Stream stopped');
+  }, [videoUrl, streamMonitor]);
+
   // Function to capture video frames for processing
   const startFrameCapture = useCallback(() => {
     if (!videoRef.current || !isStreamingRef.current) {
@@ -326,69 +368,27 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
     captureFrame();
   }, [activeModels, fps]);
 
-  // Stop streaming and clean up resources
-  const stopStream = useCallback(async () => {
-    console.log('Stopping stream');
+  // Handle file upload
+  const handleFileUpload = useCallback(async (file: File) => {
+    console.log('File uploaded:', file.name, file.type, 'Size:', file.size);
     
-    // Cancel any active frame requests
-    if (activeFrameRequestRef.current !== null) {
-      cancelAnimationFrame(activeFrameRequestRef.current);
-      activeFrameRequestRef.current = null;
+    // First stop any current stream
+    if (isStreaming) {
+      await stopStream();
     }
     
-    // Clean up WebSocket connection
-    if (wsRef.current) {
-      console.log('Closing WebSocket connection');
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    
-    // Clean up WebSocket helper if exists
-    if (wsHelperRef.current) {
-      wsHelperRef.current.close();
-      wsHelperRef.current = null;
-    }
-    
-    // Stop monitoring HLS stream health
-    if (streamMonitor) {
-      console.log('Stopping HLS stream health monitoring');
-      streamMonitor();
-      setStreamMonitor(null);
-    }
-    
-    // Clean up our internal HLS stream if needed
-    if (isInternalStreamUrl(videoUrl)) {
-      console.log('Stopping and cleaning up HLS stream');
-      try {
-        await stopHlsStream(videoUrl);
-      } catch (error) {
-        console.error('Error stopping HLS stream:', error);
-      }
-    }
-    
-    // Clean up object URLs to avoid memory leaks
-    if (videoUrl && videoUrl.startsWith('blob:')) {
-      console.log('Revoking object URL');
-      URL.revokeObjectURL(videoUrl);
-    }
-    
-    // Reset UI state
-    setIsStreaming(false);
-    isStreamingRef.current = false;
-    setInferenceLocation(null);
-    setInferenceTime(null);
-    setActualFps(null);
-    setDetections([]);
+    setOriginalFile(file);
+    setHasUploadedFile(true);
+    setFormatNotSupported(false);
     setStreamError(null);
+    setIsHikvisionFormat(false); // Will be set during processing
     
-    // Stop video playback if ref exists
-    if (videoRef.current) {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    }
-    
-    console.log('Stream stopped');
-  }, [videoUrl, streamMonitor]);
+    // Store the file info but don't process it yet
+    // Processing will happen when the user clicks "Start"
+    toast.success('Video file loaded', {
+      description: `${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`
+    });
+  }, [isStreaming, stopStream]);
 
   // Start the video streaming process
   const startStream = useCallback(async () => {

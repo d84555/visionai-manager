@@ -1,90 +1,40 @@
-import { defineConfig, ConfigEnv } from "vite";
-import react from "@vitejs/plugin-react-swc";
-import path from "path";
-import { componentTagger } from "lovable-tagger";
+
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }: ConfigEnv) => ({
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   server: {
-    host: "::",
-    port: 8080,
     proxy: {
-      // Add proxying for WebSocket connections with specific protocol handling
-      '/ws': {
-        target: 'ws://localhost:8000',
-        ws: true,
-        changeOrigin: true,
-        rewrite: (path) => path,
-        secure: false,
-        // Fix issue with WebSocket protocol
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
-            console.log('proxy error', err);
-          });
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
-            console.log('Sending WebSocket request:', req.url);
-          });
-          proxy.on('proxyRes', (proxyRes, req, _res) => {
-            console.log('Received WebSocket response:', proxyRes.statusCode);
-          });
-        },
-      },
-      // Add proxy for transcode endpoints - keep this without the /api prefix
-      '/transcode': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        rewrite: (path) => path,
-        secure: false,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
-            console.log('transcode proxy error', err);
-          });
-        }
-      },
-      // Add proxy for API endpoints (including model routes)
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
-        secure: false,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
-            console.log('api proxy error', err);
-          });
-        }
-      }
-    }
-  },
-  plugins: [
-    react(),
-    mode === 'development' &&
-    componentTagger(),
-  ].filter(Boolean),
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-      // Provide empty implementations for Node.js modules
-      "path": 'path-browserify',
-      "stream": 'stream-browserify',
-      "fs": 'memfs',
-      "crypto": 'crypto-browserify',
-    }
+      },
+      '/ws': {
+        target: 'ws://localhost:8000',
+        ws: true,
+        changeOrigin: true,
+      },
+      '/transcode': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+    cors: true,
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+    },
   },
   build: {
-    commonjsOptions: {
-      transformMixedEsModules: true, // Handle both ES modules and CommonJS
-    },
-    sourcemap: true, // Always enable source maps for debugging
-    minify: mode !== 'development', // Only minify in non-dev environments
+    sourcemap: true,
   },
-  define: {
-    // Needed to fix "require is not defined" error
-    global: 'globalThis',
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      // Enable source maps for dependencies too
-      sourcemap: true
-    }
-  }
-}));
+});
