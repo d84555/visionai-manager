@@ -1,4 +1,3 @@
-
 import { defineConfig, ConfigEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -10,23 +9,49 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
     host: "::",
     port: 8080,
     proxy: {
-      // Add proxying for WebSocket connections
+      // Add proxying for WebSocket connections with specific protocol handling
       '/ws': {
         target: 'ws://localhost:8000',
         ws: true,
         changeOrigin: true,
+        rewrite: (path) => path,
+        secure: false,
+        // Fix issue with WebSocket protocol
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('proxy error', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Sending WebSocket request:', req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('Received WebSocket response:', proxyRes.statusCode);
+          });
+        },
       },
       // Add proxy for transcode endpoints - keep this without the /api prefix
       '/transcode': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: (path) => path
+        rewrite: (path) => path,
+        secure: false,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('transcode proxy error', err);
+          });
+        }
       },
       // Add proxy for API endpoints (including model routes)
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
+        rewrite: (path) => path.replace(/^\/api/, ''),
+        secure: false,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('api proxy error', err);
+          });
+        }
       }
     }
   },

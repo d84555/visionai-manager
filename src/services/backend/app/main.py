@@ -55,13 +55,31 @@ except (subprocess.SubprocessError, FileNotFoundError):
 os.environ["FFMPEG_BINARY_PATH"] = ffmpeg_binary_path
 logger.info(f"Using FFmpeg binary path: {ffmpeg_binary_path}")
 
-# Test FFmpeg installation
+# Test FFmpeg version to identify available options
 try:
     version_output = subprocess.check_output([ffmpeg_binary_path, '-version']).decode()
     logger.info(f"FFmpeg version info: {version_output.splitlines()[0]}")
+    
+    # Check if version supports movflags (requires FFmpeg 4.4+)
+    version_line = version_output.splitlines()[0]
+    supports_movflags = True  # Default assumption
+    
+    if "ffmpeg version" in version_line:
+        try:
+            version_str = version_line.split('ffmpeg version')[1].strip().split(' ')[0]
+            major_version = int(version_str.split('.')[0])
+            if major_version < 4:
+                supports_movflags = False
+                logger.warning(f"FFmpeg version {version_str} may not fully support all options")
+        except (IndexError, ValueError):
+            logger.warning("Could not parse FFmpeg version, proceeding with caution")
+    
+    os.environ["FFMPEG_SUPPORTS_MOVFLAGS"] = "1" if supports_movflags else "0"
+    
 except Exception as e:
     logger.error(f"Error testing FFmpeg installation: {e}")
     logger.warning("Transcoding functionality may not work correctly!")
+    os.environ["FFMPEG_SUPPORTS_MOVFLAGS"] = "0"  # Assume no support on error
 
 # Include routers - IMPORTANT: Do not add prefixes to transcode router
 app.include_router(inference.router)

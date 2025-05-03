@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { convertToPlayableFormat, detectVideoFormat, createHlsStream, stopHlsStream, isInternalStreamUrl, monitorHlsStream, createWebSocketWithReconnect } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
@@ -198,7 +197,14 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
           if (formatInfo.needsTranscoding) {
             console.log('Video needs transcoding: ', formatInfo);
             try {
-              finalVideoUrl = await convertToPlayableFormat(originalFile);
+              // Add a timeout to ensure we don't hang indefinitely
+              const transcodePromise = convertToPlayableFormat(originalFile);
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("Transcoding timed out")), 30000)
+              );
+              
+              finalVideoUrl = await Promise.race([transcodePromise, timeoutPromise]) as string;
+              console.log('Transcoding completed successfully:', finalVideoUrl);
               setVideoUrl(finalVideoUrl);
             } catch (error) {
               console.error('Error transcoding video:', error);
@@ -257,6 +263,9 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
           console.error('Error processing RTSP stream:', error);
           setStreamProcessing(false);
           setIsProcessing(false);
+          toast.error('Failed to connect to camera stream', {
+            description: 'Please check the camera URL and network connectivity'
+          });
           return;
         }
       }
@@ -321,7 +330,7 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
         description: error instanceof Error ? error.message : 'Unknown error'
       });
     }
-  }, [videoUrl, hasUploadedFile, originalFile, isStreaming, processRtspStream, streamError]);
+  }, [videoUrl, hasUploadedFile, originalFile, isStreaming, processRtspStream, streamError, streamMonitor, initializeWebSocket, stopStream, startFrameCapture]);
 
   // Stop streaming and clean up resources
   const stopStream = useCallback(async () => {
@@ -524,7 +533,14 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
         (error) => {
           console.error('WebSocket error:', error);
           isWSConnectingRef.current = false;
-        }
+          
+          // After multiple failures, show a toast to the user
+          toast.error('Connection to AI server lost', {
+            description: 'Trying to reconnect to the AI detection server...'
+          });
+        },
+        // maxRetries - increasing from default 5 to 10
+        10
       );
       
       // Store the WebSocket and helper
@@ -534,6 +550,10 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
     } catch (error) {
       console.error('Error creating WebSocket:', error);
       isWSConnectingRef.current = false;
+      
+      toast.error('Failed to connect to AI server', {
+        description: 'Please check your network connection and server status'
+      });
     }
   }, [activeModels, fps]);
 

@@ -1,4 +1,3 @@
-
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import axios from 'axios';
@@ -557,119 +556,268 @@ export async function monitorHlsStream(
   };
 }
 
-// Fixed WebSocket connection for better reliability
-export function createWebSocketWithReconnect(
-  wsUrl: string, 
-  onOpen: () => void, 
-  onMessage: (data: any) => void, 
-  onClose: () => void, 
-  onError: (error: Event) => void
-): {
-  socket: WebSocket | null;
-  close: () => void;
-} {
-  let ws: WebSocket | null = null;
-  let reconnectAttempts = 0;
-  const maxReconnectAttempts = 5;
-  let isClosingIntentionally = false;
-  let reconnectTimer: number | null = null;
+/**
+ * Creates a WebSocket connection that automatically reconnects
+ * with improved error handling
+ */
+export const createWebSocketWithReconnect = (
+  url: string,
+  onOpen: () => void,
+  onMessage: (data: any) => void,
+  onClose: () => void,
+  onError: (error: Event) => void,
+  maxRetries = 5,
+  retryDelay = 2000
+) => {
+  let socket: WebSocket | null = null;
+  let retryCount = 0;
+  let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+  let isClosed = false;
   
-  const connect = () => {
+  // Enhanced debug logging for WebSocket events
+  const debugLog = (message: string, data?: any) => {
+    console.log(`[WebSocket] ${message}`, data || '');
+  };
+
+  const createSocket = () => {
+    if (isClosed) return;
+    
     try {
-      // Clear any existing reconnect timer
-      if (reconnectTimer !== null) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-      
-      // Close any existing connection first
-      if (ws) {
+      if (socket) {
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onclose = null;
+        socket.onerror = null;
         try {
-          ws.close();
+          socket.close();
         } catch (e) {
-          console.warn('Error closing existing WebSocket:', e);
+          // Ignore errors when closing
         }
       }
+
+      debugLog(`Connecting to ${url} (attempt ${retryCount + 1}/${maxRetries + 1})`);
       
-      console.log('Connecting to WebSocket:', wsUrl);
-      ws = new WebSocket(wsUrl);
+      socket = new WebSocket(url);
       
-      // Increase the timeout for WebSocket connection
-      ws.onopen = () => {
-        console.log('WebSocket connection established');
-        reconnectAttempts = 0;
+      // Set up socket event handlers
+      socket.onopen = (event) => {
+        debugLog('Connection established successfully');
+        retryCount = 0; // Reset retry count on successful connection
         onOpen();
       };
       
-      ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           onMessage(data);
-        } catch (e) {
-          console.error('Error parsing WebSocket message:', e);
+        } catch (error) {
+          debugLog('Error parsing WebSocket message:', error);
         }
       };
       
-      ws.onclose = (event) => {
-        console.log('WebSocket connection closed:', event.code, event.reason);
+      socket.onclose = (event) => {
+        debugLog(`Connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason'}`);
         
-        // If not closing intentionally, try to reconnect
-        if (!isClosingIntentionally && reconnectAttempts < maxReconnectAttempts) {
-          reconnectAttempts++;
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000);
-          console.log(`Attempting WebSocket reconnection in ${delay/1000}s (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
+        // Only attempt reconnect if not manually closed and not max retries
+        if (!isClosed && retryCount < maxRetries) {
+          retryCount++;
+          const delay = retryDelay * retryCount; // Exponential backoff
           
-          reconnectTimer = window.setTimeout(connect, delay);
+          debugLog(`Reconnecting in ${delay / 1000} seconds...`);
+          
+          retryTimeout = setTimeout(() => {
+            createSocket();
+          }, delay);
+        } else if (retryCount >= maxRetries) {
+          debugLog('Maximum retry attempts reached');
+          isClosed = true;
+          onClose();
         } else {
-          // No more reconnect attempts or intentionally closed
-          if (reconnectAttempts >= maxReconnectAttempts) {
-            console.error('Maximum WebSocket reconnect attempts reached');
-          }
           onClose();
         }
       };
       
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        onError(error);
+      socket.onerror = (event) => {
+        debugLog('WebSocket error occurred:', event);
+        onError(event);
       };
-    } catch (error) {
-      console.error('Error setting up WebSocket:', error);
-      
-      // Try to reconnect after error in connection setup
-      if (!isClosingIntentionally && reconnectAttempts < maxReconnectAttempts) {
-        reconnectAttempts++;
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000);
-        console.log(`WebSocket creation error, retrying in ${delay/1000}s (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
+    } catch (err) {
+      debugLog('Error creating WebSocket:', err);
+      if (!isClosed && retryCount < maxRetries) {
+        retryCount++;
+        const delay = retryDelay * retryCount;
         
-        reconnectTimer = window.setTimeout(connect, delay);
+        debugLog(`Error connecting. Retrying in ${delay / 1000} seconds...`);
+        
+        retryTimeout = setTimeout(() => {
+          createSocket();
+        }, delay);
       } else {
+        isClosed = true;
         onError(new Event('error'));
+        onClose();
       }
     }
   };
   
-  // Initial connection
-  connect();
+  // Create initial connection
+  createSocket();
   
-  // Return an object with the socket and a close method
+  // Return the socket and a method to explicitly close the connection
   return {
-    socket: ws,
+    socket,
     close: () => {
-      if (reconnectTimer !== null) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
+      debugLog('Manually closing WebSocket connection');
+      isClosed = true; // Prevent auto reconnect
+      
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+        retryTimeout = null;
       }
       
-      if (ws) {
-        isClosingIntentionally = true;
+      if (socket) {
         try {
-          ws.close();
+          socket.close();
         } catch (e) {
-          console.warn('Error during WebSocket close:', e);
+          debugLog('Error closing socket:', e);
         }
-        ws = null;
       }
-    },
+    }
   };
-}
+};
+
+/**
+ * Creates an HLS stream from an RTSP URL with improved error handling
+ */
+export const createHlsStream = async (rtspUrl: string): Promise<string> => {
+  try {
+    console.log('Creating HLS stream for URL:', rtspUrl.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@'));
+    
+    // Ensure we have a valid RTSP URL
+    if (!rtspUrl.startsWith('rtsp://') && !rtspUrl.startsWith('rtsps://') && !rtspUrl.startsWith('rtmp://')) {
+      throw new Error('Invalid streaming URL format. Must be rtsp://, rtsps://, or rtmp://');
+    }
+
+    // Send request to backend to start transcoding
+    const response = await fetch('/transcode/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url: rtspUrl,
+        format: 'hls',
+        options: {
+          video_codec: 'libx264',
+          audio_codec: 'aac',
+          preset: 'ultrafast',
+          segment_time: 2,
+          flags: 'delete_segments+append_list+discont_start',
+          retry_attempts: 5
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error creating HLS stream:', errorText);
+      throw new Error(`Failed to create HLS stream: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('HLS stream created successfully:', data);
+    
+    if (!data.stream_url) {
+      throw new Error('No stream URL returned from server');
+    }
+    
+    // Return the stream URL provided by the server
+    return data.stream_url;
+  } catch (error) {
+    console.error('Error creating HLS stream:', error);
+    throw error;
+  }
+};
+
+/**
+ * Monitors an HLS stream's health with improved tolerance
+ */
+export const monitorHlsStream = async (
+  streamUrl: string,
+  onError: () => void,
+  onRecovery: () => void,
+  checkInterval = 8000,
+  errorThreshold = 3
+): Promise<() => void> => {
+  let errorCount = 0;
+  let hasReportedError = false;
+  let isMounted = true;
+  
+  // Check if URL matches our internal stream pattern
+  if (!isInternalStreamUrl(streamUrl)) {
+    console.log('Not monitoring external HLS stream:', streamUrl);
+    return () => {}; // Return dummy function for external streams
+  }
+  
+  console.log('Starting health check monitoring for stream:', streamUrl);
+  
+  const checkHealth = async () => {
+    if (!isMounted) return;
+    
+    try {
+      // Send a simple HEAD request to see if the M3U8 playlist exists and is accessible
+      const response = await fetch(streamUrl, { 
+        method: 'HEAD',
+        cache: 'no-cache',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
+      
+      if (!response.ok) {
+        errorCount++;
+        console.warn(`HLS stream health check failed ${errorCount}/${errorThreshold} times`);
+        
+        if (errorCount >= errorThreshold && !hasReportedError) {
+          console.error('HLS stream health check failed multiple times, reporting error');
+          hasReportedError = true;
+          onError();
+        }
+      } else {
+        // If we had errors before but now it's working again
+        if (errorCount > 0) {
+          console.log('HLS stream health check recovered');
+          errorCount = 0;
+          
+          if (hasReportedError) {
+            hasReportedError = false;
+            onRecovery();
+          }
+        }
+      }
+    } catch (error) {
+      errorCount++;
+      console.warn(`HLS stream health check exception ${errorCount}/${errorThreshold} times:`, error);
+      
+      if (errorCount >= errorThreshold && !hasReportedError) {
+        console.error('HLS stream health check failed multiple times, reporting error');
+        hasReportedError = true;
+        onError();
+      }
+    }
+    
+    // Schedule next check if component still mounted
+    if (isMounted) {
+      setTimeout(checkHealth, checkInterval);
+    }
+  };
+  
+  // Start initial health check
+  setTimeout(checkHealth, checkInterval);
+  
+  // Return cleanup function
+  return () => {
+    console.log('Stopping HLS stream health monitoring');
+    isMounted = false;
+  };
+};
