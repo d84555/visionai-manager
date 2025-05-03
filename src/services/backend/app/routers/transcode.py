@@ -75,8 +75,6 @@ def terminate_processes():
 # Register the shutdown handler
 atexit.register(terminate_processes)
 
-# ... keep existing code (transcode_video and transcode_file functions)
-
 @router.get("/transcode/{job_id}/status")
 async def get_job_status(job_id: str):
     """
@@ -265,6 +263,7 @@ def process_stream(stream_id, input_url, output_path, output_format, browser_com
         
         if output_format == "hls":
             # IMPROVED SETTINGS: Use older-version compatible flags and options
+            # REMOVED movflags option that was causing errors
             cmd = [
                 ffmpeg_binary_path,
                 # FFmpeg input options

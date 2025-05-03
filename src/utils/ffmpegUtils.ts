@@ -350,6 +350,9 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     // Always use server-side transcoding for RTSP streams
     if (!settings.serverTranscoding) {
       console.warn('Server-side transcoding is disabled but required for RTSP streams. Using server anyway.');
+      toast.warning('Server transcoding is disabled', {
+        description: 'Some features may be limited. Enable in Settings > FFmpeg.'
+      });
     }
     
     // Encode the URL to handle special characters in credentials
@@ -554,7 +557,7 @@ export async function monitorHlsStream(
   };
 }
 
-// Fix WebSocket connection issues when network is unstable
+// Fixed WebSocket connection for better reliability
 export function createWebSocketWithReconnect(
   wsUrl: string, 
   onOpen: () => void, 
@@ -569,11 +572,29 @@ export function createWebSocketWithReconnect(
   let reconnectAttempts = 0;
   const maxReconnectAttempts = 5;
   let isClosingIntentionally = false;
+  let reconnectTimer: number | null = null;
   
   const connect = () => {
     try {
+      // Clear any existing reconnect timer
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      
+      // Close any existing connection first
+      if (ws) {
+        try {
+          ws.close();
+        } catch (e) {
+          console.warn('Error closing existing WebSocket:', e);
+        }
+      }
+      
+      console.log('Connecting to WebSocket:', wsUrl);
       ws = new WebSocket(wsUrl);
       
+      // Increase the timeout for WebSocket connection
       ws.onopen = () => {
         console.log('WebSocket connection established');
         reconnectAttempts = 0;
@@ -598,7 +619,7 @@ export function createWebSocketWithReconnect(
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000);
           console.log(`Attempting WebSocket reconnection in ${delay/1000}s (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
           
-          setTimeout(connect, delay);
+          reconnectTimer = window.setTimeout(connect, delay);
         } else {
           // No more reconnect attempts or intentionally closed
           if (reconnectAttempts >= maxReconnectAttempts) {
@@ -614,6 +635,17 @@ export function createWebSocketWithReconnect(
       };
     } catch (error) {
       console.error('Error setting up WebSocket:', error);
+      
+      // Try to reconnect after error in connection setup
+      if (!isClosingIntentionally && reconnectAttempts < maxReconnectAttempts) {
+        reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000);
+        console.log(`WebSocket creation error, retrying in ${delay/1000}s (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
+        
+        reconnectTimer = window.setTimeout(connect, delay);
+      } else {
+        onError(new Event('error'));
+      }
     }
   };
   
@@ -624,9 +656,18 @@ export function createWebSocketWithReconnect(
   return {
     socket: ws,
     close: () => {
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      
       if (ws) {
         isClosingIntentionally = true;
-        ws.close();
+        try {
+          ws.close();
+        } catch (e) {
+          console.warn('Error during WebSocket close:', e);
+        }
         ws = null;
       }
     },
