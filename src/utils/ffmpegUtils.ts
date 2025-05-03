@@ -1,3 +1,4 @@
+
 import { toast } from 'sonner';
 
 // Function to convert video to a playable format using FFmpeg
@@ -55,6 +56,7 @@ export const createHlsStream = async (rtspUrl: string): Promise<string> => {
   const apiUrl = '/api/transcode/rtsp-to-hls'; // Use relative URL
 
   try {
+    console.log('Creating HLS stream for URL:', rtspUrl.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@'));
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
@@ -72,9 +74,11 @@ export const createHlsStream = async (rtspUrl: string): Promise<string> => {
     if (!data.hls_url) {
       throw new Error('HLS stream creation completed, but HLS URL is missing');
     }
+    console.log('HLS stream created successfully:', data.hls_url);
     return data.hls_url;
   } catch (error) {
     console.error('Error creating HLS stream:', error);
+    toast.error('Failed to connect to RTSP stream. Please check your URL and try again.');
     throw error;
   }
 };
@@ -107,7 +111,7 @@ export const isInternalStreamUrl = (url: string): boolean => {
 
 // Function to monitor the health of an HLS stream
 export const monitorHlsStream = async (
-  hlsUrl: string,
+  streamUrl: string,
   onError: () => void,
   onRecovery: () => void
 ): Promise<() => void> => {
@@ -119,7 +123,7 @@ export const monitorHlsStream = async (
     if (!isMonitoring) return;
 
     try {
-      const response = await fetch(hlsUrl, { method: 'HEAD' });
+      const response = await fetch(streamUrl, { method: 'HEAD' });
 
       if (!response.ok) {
         errorCount++;
@@ -161,82 +165,124 @@ export const monitorHlsStream = async (
 };
 
 interface WebSocketHelper {
-  socket: WebSocket;
+  socket: WebSocket | null;
   close: () => void;
+  isConnected: () => boolean;
 }
 
-// Improved function to create a WebSocket with automatic reconnection
+/**
+ * Creates a WebSocket with automatic reconnection
+ */
 export const createWebSocketWithReconnect = (
   url: string,
   onOpen: () => void,
   onMessage: (data: any) => void,
   onClose: () => void,
   onError: (error: Event) => void,
-  maxRetries: number = 5,
-  retryInterval: number = 3000
+  maxRetries: number = 10,
+  retryInterval: number = 2000
 ): WebSocketHelper => {
   let socket: WebSocket | null = null;
   let retries = 0;
   let timeoutId: NodeJS.Timeout | null = null;
   let forcedClose = false;
+  let isConnected = false;
 
   const connect = () => {
-    socket = new WebSocket(url);
-
-    socket.onopen = () => {
-      console.log('[WebSocket] Connection opened');
-      retries = 0; // Reset retries on successful connection
-      onOpen();
-    };
-
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        onMessage(data);
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
-
-    socket.onclose = (event) => {
-      if (forcedClose) {
-        console.log('[WebSocket] Connection closed (intentional)');
-        onClose();
-        return;
+    try {
+      // Close any existing socket before creating a new one
+      if (socket) {
+        try {
+          socket.close();
+        } catch (e) {
+          console.warn('[WebSocket] Error closing existing socket:', e);
+        }
       }
 
-      console.log(`[WebSocket] Connection closed. Code: ${event.code}, Reason: ${event.reason}`);
-      if (retries < maxRetries) {
+      console.log(`[WebSocket] Connecting to ${url}${retries > 0 ? ` (attempt ${retries+1}/${maxRetries+1})` : ''}`);
+      socket = new WebSocket(url);
+
+      socket.onopen = () => {
+        console.log('[WebSocket] Connection opened');
+        isConnected = true;
+        retries = 0; // Reset retries on successful connection
+        onOpen();
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          onMessage(data);
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+
+      socket.onclose = (event) => {
+        isConnected = false;
+        
+        if (forcedClose) {
+          console.log('[WebSocket] Connection closed (intentional)');
+          onClose();
+          return;
+        }
+
+        console.log(`[WebSocket] Connection closed. Code: ${event.code}, Reason: ${event.reason}`);
+        if (retries < maxRetries) {
+          retries++;
+          const delay = retryInterval * Math.min(retries, 5); // Exponential backoff up to 5x
+          console.log(`[WebSocket] Will reconnect in ${delay}ms`);
+          
+          timeoutId = setTimeout(() => {
+            connect();
+          }, delay);
+        } else {
+          console.error('[WebSocket] Max retries reached. Not reconnecting.');
+          onClose();
+        }
+      };
+
+      socket.onerror = (event) => {
+        console.error('[WebSocket] WebSocket error occurred:', event);
+        onError(event);
+      };
+    } catch (err) {
+      console.error('[WebSocket] Error creating WebSocket:', err);
+      onError(new Event('error'));
+      
+      // Try to reconnect after a delay
+      if (retries < maxRetries && !forcedClose) {
         retries++;
+        const delay = retryInterval * Math.min(retries, 5);
+        console.log(`[WebSocket] Will attempt to reconnect in ${delay}ms`);
+        
         timeoutId = setTimeout(() => {
-          console.log(`[WebSocket] Reconnecting to ${url} (attempt ${retries}/${maxRetries})`);
           connect();
-        }, retryInterval);
-      } else {
-        console.error('[WebSocket] Max retries reached. Not reconnecting.');
-        onClose();
+        }, delay);
       }
-    };
-
-    socket.onerror = (event) => {
-      console.error('[WebSocket] WebSocket error occurred:', event);
-      onError(event);
-    };
+    }
   };
 
   connect();
 
   return {
-    socket: socket,
+    socket,
     close: () => {
       console.log('[WebSocket] Manually closing WebSocket connection');
       forcedClose = true;
       if (socket) {
-        socket.close();
+        try {
+          socket.close();
+        } catch (e) {
+          console.warn('[WebSocket] Error while closing socket:', e);
+        }
+        socket = null;
       }
       if (timeoutId) {
         clearTimeout(timeoutId);
+        timeoutId = null;
       }
     },
+    isConnected: () => isConnected
   };
 };
