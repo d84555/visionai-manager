@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { convertToPlayableFormat, detectVideoFormat, createHlsStream, stopHlsStream, isInternalStreamUrl, monitorHlsStream, createWebSocketWithReconnect } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
@@ -70,60 +71,14 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
   const startTimeRef = useRef<number | null>(null);
   const frameCountRef = useRef<number>(0);
   const lastFpsUpdateRef = useRef<number>(0);
-  
-  // React to changes in camera prop and update the video URL
-  useEffect(() => {
-    if (camera) {
-      // Reset any previous errors
-      setStreamError(null);
-      setFormatNotSupported(false);
-      
-      // Get the URL based on stream type
-      const cameraUrl = camera.streamUrl[streamType] || camera.streamUrl.main;
-      
-      // Only update if the URL has changed
-      if (cameraUrl && cameraUrl !== videoUrl) {
-        setVideoUrl(cameraUrl);
-        
-        // If URL looks like an RTSP or stream URL, mark it as streaming URL
-        setIsStreamingUrl(
-          cameraUrl.startsWith('rtsp://') || 
-          cameraUrl.startsWith('rtsps://') || 
-          cameraUrl.startsWith('rtmp://') || 
-          cameraUrl.endsWith('.m3u8')
-        );
-        
-        // For HLS streams, mark as live
-        if (cameraUrl.endsWith('.m3u8') || isInternalStreamUrl(cameraUrl)) {
-          setIsLiveStream(true);
-        }
-      }
-    }
-  }, [camera, streamType]);
-  
-  // Auto-start streaming when initialVideoUrl is provided and autoStart is true
-  useEffect(() => {
-    if (autoStart && initialVideoUrl && !isStreaming) {
-      if (initialVideoUrl.startsWith('rtsp://') || 
-          initialVideoUrl.startsWith('rtsps://') ||
-          initialVideoUrl.startsWith('rtmp://')) {
-        // For RTSP URLs, we need to process them first
-        setIsStreamingUrl(true);
-        processRtspStream(initialVideoUrl)
-          .then(() => {
-            startStream();
-          })
-          .catch((error) => {
-            console.error('Error processing RTSP stream:', error);
-            toast.error('Failed to start RTSP stream');
-          });
-      } else {
-        // For other URLs, start streaming directly
-        startStream();
-      }
-    }
+
+  // Helper function to determine if a URL is an RTSP URL
+  const isRtspUrl = useCallback((url: string) => {
+    return url.toLowerCase().startsWith('rtsp://') || 
+           url.toLowerCase().startsWith('rtsps://') || 
+           url.toLowerCase().startsWith('rtmp://');
   }, []);
-  
+
   // Create a function to process RTSP streams
   const processRtspStream = useCallback(async (url: string) => {
     try {
@@ -158,265 +113,6 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
     }
   }, []);
 
-  // Helper function to determine if a URL is an RTSP URL
-  const isRtspUrl = useCallback((url: string) => {
-    return url.toLowerCase().startsWith('rtsp://') || 
-           url.toLowerCase().startsWith('rtsps://') || 
-           url.toLowerCase().startsWith('rtmp://');
-  }, []);
-
-  // Start the video streaming process
-  const startStream = useCallback(async () => {
-    try {
-      if (isStreaming) {
-        console.log('Already streaming, stopping current stream first');
-        await stopStream();
-      }
-      
-      // Reset monitoring and errors
-      setStreamError(null);
-      
-      // Cleanup any existing stream monitor
-      if (streamMonitor) {
-        streamMonitor();
-        setStreamMonitor(null);
-      }
-
-      let finalVideoUrl = videoUrl;
-      setIsProcessing(true);
-      
-      if (hasUploadedFile && originalFile) {
-        try {
-          setIsTranscoding(true);
-          
-          // Detect file type
-          const formatInfo = detectVideoFormat(originalFile);
-          setIsHikvisionFormat(formatInfo.isHikvision);
-          
-          // Convert the file to a playable format if needed
-          if (formatInfo.needsTranscoding) {
-            console.log('Video needs transcoding: ', formatInfo);
-            try {
-              // Add a timeout to ensure we don't hang indefinitely
-              const transcodePromise = convertToPlayableFormat(originalFile);
-              const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error("Transcoding timed out")), 30000)
-              );
-              
-              finalVideoUrl = await Promise.race([transcodePromise, timeoutPromise]) as string;
-              console.log('Transcoding completed successfully:', finalVideoUrl);
-              setVideoUrl(finalVideoUrl);
-            } catch (error) {
-              console.error('Error transcoding video:', error);
-              setFormatNotSupported(true);
-              setIsProcessing(false);
-              setIsTranscoding(false);
-              return;
-            }
-          } else {
-            // For browser-compatible formats, create a direct object URL
-            finalVideoUrl = URL.createObjectURL(originalFile);
-            setVideoUrl(finalVideoUrl);
-          }
-          
-          setIsTranscoding(false);
-        } catch (error) {
-          console.error('Error processing uploaded file:', error);
-          setIsProcessing(false);
-          setIsTranscoding(false);
-          toast.error('Error processing video file', {
-            description: error instanceof Error ? error.message : 'Unknown error'
-          });
-          return;
-        }
-      } else if (isRtspUrl(videoUrl) && !isInternalStreamUrl(videoUrl)) {
-        // Handle RTSP URLs, converting to HLS
-        try {
-          setStreamProcessing(true);
-          finalVideoUrl = await processRtspStream(videoUrl);
-          
-          if (isInternalStreamUrl(finalVideoUrl)) {
-            // Start health monitoring for our own streams
-            const monitor = await monitorHlsStream(
-              finalVideoUrl,
-              () => {
-                // On error
-                console.error('Stream health monitor detected failure');
-                setStreamError('Stream connection lost');
-                
-                // Stop the stream to clean up resources
-                if (isStreamingRef.current) {
-                  stopStream().catch(console.error);
-                }
-              },
-              () => {
-                // On recovery
-                if (streamError) {
-                  setStreamError(null);
-                }
-              }
-            );
-            
-            setStreamMonitor(() => monitor);
-          }
-        } catch (error) {
-          console.error('Error processing RTSP stream:', error);
-          setStreamProcessing(false);
-          setIsProcessing(false);
-          toast.error('Failed to connect to camera stream', {
-            description: 'Please check the camera URL and network connectivity'
-          });
-          return;
-        }
-      }
-      
-      setIsProcessing(false);
-      setStreamProcessing(false);
-
-      // Start the WebSocket connection for inference
-      initializeWebSocket();
-      
-      // Set streaming state
-      setIsStreaming(true);
-      isStreamingRef.current = true;
-      
-      console.log('Started streaming with URL:', finalVideoUrl);
-      
-      // Auto-play the video
-      if (videoRef.current) {
-        try {
-          // Set autoplay attribute
-          videoRef.current.autoplay = true;
-          
-          // Try to start playing (modern browsers require user interaction)
-          const playPromise = videoRef.current.play();
-          if (playPromise !== undefined) {
-            playPromise
-              .then(() => {
-                setIsPlaying(true);
-              })
-              .catch(error => {
-                console.warn('Auto-play prevented by browser:', error);
-                setIsPlaying(false);
-              });
-          }
-        } catch (error) {
-          console.error('Error auto-playing video:', error);
-        }
-      }
-      
-      // Start FPS monitoring
-      startTimeRef.current = performance.now();
-      frameCountRef.current = 0;
-      
-      // If this is our internal HLS stream from RTSP, add a delay before processing frames
-      if (isInternalStreamUrl(finalVideoUrl)) {
-        console.log('Waiting for HLS stream to stabilize before processing frames...');
-        setTimeout(() => {
-          startFrameCapture();
-        }, 4000); // 4 second delay for HLS streams (increased from 3s)
-      } else {
-        startFrameCapture();
-      }
-      
-      toast.success('Video stream started');
-      
-    } catch (error) {
-      console.error('Error starting stream:', error);
-      setIsProcessing(false);
-      setStreamProcessing(false);
-      setIsTranscoding(false);
-      toast.error('Failed to start video stream', {
-        description: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  }, [videoUrl, hasUploadedFile, originalFile, isStreaming, processRtspStream, streamError, streamMonitor, initializeWebSocket, stopStream, startFrameCapture]);
-
-  // Stop streaming and clean up resources
-  const stopStream = useCallback(async () => {
-    console.log('Stopping stream');
-    
-    // Cancel any active frame requests
-    if (activeFrameRequestRef.current !== null) {
-      cancelAnimationFrame(activeFrameRequestRef.current);
-      activeFrameRequestRef.current = null;
-    }
-    
-    // Clean up WebSocket connection
-    if (wsRef.current) {
-      console.log('Closing WebSocket connection');
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    
-    // Clean up WebSocket helper if exists
-    if (wsHelperRef.current) {
-      wsHelperRef.current.close();
-      wsHelperRef.current = null;
-    }
-    
-    // Stop monitoring HLS stream health
-    if (streamMonitor) {
-      console.log('Stopping HLS stream health monitoring');
-      streamMonitor();
-      setStreamMonitor(null);
-    }
-    
-    // Clean up our internal HLS stream if needed
-    if (isInternalStreamUrl(videoUrl)) {
-      console.log('Stopping and cleaning up HLS stream');
-      try {
-        await stopHlsStream(videoUrl);
-      } catch (error) {
-        console.error('Error stopping HLS stream:', error);
-      }
-    }
-    
-    // Clean up object URLs to avoid memory leaks
-    if (videoUrl && videoUrl.startsWith('blob:')) {
-      console.log('Revoking object URL');
-      URL.revokeObjectURL(videoUrl);
-    }
-    
-    // Reset UI state
-    setIsStreaming(false);
-    isStreamingRef.current = false;
-    setInferenceLocation(null);
-    setInferenceTime(null);
-    setActualFps(null);
-    setDetections([]);
-    setStreamError(null);
-    
-    // Stop video playback if ref exists
-    if (videoRef.current) {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    }
-    
-    console.log('Stream stopped');
-  }, [videoUrl, streamMonitor]);
-
-  // Toggle play/pause of the video
-  const togglePlayPause = useCallback(() => {
-    if (!videoRef.current) return;
-    
-    if (isPlaying) {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      videoRef.current.play()
-        .then(() => {
-          setIsPlaying(true);
-        })
-        .catch(error => {
-          console.error('Error playing video:', error);
-          toast.error('Error playing video', {
-            description: 'Your browser prevented autoplay'
-          });
-        });
-    }
-  }, [isPlaying]);
-
   // Handle file upload
   const handleFileUpload = useCallback(async (file: File) => {
     console.log('File uploaded:', file.name, file.type, 'Size:', file.size);
@@ -437,7 +133,7 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
     toast.success('Video file loaded', {
       description: `${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`
     });
-  }, [isStreaming, stopStream]);
+  }, [isStreaming]);
 
   // Initialize the WebSocket connection for AI inference using the improved helper
   const initializeWebSocket = useCallback(() => {
@@ -630,6 +326,258 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
     captureFrame();
   }, [activeModels, fps]);
 
+  // Stop streaming and clean up resources
+  const stopStream = useCallback(async () => {
+    console.log('Stopping stream');
+    
+    // Cancel any active frame requests
+    if (activeFrameRequestRef.current !== null) {
+      cancelAnimationFrame(activeFrameRequestRef.current);
+      activeFrameRequestRef.current = null;
+    }
+    
+    // Clean up WebSocket connection
+    if (wsRef.current) {
+      console.log('Closing WebSocket connection');
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    
+    // Clean up WebSocket helper if exists
+    if (wsHelperRef.current) {
+      wsHelperRef.current.close();
+      wsHelperRef.current = null;
+    }
+    
+    // Stop monitoring HLS stream health
+    if (streamMonitor) {
+      console.log('Stopping HLS stream health monitoring');
+      streamMonitor();
+      setStreamMonitor(null);
+    }
+    
+    // Clean up our internal HLS stream if needed
+    if (isInternalStreamUrl(videoUrl)) {
+      console.log('Stopping and cleaning up HLS stream');
+      try {
+        await stopHlsStream(videoUrl);
+      } catch (error) {
+        console.error('Error stopping HLS stream:', error);
+      }
+    }
+    
+    // Clean up object URLs to avoid memory leaks
+    if (videoUrl && videoUrl.startsWith('blob:')) {
+      console.log('Revoking object URL');
+      URL.revokeObjectURL(videoUrl);
+    }
+    
+    // Reset UI state
+    setIsStreaming(false);
+    isStreamingRef.current = false;
+    setInferenceLocation(null);
+    setInferenceTime(null);
+    setActualFps(null);
+    setDetections([]);
+    setStreamError(null);
+    
+    // Stop video playback if ref exists
+    if (videoRef.current) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+    
+    console.log('Stream stopped');
+  }, [videoUrl, streamMonitor]);
+
+  // Start the video streaming process
+  const startStream = useCallback(async () => {
+    try {
+      if (isStreaming) {
+        console.log('Already streaming, stopping current stream first');
+        await stopStream();
+      }
+      
+      // Reset monitoring and errors
+      setStreamError(null);
+      
+      // Cleanup any existing stream monitor
+      if (streamMonitor) {
+        streamMonitor();
+        setStreamMonitor(null);
+      }
+
+      let finalVideoUrl = videoUrl;
+      setIsProcessing(true);
+      
+      if (hasUploadedFile && originalFile) {
+        try {
+          setIsTranscoding(true);
+          
+          // Detect file type
+          const formatInfo = detectVideoFormat(originalFile);
+          setIsHikvisionFormat(formatInfo.isHikvision);
+          
+          // Convert the file to a playable format if needed
+          if (formatInfo.needsTranscoding) {
+            console.log('Video needs transcoding: ', formatInfo);
+            try {
+              // Add a timeout to ensure we don't hang indefinitely
+              const transcodePromise = convertToPlayableFormat(originalFile);
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("Transcoding timed out")), 30000)
+              );
+              
+              finalVideoUrl = await Promise.race([transcodePromise, timeoutPromise]) as string;
+              console.log('Transcoding completed successfully:', finalVideoUrl);
+              setVideoUrl(finalVideoUrl);
+            } catch (error) {
+              console.error('Error transcoding video:', error);
+              setFormatNotSupported(true);
+              setIsProcessing(false);
+              setIsTranscoding(false);
+              return;
+            }
+          } else {
+            // For browser-compatible formats, create a direct object URL
+            finalVideoUrl = URL.createObjectURL(originalFile);
+            setVideoUrl(finalVideoUrl);
+          }
+          
+          setIsTranscoding(false);
+        } catch (error) {
+          console.error('Error processing uploaded file:', error);
+          setIsProcessing(false);
+          setIsTranscoding(false);
+          toast.error('Error processing video file', {
+            description: error instanceof Error ? error.message : 'Unknown error'
+          });
+          return;
+        }
+      } else if (isRtspUrl(videoUrl) && !isInternalStreamUrl(videoUrl)) {
+        // Handle RTSP URLs, converting to HLS
+        try {
+          setStreamProcessing(true);
+          finalVideoUrl = await processRtspStream(videoUrl);
+          
+          if (isInternalStreamUrl(finalVideoUrl)) {
+            // Start health monitoring for our own streams
+            const monitor = await monitorHlsStream(
+              finalVideoUrl,
+              () => {
+                // On error
+                console.error('Stream health monitor detected failure');
+                setStreamError('Stream connection lost');
+                
+                // Stop the stream to clean up resources
+                if (isStreamingRef.current) {
+                  stopStream().catch(console.error);
+                }
+              },
+              () => {
+                // On recovery
+                if (streamError) {
+                  setStreamError(null);
+                }
+              }
+            );
+            
+            setStreamMonitor(() => monitor);
+          }
+        } catch (error) {
+          console.error('Error processing RTSP stream:', error);
+          setStreamProcessing(false);
+          setIsProcessing(false);
+          toast.error('Failed to connect to camera stream', {
+            description: 'Please check the camera URL and network connectivity'
+          });
+          return;
+        }
+      }
+      
+      setIsProcessing(false);
+      setStreamProcessing(false);
+
+      // Start the WebSocket connection for inference
+      initializeWebSocket();
+      
+      // Set streaming state
+      setIsStreaming(true);
+      isStreamingRef.current = true;
+      
+      console.log('Started streaming with URL:', finalVideoUrl);
+      
+      // Auto-play the video
+      if (videoRef.current) {
+        try {
+          // Set autoplay attribute
+          videoRef.current.autoplay = true;
+          
+          // Try to start playing (modern browsers require user interaction)
+          const playPromise = videoRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                setIsPlaying(true);
+              })
+              .catch(error => {
+                console.warn('Auto-play prevented by browser:', error);
+                setIsPlaying(false);
+              });
+          }
+        } catch (error) {
+          console.error('Error auto-playing video:', error);
+        }
+      }
+      
+      // Start FPS monitoring
+      startTimeRef.current = performance.now();
+      frameCountRef.current = 0;
+      
+      // If this is our internal HLS stream from RTSP, add a delay before processing frames
+      if (isInternalStreamUrl(finalVideoUrl)) {
+        console.log('Waiting for HLS stream to stabilize before processing frames...');
+        setTimeout(() => {
+          startFrameCapture();
+        }, 4000); // 4 second delay for HLS streams (increased from 3s)
+      } else {
+        startFrameCapture();
+      }
+      
+      toast.success('Video stream started');
+      
+    } catch (error) {
+      console.error('Error starting stream:', error);
+      setIsProcessing(false);
+      setStreamProcessing(false);
+      setIsTranscoding(false);
+      toast.error('Failed to start video stream', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }, [videoUrl, hasUploadedFile, originalFile, isStreaming, processRtspStream, streamError, streamMonitor, stopStream, initializeWebSocket, startFrameCapture]);
+
+  // Toggle play/pause of the video
+  const togglePlayPause = useCallback(() => {
+    if (!videoRef.current) return;
+    
+    if (isPlaying) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      videoRef.current.play()
+        .then(() => {
+          setIsPlaying(true);
+        })
+        .catch(error => {
+          console.error('Error playing video:', error);
+          toast.error('Error playing video', {
+            description: 'Your browser prevented autoplay'
+          });
+        });
+    }
+  }, [isPlaying]);
+
   // Handle video metadata when it's loaded
   const handleVideoMetadata = useCallback((event: SyntheticEvent<HTMLVideoElement>) => {
     const video = event.target as HTMLVideoElement;
@@ -685,6 +633,59 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
     }
   }, [videoUrl]);
   
+  // React to changes in camera prop and update the video URL
+  useEffect(() => {
+    if (camera) {
+      // Reset any previous errors
+      setStreamError(null);
+      setFormatNotSupported(false);
+      
+      // Get the URL based on stream type
+      const cameraUrl = camera.streamUrl[streamType] || camera.streamUrl.main;
+      
+      // Only update if the URL has changed
+      if (cameraUrl && cameraUrl !== videoUrl) {
+        setVideoUrl(cameraUrl);
+        
+        // If URL looks like an RTSP or stream URL, mark it as streaming URL
+        setIsStreamingUrl(
+          cameraUrl.startsWith('rtsp://') || 
+          cameraUrl.startsWith('rtsps://') || 
+          cameraUrl.startsWith('rtmp://') || 
+          cameraUrl.endsWith('.m3u8')
+        );
+        
+        // For HLS streams, mark as live
+        if (cameraUrl.endsWith('.m3u8') || isInternalStreamUrl(cameraUrl)) {
+          setIsLiveStream(true);
+        }
+      }
+    }
+  }, [camera, streamType]);
+  
+  // Auto-start streaming when initialVideoUrl is provided and autoStart is true
+  useEffect(() => {
+    if (autoStart && initialVideoUrl && !isStreaming) {
+      if (initialVideoUrl.startsWith('rtsp://') || 
+          initialVideoUrl.startsWith('rtsps://') ||
+          initialVideoUrl.startsWith('rtmp://')) {
+        // For RTSP URLs, we need to process them first
+        setIsStreamingUrl(true);
+        processRtspStream(initialVideoUrl)
+          .then(() => {
+            startStream();
+          })
+          .catch((error) => {
+            console.error('Error processing RTSP stream:', error);
+            toast.error('Failed to start RTSP stream');
+          });
+      } else {
+        // For other URLs, start streaming directly
+        startStream();
+      }
+    }
+  }, []);
+
   // Clean up resources when unmounting
   useEffect(() => {
     return () => {

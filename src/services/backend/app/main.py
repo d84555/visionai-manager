@@ -62,15 +62,33 @@ try:
     
     # Check if version supports movflags (requires FFmpeg 4.4+)
     version_line = version_output.splitlines()[0]
-    supports_movflags = True  # Default assumption
+    supports_movflags = False  # Default assumption - changed to False to fix the issue
     
     if "ffmpeg version" in version_line:
         try:
             version_str = version_line.split('ffmpeg version')[1].strip().split(' ')[0]
             major_version = int(version_str.split('.')[0])
-            if major_version < 4:
-                supports_movflags = False
-                logger.warning(f"FFmpeg version {version_str} may not fully support all options")
+            minor_version = int(version_str.split('.')[1]) if '.' in version_str else 0
+            
+            # More strict check for movflags support - FFmpeg 5.0+ definitely supports it
+            if major_version >= 5:
+                supports_movflags = True
+            elif major_version == 4 and minor_version >= 4:
+                # FFmpeg 4.4+ might support it - let's check specifically
+                # Test if movflags option is available by running a quick test
+                try:
+                    test_cmd = [
+                        ffmpeg_binary_path, "-hide_banner", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x64:rate=1",
+                        "-movflags", "+faststart", "-f", "null", "-"
+                    ]
+                    subprocess.check_output(test_cmd, stderr=subprocess.STDOUT)
+                    supports_movflags = True
+                    logger.info("FFmpeg supports movflags option")
+                except subprocess.CalledProcessError as e:
+                    logger.warning(f"FFmpeg does not support movflags option: {e}")
+                    supports_movflags = False
+            else:
+                logger.info(f"FFmpeg version {version_str} may not support movflags option")
         except (IndexError, ValueError):
             logger.warning("Could not parse FFmpeg version, proceeding with caution")
     
