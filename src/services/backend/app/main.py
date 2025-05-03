@@ -109,12 +109,15 @@ except Exception as e:
     logger.warning("Transcoding functionality may not work correctly!")
     os.environ["FFMPEG_SUPPORTS_MOVFLAGS"] = "0"  # Assume no support on error
 
-# Include routers - IMPORTANT: Do not add prefixes to transcode router
+# Include routers - use explicit paths for transcode router
 app.include_router(inference.router)
-app.include_router(models.router)    
+app.include_router(models.router)
 app.include_router(websocket.router)
 app.include_router(health.router)
-app.include_router(transcode.router)  # No prefix, will use routes directly as defined in router
+
+# Include transcode router with explicit routes
+# Make sure we mount it at the root level to match the URL paths in the API requests
+app.include_router(transcode.router)
 
 @app.get("/")
 async def root():

@@ -129,6 +129,117 @@ async def download_transcoded_file(job_id: str):
         headers={"Content-Disposition": f"attachment; filename=transcoded.{file_format}"}
     )
 
+@router.post("/transcode/rtsp-to-hls", status_code=202)
+async def create_hls_stream(
+    backgroundTasks: BackgroundTasks,
+    rtsp_url: str,
+    browser_compatibility: str = "high"
+):
+    """
+    Create an HLS streaming endpoint from an RTSP URL
+    """
+    # Log the incoming request for debugging
+    logger.info(f"Received RTSP-to-HLS request with URL: {rtsp_url.replace('//', '//***:***@') if '//' in rtsp_url else rtsp_url}")
+    
+    try:
+        # Check if the URL is already pointing to our own stream
+        internal_stream_pattern = re.compile(r'/transcode/stream/[a-f0-9-]+/index\.m3u8')
+        if internal_stream_pattern.search(rtsp_url):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot create a stream from our own stream URL"
+            )
+            
+        # Properly handle RTSP URLs with special characters in credentials
+        # Especially with @ symbols in username or password
+        encoded_url = rtsp_url
+        
+        try:
+            # Try to parse the URL using urllib to handle encoding properly
+            parsed = urllib.parse.urlparse(rtsp_url)
+            
+            # Check if it has credentials that need encoding
+            if '@' in parsed.netloc:
+                logger.info("URL contains authentication, checking if encoding is needed")
+                
+                netloc_parts = parsed.netloc.split('@')
+                if len(netloc_parts) > 1:
+                    # Extract credentials and host parts
+                    auth = netloc_parts[0]
+                    host = '@'.join(netloc_parts[1:])  # In case host contains @ symbols
+                    
+                    # Further split auth into username and password
+                    if ':' in auth:
+                        username, password = auth.split(':', 1)  # Split only on first : in case password contains :
+                        
+                        # Check if username or password contains special chars
+                        if ('@' in password) or ('%' not in password and 
+                                               any(c in password for c in [' ', '?', '&', '=', '#', '+'])):
+                            logger.info("URL contains authentication with special characters, properly encoding it")
+                            # Encode username and password
+                            encoded_username = urllib.parse.quote(username, safe='')
+                            encoded_password = urllib.parse.quote(password, safe='')
+                            
+                            # Reassemble the URL with encoded credentials
+                            new_netloc = f"{encoded_username}:{encoded_password}@{host}"
+                            encoded_parsed = parsed._replace(netloc=new_netloc)
+                            encoded_url = urllib.parse.urlunparse(encoded_parsed)
+                            
+                            logger.info(f"Successfully encoded URL with special characters")
+        except Exception as e:
+            logger.warning(f"Error during URL parsing/encoding, using original URL: {e}")
+    
+        # Generate unique stream ID
+        stream_id = str(uuid.uuid4())
+        
+        # Create stream directory
+        stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
+        os.makedirs(stream_dir, exist_ok=True)
+        
+        # Set output paths - Always use index.m3u8 for HLS
+        output_path = os.path.join(stream_dir, "index.m3u8")
+        
+        # Create status file
+        status_path = os.path.join(stream_dir, "status.json")
+        
+        # Update status
+        transcode_jobs[stream_id] = {
+            "status": "processing",
+            "input_url": rtsp_url,  # Store original URL for reference
+            "output_file": output_path,
+            "format": "hls",
+            "created_at": time.time()
+        }
+        
+        with open(status_path, "w") as f:
+            json.dump({
+                "status": "processing",
+                "progress": 0
+            }, f)
+        
+        # Start streaming in background
+        backgroundTasks.add_task(
+            process_stream, stream_id, encoded_url, output_path, "hls", browser_compatibility
+        )
+        
+        # Construct the public URL for the stream - using relative URL
+        stream_url_path = f"/transcode/stream/{stream_id}/index.m3u8"
+        
+        logger.info(f"Stream job created: {stream_id}, URL: {stream_url_path}")
+        
+        return {
+            "stream_id": stream_id, 
+            "status": "processing",
+            "hls_url": stream_url_path
+        }
+    
+    except Exception as e:
+        logger.exception(f"Error creating HLS stream: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error creating HLS stream: {str(e)}"
+        )
+
 @router.post("/transcode/stream", status_code=202)
 async def create_stream(
     backgroundTasks: BackgroundTasks,
@@ -582,6 +693,129 @@ async def get_stream_file(stream_id: str, file_name: str):
         open(file_path, "rb"),
         media_type=content_type
     )
+
+@router.post("/transcode")
+async def transcode_video(file: UploadFile = File(...)):
+    """
+    Transcode a video file to browser-compatible format
+    """
+    # Generate a unique job ID
+    job_id = str(uuid.uuid4())
+    job_dir = os.path.join(TRANSCODE_DIR, job_id)
+    os.makedirs(job_dir, exist_ok=True)
+    
+    # Save uploaded file
+    file_path = os.path.join(job_dir, f"input{os.path.splitext(file.filename)[1]}")
+    
+    try:
+        # Save the uploaded file
+        logger.info(f"Saving uploaded file to {file_path}")
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Set output path
+        output_path = os.path.join(job_dir, f"output.mp4")
+        
+        # Create status file
+        status_path = os.path.join(job_dir, "status.json")
+        with open(status_path, "w") as f:
+            json.dump({
+                "status": "processing",
+                "progress": 0
+            }, f)
+        
+        # Update job status
+        transcode_jobs[job_id] = {
+            "status": "processing",
+            "input_file": file_path,
+            "output_file": output_path,
+            "created_at": time.time()
+        }
+        
+        # Build FFmpeg command for transcoding to browser-compatible MP4
+        # For older FFmpeg versions (< 4.4), don't use movflags
+        supports_movflags = os.environ.get("FFMPEG_SUPPORTS_MOVFLAGS", "0") == "1"
+        
+        if supports_movflags:
+            cmd = [
+                ffmpeg_binary_path,
+                "-i", file_path,
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-profile:v", "baseline",
+                "-level", "3.0",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-movflags", "+faststart",
+                "-y",
+                output_path
+            ]
+        else:
+            cmd = [
+                ffmpeg_binary_path,
+                "-i", file_path,
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-profile:v", "baseline",
+                "-level", "3.0",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-y",
+                output_path
+            ]
+        
+        logger.info(f"Running FFmpeg transcode command: {' '.join(cmd)}")
+        
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+        
+        stdout, stderr = process.communicate()
+        
+        if process.returncode == 0:
+            logger.info(f"Transcoding completed successfully for job {job_id}")
+            # Update status
+            with open(status_path, "w") as f:
+                json.dump({
+                    "status": "completed",
+                    "progress": 100
+                }, f)
+            
+            transcode_jobs[job_id]["status"] = "completed"
+            
+            # Return success with output URL
+            output_url = f"/transcode/{job_id}/download"
+            return {"status": "completed", "output_url": output_url}
+        else:
+            logger.error(f"Transcoding failed for job {job_id}: {stderr}")
+            with open(status_path, "w") as f:
+                json.dump({
+                    "status": "failed",
+                    "error": stderr
+                }, f)
+            
+            transcode_jobs[job_id]["status"] = "failed"
+            
+            # Return error
+            raise HTTPException(status_code=500, detail=f"Transcoding failed: {stderr}")
+    
+    except Exception as e:
+        logger.exception(f"Error during transcoding job {job_id}")
+        # Update status
+        status_path = os.path.join(job_dir, "status.json")
+        with open(status_path, "w") as f:
+            json.dump({
+                "status": "failed",
+                "error": str(e)
+            }, f)
+        
+        raise HTTPException(status_code=500, detail=f"Error during transcoding: {str(e)}")
 
 # Cleanup old jobs periodically (could be implemented as a background task)
 def cleanup_old_jobs():

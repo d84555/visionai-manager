@@ -1,4 +1,3 @@
-
 import { toast } from 'sonner';
 
 // Function to convert video to a playable format using FFmpeg
@@ -85,11 +84,19 @@ export const createHlsStream = async (rtspUrl: string): Promise<string> => {
 
 // Function to stop an HLS stream
 export const stopHlsStream = async (hlsUrl: string): Promise<void> => {
-  const apiUrl = `/api/transcode/stop-hls?hls_url=${encodeURIComponent(hlsUrl)}`; // Use relative URL
+  // Extract the stream ID from the HLS URL
+  const streamIdMatch = hlsUrl.match(/\/transcode\/stream\/([a-f0-9-]+)\/index\.m3u8/);
+  if (!streamIdMatch) {
+    console.warn('Could not extract stream ID from URL:', hlsUrl);
+    return;
+  }
+  
+  const streamId = streamIdMatch[1];
+  const apiUrl = `/api/transcode/stream/${streamId}`; // Use relative URL
 
   try {
     const response = await fetch(apiUrl, {
-      method: 'POST',
+      method: 'DELETE',
     });
 
     if (!response.ok) {
@@ -106,7 +113,7 @@ export const stopHlsStream = async (hlsUrl: string): Promise<void> => {
 
 // Function to check if a URL is an internal stream URL
 export const isInternalStreamUrl = (url: string): boolean => {
-  return url.includes('/transcode/hls/');
+  return url.includes('/transcode/stream/');
 };
 
 // Function to monitor the health of an HLS stream
@@ -188,6 +195,24 @@ export const createWebSocketWithReconnect = (
   let forcedClose = false;
   let isConnected = false;
 
+  // Correct the WebSocket URL using the current origin
+  const getWebSocketUrl = (path: string) => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    // Make sure we're using relative URLs that will work in any environment
+    // If the path already starts with ws:// or wss://, use it directly
+    if (path.startsWith('ws://') || path.startsWith('wss://')) {
+      return path;
+    }
+    
+    // If path starts with /, assume it's a relative path from the domain root
+    if (path.startsWith('/')) {
+      return `${protocol}//${window.location.host}${path}`;
+    }
+    
+    // Otherwise, assume it's a relative path from the current path
+    return `${protocol}//${window.location.host}/${path}`;
+  };
+
   const connect = () => {
     try {
       // Close any existing socket before creating a new one
@@ -199,8 +224,9 @@ export const createWebSocketWithReconnect = (
         }
       }
 
-      console.log(`[WebSocket] Connecting to ${url}${retries > 0 ? ` (attempt ${retries+1}/${maxRetries+1})` : ''}`);
-      socket = new WebSocket(url);
+      const wsUrl = getWebSocketUrl(url);
+      console.log(`[WebSocket] Connecting to ${wsUrl}${retries > 0 ? ` (attempt ${retries+1}/${maxRetries+1})` : ''}`);
+      socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
         console.log('[WebSocket] Connection opened');

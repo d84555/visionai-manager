@@ -78,42 +78,6 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
            url.toLowerCase().startsWith('rtsps://') || 
            url.toLowerCase().startsWith('rtmp://');
   }, []);
-  
-  // Create a function to process RTSP streams
-  const processRtspStream = useCallback(async (url: string) => {
-    try {
-      setStreamProcessing(true);
-      setStreamError(null);
-      
-      // Check if this stream is already in HLS format (our own stream or external HLS)
-      if (url.endsWith('.m3u8')) {
-        setIsLiveStream(true);
-        setVideoUrl(url);
-        setStreamProcessing(false);
-        return url;
-      }
-      
-      // Set streaming type flags
-      setIsLiveStream(true);
-      setIsStreamingUrl(true);
-      
-      // Create HLS stream
-      console.log(`Creating HLS stream from URL: ${url.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@')}`);
-      
-      // Use relative URL for API call instead of hardcoded localhost
-      const hlsUrl = await createHlsStream(url);
-      
-      console.log(`HLS stream URL: ${hlsUrl}`);
-      setVideoUrl(hlsUrl);
-      setStreamProcessing(false);
-      
-      return hlsUrl;
-    } catch (error) {
-      setStreamProcessing(false);
-      setStreamError(error instanceof Error ? error.message : 'Unknown error creating stream');
-      throw error;
-    }
-  }, []);
 
   // Initialize the WebSocket connection for AI inference using the improved helper
   const initializeWebSocket = useCallback(() => {
@@ -149,7 +113,7 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
           isWSConnectingRef.current = false;
           
           // Send initial configuration message with active models
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          if (wsHelper.socket && wsHelper.socket.readyState === WebSocket.OPEN) {
             const config = {
               action: 'configure',
               models: activeModels || [],
@@ -160,7 +124,7 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
             };
             
             console.log('Sending WebSocket configuration:', config);
-            wsRef.current.send(JSON.stringify(config));
+            wsHelper.socket.send(JSON.stringify(config));
           }
         },
         // onMessage
@@ -230,6 +194,42 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
       });
     }
   }, [activeModels, fps]);
+
+  // Create a function to process RTSP streams
+  const processRtspStream = useCallback(async (url: string) => {
+    try {
+      setStreamProcessing(true);
+      setStreamError(null);
+      
+      // Check if this stream is already in HLS format (our own stream or external HLS)
+      if (url.endsWith('.m3u8')) {
+        setIsLiveStream(true);
+        setVideoUrl(url);
+        setStreamProcessing(false);
+        return url;
+      }
+      
+      // Set streaming type flags
+      setIsLiveStream(true);
+      setIsStreamingUrl(true);
+      
+      // Create HLS stream
+      console.log(`Creating HLS stream from URL: ${url.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@')}`);
+      
+      // Use relative URL for API call instead of hardcoded localhost
+      const hlsUrl = await createHlsStream(url);
+      
+      console.log(`HLS stream URL: ${hlsUrl}`);
+      setVideoUrl(hlsUrl);
+      setStreamProcessing(false);
+      
+      return hlsUrl;
+    } catch (error) {
+      setStreamProcessing(false);
+      setStreamError(error instanceof Error ? error.message : 'Unknown error creating stream');
+      throw error;
+    }
+  }, []);
 
   // Stop streaming and clean up resources
   const stopStream = useCallback(async () => {
@@ -555,7 +555,7 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
         description: error instanceof Error ? error.message : 'Unknown error'
       });
     }
-  }, [videoUrl, hasUploadedFile, originalFile, isStreaming, processRtspStream, streamError, streamMonitor, stopStream, initializeWebSocket, startFrameCapture]);
+  }, [videoUrl, hasUploadedFile, originalFile, isStreaming, isRtspUrl, isInternalStreamUrl, processRtspStream, streamError, streamMonitor, stopStream, initializeWebSocket, startFrameCapture]);
 
   // Toggle play/pause of the video
   const togglePlayPause = useCallback(() => {
@@ -661,7 +661,7 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
         }
       }
     }
-  }, [camera, streamType]);
+  }, [camera, streamType, videoUrl]);
   
   // Auto-start streaming when initialVideoUrl is provided and autoStart is true
   useEffect(() => {
@@ -684,7 +684,7 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
         startStream();
       }
     }
-  }, []);
+  }, [autoStart, initialVideoUrl, isStreaming, processRtspStream, startStream]);
 
   // Clean up resources when unmounting
   useEffect(() => {
