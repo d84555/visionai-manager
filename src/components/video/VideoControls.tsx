@@ -4,15 +4,12 @@ import { Play, Pause, Pin, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
-// Update type definition to allow null or undefined as well
-export type InferenceLocationType = 'edge' | 'server' | null | undefined;
-
 interface VideoControlsProps {
   isPlaying: boolean;
   isPinned?: boolean;
   onPinToggle?: () => void;
   onPlayPause: () => void;
-  inferenceLocation?: InferenceLocationType;
+  inferenceLocation?: 'edge' | 'server' | null;
   inferenceTime?: number | null;
   isHikvisionFormat?: boolean;
   isLiveStream?: boolean;

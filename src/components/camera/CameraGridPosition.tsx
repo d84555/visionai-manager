@@ -13,7 +13,6 @@ interface CameraGridPositionProps {
   isPlaying: boolean;
   isFullscreen: boolean;
   streamType: 'main' | 'sub';
-  streamError: string; // Added this property to fix the TypeScript error
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent, positionId: string) => void;
@@ -22,7 +21,6 @@ interface CameraGridPositionProps {
   onFullscreen: (positionId: string) => void;
   onStreamTypeChange: (cameraId: string, streamType: 'main' | 'sub') => void;
   onApplyModelToCamera: (cameraId: string, modelId: string) => void;
-  onStreamError: (positionId: string, error: string) => void; // Adding this handler as well since it's used in CameraGrid
   availableModels: { id: string; name: string }[];
   getCameraModel: (cameraId: string) => { name: string; path: string } | null;
   dragOverPosition: string | null;
@@ -34,7 +32,6 @@ const CameraGridPosition: React.FC<CameraGridPositionProps> = ({
   isPlaying,
   isFullscreen,
   streamType,
-  streamError,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -43,7 +40,6 @@ const CameraGridPosition: React.FC<CameraGridPositionProps> = ({
   onFullscreen,
   onStreamTypeChange,
   onApplyModelToCamera,
-  onStreamError,
   availableModels,
   getCameraModel,
   dragOverPosition,
@@ -64,13 +60,6 @@ const CameraGridPosition: React.FC<CameraGridPositionProps> = ({
           {camera.name}
         </div>
         
-        {streamError && (
-          <div className="absolute top-2 right-2 z-20 bg-red-500/90 text-white text-xs px-2 py-1 rounded flex items-center">
-            <span className="mr-1">⚠️</span>
-            Error: {streamError}
-          </div>
-        )}
-        
         <div className="relative w-full h-full">
           <VideoFeed
             showControls={false}
@@ -80,7 +69,6 @@ const CameraGridPosition: React.FC<CameraGridPositionProps> = ({
             onPinToggle={() => onFullscreen(positionId)}
             activeModels={activeModels}
             streamType={streamType}
-            onError={(error) => onStreamError(positionId, error)}
           />
         </div>
         
