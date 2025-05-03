@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -265,31 +264,31 @@ def process_stream(stream_id, input_url, output_path, output_format, browser_com
         segment_pattern = f"segment_{timestamp}_%d.ts"
         
         if output_format == "hls":
-            # IMPROVED SETTINGS: Increased buffer sizes and timeouts for better stream initialization
+            # IMPROVED SETTINGS: Use older-version compatible flags and options
             cmd = [
                 ffmpeg_binary_path,
-                # FFmpeg input options - IMPROVED with longer analyzeduration and probesize
+                # FFmpeg input options
                 "-rtsp_transport", "tcp",           # Use TCP for more stable connections
                 "-analyzeduration", "100000000",    # 100 seconds (increased from 20s)
                 "-probesize", "100000000",          # 100MB (increased from 20MB)
-                "-reorder_queue_size", "100",       # NEW: Buffer more packets for reordering
+                "-reorder_queue_size", "100",       # Buffer more packets for reordering
                 "-stimeout", "10000000",            # 10 second timeout (microseconds)
                 "-fflags", "+genpts+discardcorrupt",# Generate timestamps, discard corrupt
                 "-i", input_url,                    # Input stream URL
                 
-                # Video codec settings - IMPROVED for better compatibility
+                # Video codec settings - FIXED to remove incompatible options
                 "-c:v", "libx264",                  # H.264 video codec
                 "-preset", "ultrafast",             # Fastest encoding
                 "-tune", "zerolatency",             # Optimize for low latency
-                "-profile:v", "baseline",           # NEW: Use baseline profile for compatibility
-                "-level", "3.0",                    # NEW: Compatible level
-                "-pix_fmt", "yuv420p",              # NEW: Standard pixel format for compatibility
+                "-profile:v", "baseline",           # Use baseline profile for compatibility
+                "-level", "3.0",                    # Compatible level
+                "-pix_fmt", "yuv420p",              # Standard pixel format for compatibility
                 "-r", "15",                         # Force 15fps to reduce bandwidth
                 "-g", "30",                         # GOP size (2 seconds)
                 "-keyint_min", "15",                # Minimum GOP size
                 "-sc_threshold", "0",               # Disable scene detection
-                "-bufsize", "5000k",                # NEW: Video buffer size
-                "-maxrate", "5000k",                # NEW: Maximum bitrate
+                "-bufsize", "5000k",                # Video buffer size
+                "-maxrate", "5000k",                # Maximum bitrate
                 
                 # Audio codec settings (if audio exists)
                 "-c:a", "aac",                      # AAC audio codec
@@ -317,11 +316,11 @@ def process_stream(stream_id, input_url, output_path, output_format, browser_com
             ]
             
             # For high browser compatibility, add more conservative settings
+            # NOTE: Removed movflags which caused the error in older FFmpeg versions
             if browser_compatibility == "high":
                 # Insert these options right after the output codec selection
                 cmd[11:11] = [
-                    "-movflags", "+faststart",      # Web optimized output
-                    "-vsync", "1",                  # Video sync method
+                    "-vsync", "1",                  # Video sync method - keep this but remove movflags
                 ]
         else:
             # For formats other than HLS

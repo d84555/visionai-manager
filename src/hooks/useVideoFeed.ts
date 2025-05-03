@@ -1,10 +1,11 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { convertToPlayableFormat, detectVideoFormat, createHlsStream, stopHlsStream, isInternalStreamUrl, monitorHlsStream } from '../utils/ffmpegUtils';
+import { convertToPlayableFormat, detectVideoFormat, createHlsStream, stopHlsStream, isInternalStreamUrl, monitorHlsStream, createWebSocketWithReconnect } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
 
 // Import any types required
 import type { SyntheticEvent } from 'react';
+import { InferenceLocationType } from '../components/video/VideoControls';
 
 interface UseVideoFeedOptions {
   initialVideoUrl?: string;
@@ -46,7 +47,7 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [isHikvisionFormat, setIsHikvisionFormat] = useState<boolean>(false);
   const [detections, setDetections] = useState<any[]>([]);
-  const [inferenceLocation, setInferenceLocation] = useState<string | null>(null);
+  const [inferenceLocation, setInferenceLocation] = useState<InferenceLocationType>(null);
   const [inferenceTime, setInferenceTime] = useState<number | null>(null);
   const [actualFps, setActualFps] = useState<number | null>(null);
   const [socketConnectionId, setSocketConnectionId] = useState<string | null>(null);
@@ -63,6 +64,7 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const wsHelperRef = useRef<{close: () => void} | null>(null);
   const isWSConnectingRef = useRef<boolean>(false);
   const activeFrameRequestRef = useRef<number | null>(null);
   const isStreamingRef = useRef<boolean>(false);
@@ -303,7 +305,7 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
         console.log('Waiting for HLS stream to stabilize before processing frames...');
         setTimeout(() => {
           startFrameCapture();
-        }, 3000); // 3 second delay for HLS streams
+        }, 4000); // 4 second delay for HLS streams (increased from 3s)
       } else {
         startFrameCapture();
       }
@@ -336,6 +338,12 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
       console.log('Closing WebSocket connection');
       wsRef.current.close();
       wsRef.current = null;
+    }
+    
+    // Clean up WebSocket helper if exists
+    if (wsHelperRef.current) {
+      wsHelperRef.current.close();
+      wsHelperRef.current = null;
     }
     
     // Stop monitoring HLS stream health
@@ -422,12 +430,17 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
     });
   }, [isStreaming, stopStream]);
 
-  // Initialize the WebSocket connection for AI inference
+  // Initialize the WebSocket connection for AI inference using the improved helper
   const initializeWebSocket = useCallback(() => {
     // Close any existing connection
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
+    }
+    
+    if (wsHelperRef.current) {
+      wsHelperRef.current.close();
+      wsHelperRef.current = null;
     }
     
     // If already connecting, don't start another
@@ -445,33 +458,30 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
       
       console.log('Connecting to WebSocket:', wsUrl);
       
-      const socket = new WebSocket(wsUrl);
-      wsRef.current = socket;
-      
-      socket.onopen = () => {
-        console.log('WebSocket connection established');
-        isWSConnectingRef.current = false;
-        
-        // Send initial configuration message with active models
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          const config = {
-            action: 'configure',
-            models: activeModels || [],
-            settings: {
-              confidence_threshold: 0.45,
-              fps: fps
-            }
-          };
+      const wsHelper = createWebSocketWithReconnect(
+        wsUrl,
+        // onOpen
+        () => {
+          console.log('WebSocket connection established');
+          isWSConnectingRef.current = false;
           
-          console.log('Sending WebSocket configuration:', config);
-          wsRef.current.send(JSON.stringify(config));
-        }
-      };
-      
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          
+          // Send initial configuration message with active models
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            const config = {
+              action: 'configure',
+              models: activeModels || [],
+              settings: {
+                confidence_threshold: 0.45,
+                fps: fps
+              }
+            };
+            
+            console.log('Sending WebSocket configuration:', config);
+            wsRef.current.send(JSON.stringify(config));
+          }
+        },
+        // onMessage
+        (data) => {
           if (data.client_id) {
             setSocketConnectionId(data.client_id);
             console.log('Connected with client ID:', data.client_id);
@@ -500,32 +510,26 @@ export const useVideoFeed = (options: UseVideoFeedOptions = {}) => {
             }
             
             if (data.inference_location) {
-              setInferenceLocation(data.inference_location);
+              setInferenceLocation(data.inference_location as InferenceLocationType);
             }
           }
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
+        },
+        // onClose
+        () => {
+          console.log('WebSocket connection closed');
+          isWSConnectingRef.current = false;
+          wsRef.current = null;
+        },
+        // onError
+        (error) => {
+          console.error('WebSocket error:', error);
+          isWSConnectingRef.current = false;
         }
-      };
+      );
       
-      socket.onclose = (event) => {
-        console.log('WebSocket connection closed:', event.code, event.reason);
-        isWSConnectingRef.current = false;
-        wsRef.current = null;
-        
-        // Only attempt reconnect if we're still streaming
-        if (isStreamingRef.current) {
-          console.log('Attempting WebSocket reconnection...');
-          setTimeout(() => {
-            initializeWebSocket();
-          }, 2000);
-        }
-      };
-      
-      socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        isWSConnectingRef.current = false;
-      };
+      // Store the WebSocket and helper
+      wsRef.current = wsHelper.socket;
+      wsHelperRef.current = wsHelper;
       
     } catch (error) {
       console.error('Error creating WebSocket:', error);

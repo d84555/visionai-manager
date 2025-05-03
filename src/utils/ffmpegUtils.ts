@@ -238,7 +238,7 @@ export async function checkHlsStreamHealth(streamUrl: string): Promise<boolean> 
   try {
     // Request the HLS playlist
     const response = await axios.get(streamUrl, {
-      timeout: 5000,
+      timeout: 8000, // Increased timeout from 5s to 8s to allow for slower streams
       headers: {
         'Accept': 'application/vnd.apple.mpegurl',
         'Cache-Control': 'no-cache'
@@ -407,13 +407,13 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
         // IMPORTANT IMPROVEMENT: Wait and check if stream is actually ready
         const streamUrl = response.data.stream_url;
         
-        // Wait 4 seconds for initial segments to be generated
-        await new Promise(resolve => setTimeout(resolve, 4000));
+        // Wait 6 seconds for initial segments to be generated (increased from 4s)
+        await new Promise(resolve => setTimeout(resolve, 6000));
         
         // Check if HLS playlist contains valid segments
         let isStreaming = false;
         let healthCheckAttempts = 0;
-        const maxHealthChecks = 3;
+        const maxHealthChecks = 5; // Increased from 3 to 5
         
         while (!isStreaming && healthCheckAttempts < maxHealthChecks) {
           healthCheckAttempts++;
@@ -551,5 +551,84 @@ export async function monitorHlsStream(
   return () => {
     isRunning = false;
     clearInterval(checkInterval);
+  };
+}
+
+// Fix WebSocket connection issues when network is unstable
+export function createWebSocketWithReconnect(
+  wsUrl: string, 
+  onOpen: () => void, 
+  onMessage: (data: any) => void, 
+  onClose: () => void, 
+  onError: (error: Event) => void
+): {
+  socket: WebSocket | null;
+  close: () => void;
+} {
+  let ws: WebSocket | null = null;
+  let reconnectAttempts = 0;
+  const maxReconnectAttempts = 5;
+  let isClosingIntentionally = false;
+  
+  const connect = () => {
+    try {
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = () => {
+        console.log('WebSocket connection established');
+        reconnectAttempts = 0;
+        onOpen();
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          onMessage(data);
+        } catch (e) {
+          console.error('Error parsing WebSocket message:', e);
+        }
+      };
+      
+      ws.onclose = (event) => {
+        console.log('WebSocket connection closed:', event.code, event.reason);
+        
+        // If not closing intentionally, try to reconnect
+        if (!isClosingIntentionally && reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000);
+          console.log(`Attempting WebSocket reconnection in ${delay/1000}s (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
+          
+          setTimeout(connect, delay);
+        } else {
+          // No more reconnect attempts or intentionally closed
+          if (reconnectAttempts >= maxReconnectAttempts) {
+            console.error('Maximum WebSocket reconnect attempts reached');
+          }
+          onClose();
+        }
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        onError(error);
+      };
+    } catch (error) {
+      console.error('Error setting up WebSocket:', error);
+    }
+  };
+  
+  // Initial connection
+  connect();
+  
+  // Return an object with the socket and a close method
+  return {
+    socket: ws,
+    close: () => {
+      if (ws) {
+        isClosingIntentionally = true;
+        ws.close();
+        ws = null;
+      }
+    },
   };
 }
