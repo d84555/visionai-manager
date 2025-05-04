@@ -1,3 +1,4 @@
+
 import SettingsService from '@/services/SettingsService';
 import { toast } from 'sonner';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -61,19 +62,15 @@ export const detectVideoFormat = (file: File): {
   // Get file extension
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
   
-  // Enhanced problematic formats list
-  const problematicFormats = ['avi', 'mkv', 'h265', 'ts', 'dav', 'raw', 'h264', 'mp4v'];
+  // Check for known problematic formats
+  const problematicFormats = ['avi', 'mkv', 'h265', 'ts', 'dav', 'raw', 'h264'];
   const isHikvision = extension === 'dav' || file.type === 'video/x-dav';
-  
-  // Force transcoding for most formats to ensure compatibility
-  const forceTranscode = true; // Set to true to ensure all uploads are transcoded
   
   // Check if this is a problematic format
   if (problematicFormats.includes(extension) || 
       file.type === 'application/octet-stream' ||
       file.type === 'video/x-dav' ||
-      !file.type.startsWith('video/') ||
-      forceTranscode) {
+      !file.type.startsWith('video/')) {
     
     return {
       isSupported: false,
@@ -83,17 +80,17 @@ export const detectVideoFormat = (file: File): {
     };
   }
   
-  // Even for "supported" formats, we'll recommend transcoding
+  // Check against browser-supported formats
   return {
     isSupported: !!supportedFormats[file.type],
     format: file.type,
-    requiresTranscoding: true, // Always transcode to ensure compatibility
+    requiresTranscoding: !supportedFormats[file.type],
     isHikvision
   };
 };
 
 /**
- * Transcodes video on the server using FFmpeg and polls for completion
+ * Transcodes video on the server using FFmpeg
  */
 export const serverTranscodeVideo = async (file: File): Promise<string> => {
   try {
@@ -102,25 +99,19 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
     
     // If server-side transcoding is enabled in settings
     if (ffmpegSettings.serverTranscoding) {
-      toast.info('Starting video transcoding', { 
-        description: 'Converting video to web-compatible format...'
-      });
-      
       console.log('Using server-side transcoding for video:', file.name);
       
       // Create form data to send the file
       const formData = new FormData();
       formData.append('file', file);
       formData.append('outputFormat', ffmpegSettings.transcodeFormat || 'mp4');
-      formData.append('quality', ffmpegSettings.quality || 'medium');
-      formData.append('preset', ffmpegSettings.preset || 'fast');
       
-      // Fix: Use the correct API endpoint without /api prefix 
-      // since FastAPI is handling the routes directly
-      const response = await axios.post('/transcode', formData, {
+      // Send to server endpoint for transcoding
+      const response = await axios.post('/api/transcode', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        responseType: 'blob',
         onUploadProgress: (progressEvent) => {
           const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total!);
           console.log(`Upload progress: ${percentCompleted}%`);
@@ -133,57 +124,9 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
         },
       });
       
-      const { job_id } = response.data;
-      
-      if (!job_id) {
-        throw new Error('No job ID returned from transcoding service');
-      }
-      
-      // Poll for job completion
-      let completed = false;
-      let attempts = 0;
-      let status;
-      
-      while (!completed && attempts < 60) { // Poll for up to 1 minute (60 * 1sec)
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
-        
-        try {
-          // Fix: Use the correct API endpoint without /api prefix
-          const statusResponse = await axios.get(`/transcode/${job_id}/status`);
-          status = statusResponse.data;
-          
-          console.log('Transcoding status:', status);
-          
-          if (status.status === 'completed') {
-            completed = true;
-          } else if (status.status === 'failed') {
-            throw new Error(status.error || 'Transcoding failed');
-          }
-          
-          attempts++;
-        } catch (error) {
-          console.error('Error checking transcoding status:', error);
-          attempts++;
-        }
-      }
-      
-      if (!completed) {
-        throw new Error('Transcoding timed out');
-      }
-      
-      // Fix: Use the correct API endpoint without /api prefix
-      const downloadUrl = `/transcode/${job_id}/download`;
-      const downloadResponse = await axios.get(downloadUrl, {
-        responseType: 'blob'
-      });
-      
       // Create a URL for the transcoded video
-      const transcodedVideo = new Blob([downloadResponse.data], { 
-        type: `video/${ffmpegSettings.transcodeFormat || 'mp4'}` 
-      });
-      
-      toast.success('Video transcoding completed', {
-        description: 'Video is ready to play'
+      const transcodedVideo = new Blob([response.data], { 
+        type: `video/${ffmpegSettings.transcodeFormat}` 
       });
       
       return URL.createObjectURL(transcodedVideo);
@@ -203,55 +146,6 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
 };
 
 /**
- * Creates a new HLS stream from an IP camera URL
- * @param streamUrl The URL of the IP camera stream
- * @returns A Promise with the URL of the HLS stream
- */
-export const createHlsStream = async (streamUrl: string, streamName?: string): Promise<string> => {
-  try {
-    const ffmpegSettings = SettingsService.getSettings('ffmpeg');
-    
-    // Check if server-side transcoding is enabled
-    if (!ffmpegSettings.serverTranscoding) {
-      throw new Error('Server-side transcoding is disabled in settings');
-    }
-    
-    toast.info('Setting up camera stream', { 
-      description: 'Connecting to camera and preparing stream...'
-    });
-    
-    // Create form data for the stream request
-    const formData = new FormData();
-    formData.append('stream_url', streamUrl);
-    formData.append('output_format', 'hls');
-    if (streamName) {
-      formData.append('stream_name', streamName);
-    }
-    
-    // Fix: Use the correct API endpoint without /api prefix
-    const response = await axios.post('/stream', formData);
-    const { stream_id, stream_url, status } = response.data;
-    
-    if (status !== 'processing') {
-      throw new Error('Failed to start stream processing');
-    }
-    
-    // Return the stream URL
-    toast.success('Stream ready', {
-      description: 'Camera stream is now available for playback'
-    });
-    
-    return stream_url;
-  } catch (error) {
-    console.error('Stream creation failed:', error);
-    toast.error('Failed to create camera stream', {
-      description: 'Please check camera URL and server settings'
-    });
-    throw error;
-  }
-};
-
-/**
  * Converts a video file to a web-playable format
  * Enhanced handling for various formats
  * @param videoFile The video file to convert
@@ -264,27 +158,29 @@ export const convertToPlayableFormat = async (videoFile: File): Promise<string> 
     const ffmpegSettings = SettingsService.getSettings('ffmpeg');
     const formatInfo = detectVideoFormat(videoFile);
     
-    // Always prefer server-side transcoding if available
-    if (ffmpegSettings.serverTranscoding) {
-      console.log(`Using server-side transcoding for ${videoFile.name}`);
-      return serverTranscodeVideo(videoFile);
-    }
-    
-    // If Hikvision format and client-side processing is available
-    if (formatInfo.isHikvision) {
-      try {
-        return convertDavToMP4(videoFile);
-      } catch (error) {
-        console.error("Failed to convert DAV file:", error);
-        // Fall back to direct URL creation but with warning
-        toast.warning("Special format detected but conversion failed", {
-          description: "Video may not play correctly. Enable server-side transcoding in Settings."
-        });
+    // Determine if this is a format requiring transcoding
+    if (formatInfo.requiresTranscoding) {
+      console.log(`File type ${videoFile.type || formatInfo.format} needs transcoding`);
+      toast.info("Processing video format", {
+        description: "Converting to web-compatible format for playback"
+      });
+      
+      // If server-side transcoding is enabled, use that
+      if (ffmpegSettings.serverTranscoding) {
+        return serverTranscodeVideo(videoFile);
       }
+      
+      // If Hikvision format, use special handling
+      if (formatInfo.isHikvision) {
+        return convertDavToMP4(videoFile);
+      }
+      
+      // For other formats, try client-side transcoding
+      return clientSideProcessVideo(videoFile);
     }
     
-    // For client-side handling of other formats
-    return clientSideProcessVideo(videoFile);
+    // For standard formats that browsers can play natively
+    return URL.createObjectURL(videoFile);
   } catch (error) {
     console.error('Error handling video:', error);
     toast.error('Video format processing failed', {
@@ -330,10 +226,6 @@ export const convertDavToMP4 = async (file: File): Promise<string> => {
   const ffmpeg = new FFmpeg();
   
   try {
-    toast.info('Converting Hikvision format', {
-      description: 'Processing DAV file for playback...'
-    });
-    
     // Load FFmpeg
     await ffmpeg.load();
     
@@ -360,16 +252,9 @@ export const convertDavToMP4 = async (file: File): Promise<string> => {
     const blob = new Blob([outputData], { type: 'video/mp4' });
     const url = URL.createObjectURL(blob);
     
-    toast.success('Video conversion complete', {
-      description: 'Hikvision format successfully converted to MP4'
-    });
-    
     return url;
   } catch (error) {
     console.error('FFmpeg error:', error);
-    toast.error('Hikvision format conversion failed', {
-      description: 'Please try server-side transcoding instead'
-    });
     throw new Error('Failed to convert DAV file');
   }
 };

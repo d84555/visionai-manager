@@ -12,7 +12,6 @@ interface VideoControlsProps {
   inferenceLocation?: 'edge' | 'server' | null;
   inferenceTime?: number | null;
   isHikvisionFormat?: boolean;
-  isLiveStream?: boolean;
   showMinimalControls?: boolean;
 }
 
@@ -24,7 +23,6 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   inferenceLocation,
   inferenceTime,
   isHikvisionFormat,
-  isLiveStream,
   showMinimalControls = false
 }) => {
   if (showMinimalControls) {
@@ -73,15 +71,6 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
             HIKVISION
           </Badge>
         )}
-        
-        {isLiveStream && (
-          <Badge 
-            variant="outline" 
-            className="absolute top-2 left-2 ml-20 text-[8px] bg-green-500/80 text-white"
-          >
-            LIVE
-          </Badge>
-        )}
       </>
     );
   }
@@ -124,15 +113,6 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
           className="absolute top-4 left-4 bg-blue-500 text-white"
         >
           HIKVISION FORMAT
-        </Badge>
-      )}
-      
-      {isLiveStream && (
-        <Badge 
-          variant="outline" 
-          className="absolute top-4 left-4 ml-8 bg-green-500 text-white"
-        >
-          LIVE STREAM
         </Badge>
       )}
     </>

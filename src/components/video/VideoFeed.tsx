@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Camera, VideoIcon, Loader, Server, FileVideo, Network, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Camera, VideoIcon, Loader, Server, FileVideo } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -14,8 +15,6 @@ import SettingsService from '@/services/SettingsService';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface VideoFeedProps {
   initialVideoUrl?: string;
@@ -64,7 +63,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   const [selectedModels, setSelectedModels] = useState<{name: string; path: string}[]>([]);
   const [availableModels, setAvailableModels] = useState<{id: string, name: string, path: string}[]>([]);
   const [ffmpegSettings, setFfmpegSettings] = useState<any>({});
-  const [activeTab, setActiveTab] = useState<string>('url');
 
   useEffect(() => {
     // Load FFmpeg settings
@@ -125,8 +123,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     isModelLoading,
     isTranscoding,
     formatNotSupported,
-    isLiveStream,
-    streamProcessing,
     videoRef,
     containerRef,
     startStream,
@@ -136,10 +132,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     handleVideoMetadata,
     handleVideoError,
     setHasUploadedFile,
-    setOriginalFile,
-    originalFile,
-    processRtspStream,
-    isStreamingUrl
+    setOriginalFile
   } = useVideoFeed({
     initialVideoUrl,
     autoStart,
@@ -184,28 +177,17 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     }
   };
 
-  // Helper to show appropriate processing message
-  const getProcessingMessage = () => {
-    if (isModelLoading) return 'Loading AI model...';
-    if (isTranscoding) return 'Transcoding video...';
-    if (streamProcessing) return 'Setting up camera stream...';
-    return 'Processing video...';
-  };
-
-  // Determine if URL looks like an RTSP/streaming URL
-  const isRtspUrl = (url: string) => {
-    return url.toLowerCase().startsWith('rtsp://') || 
-           url.toLowerCase().startsWith('rtsps://') || 
-           url.toLowerCase().startsWith('rtmp://');
-  };
-
   if (!showControls) {
     return (
       <div className="video-feed relative" ref={containerRef}>
-        {isProcessing || isModelLoading || isTranscoding || streamProcessing ? (
+        {isProcessing || isModelLoading || isTranscoding ? (
           <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '160px' }}>
             <Loader className="text-avianet-red animate-spin" size={24} />
-            <p className="text-sm mt-2 text-gray-500">{getProcessingMessage()}</p>
+            <p className="text-sm mt-2 text-gray-500">
+              {isModelLoading ? 'Loading AI model...' : 
+               isTranscoding ? 'Transcoding video...' : 
+               'Processing video...'}
+            </p>
           </div>
         ) : formatNotSupported ? (
           <div className="flex flex-col items-center justify-center bg-red-50 dark:bg-red-900/20 rounded-md" style={{ height: '160px' }}>
@@ -245,7 +227,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               onPlayPause={togglePlayPause}
               inferenceLocation={inferenceLocation}
               isHikvisionFormat={isHikvisionFormat}
-              isLiveStream={isLiveStream}
               showMinimalControls
             />
           </div>
@@ -261,32 +242,22 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   return (
     <Card className="w-full">
       <CardHeader className="border-b">
-        <CardTitle className="flex items-center flex-wrap gap-2">
+        <CardTitle className="flex items-center">
           <Camera className="mr-2 text-avianet-red" size={20} />
           Real-time Video Feed
           {isHikvisionFormat && (
-            <Badge variant="outline" className="bg-blue-500 text-white">
+            <Badge variant="outline" className="ml-2 bg-blue-500 text-white">
               HIKVISION
             </Badge>
           )}
-          {isLiveStream && (
-            <Badge variant="outline" className="bg-green-500 text-white">
-              LIVE STREAM
-            </Badge>
-          )}
           {actualFps !== null && (
-            <Badge variant="outline" className="bg-gray-200 dark:bg-gray-700">
+            <Badge variant="outline" className="ml-2">
               {actualFps} FPS
             </Badge>
           )}
           {isTranscoding && (
-            <Badge variant="outline" className="bg-yellow-500 text-white animate-pulse">
+            <Badge variant="outline" className="ml-2 bg-yellow-500 text-white animate-pulse">
               TRANSCODING
-            </Badge>
-          )}
-          {streamProcessing && (
-            <Badge variant="outline" className="bg-blue-500 text-white animate-pulse">
-              STREAM SETUP
             </Badge>
           )}
         </CardTitle>
@@ -315,187 +286,67 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             </Alert>
           )}
 
-          <Tabs defaultValue="url" value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid grid-cols-3">
-              <TabsTrigger value="url" className="flex items-center gap-2">
-                <VideoIcon className="h-4 w-4" />
-                Video URL
-              </TabsTrigger>
-              <TabsTrigger value="camera" className="flex items-center gap-2">
-                <Network className="h-4 w-4" />
-                IP Camera
-              </TabsTrigger>
-              <TabsTrigger value="file" className="flex items-center gap-2">
-                <FileVideo className="h-4 w-4" />
-                File Upload
-              </TabsTrigger>
-            </TabsList>
-            
-            {/* URL Tab */}
-            <TabsContent value="url" className="mt-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="video-url">Video URL</Label>
-                <div className="flex mt-1">
-                  <Input
-                    id="video-url"
-                    placeholder="Enter video URL... (MP4, WebM, etc.)"
-                    value={videoUrl}
-                    onChange={(e) => {
-                      setVideoUrl(e.target.value);
-                      setHasUploadedFile(false);
-                      setOriginalFile(null);
-                    }}
-                    className="rounded-r-none"
-                    disabled={hasUploadedFile || isProcessing || isTranscoding || streamProcessing}
-                  />
-                  <Button
-                    variant={isStreaming ? "destructive" : "default"}
-                    onClick={isStreaming ? stopStream : startStream}
-                    className="rounded-l-none"
-                    disabled={isProcessing || isModelLoading || isTranscoding || streamProcessing || (!videoUrl && !hasUploadedFile)}
-                  >
-                    {isStreaming ? "Stop" : "Start"}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Enter a direct URL to a video file (.mp4, .webm, etc.)
-                </p>
-                
-                <DemoVideoButtons
-                  onSelectDemo={handleDemoVideo}
-                  isProcessing={isProcessing || isModelLoading || isTranscoding || streamProcessing}
-                />
-              </div>
-            </TabsContent>
-            
-            {/* IP Camera Tab */}
-            <TabsContent value="camera" className="mt-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="camera-url">IP Camera URL</Label>
-                <div className="flex mt-1">
-                  <Input
-                    id="camera-url"
-                    placeholder="Enter camera URL... (RTSP, HTTP, RTMP)"
-                    value={videoUrl}
-                    onChange={(e) => {
-                      setVideoUrl(e.target.value);
-                      setHasUploadedFile(false);
-                      setOriginalFile(null);
-                    }}
-                    className="rounded-r-none"
-                    disabled={isProcessing || isTranscoding || streamProcessing}
-                  />
-                  <Button
-                    variant={isStreaming ? "destructive" : "default"}
-                    onClick={isStreaming ? stopStream : startStream}
-                    className="rounded-l-none"
-                    disabled={isProcessing || isModelLoading || isTranscoding || streamProcessing || !videoUrl}
-                  >
-                    {isStreaming ? "Stop" : "Start"}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Supports RTSP (rtsp://...), RTMP, HTTP streams, and HLS (.m3u8)
-                </p>
-                
-                <div className="mt-2 flex flex-col gap-2">
-                  <h4 className="text-sm font-medium">Common URL formats:</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="border rounded-md p-2 text-xs">
-                      <strong>Hikvision:</strong> rtsp://username:password@192.168.1.64:554/Streaming/channels/101
-                    </div>
-                    <div className="border rounded-md p-2 text-xs">
-                      <strong>Dahua:</strong> rtsp://username:password@192.168.1.108:554/cam/realmonitor?channel=1&subtype=0
-                    </div>
-                    <div className="border rounded-md p-2 text-xs">
-                      <strong>Generic ONVIF:</strong> rtsp://username:password@192.168.1.100:554/onvif1
-                    </div>
-                    <div className="border rounded-md p-2 text-xs">
-                      <strong>HLS Stream:</strong> http://example.com/stream/index.m3u8
-                    </div>
-                  </div>
-                </div>
-                
-                {isRtspUrl(videoUrl) && (
-                  <Alert className="mt-2 bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300">
-                    <RefreshCw className="h-4 w-4" />
-                    <AlertTitle>RTSP Stream Detected</AlertTitle>
-                    <AlertDescription>
-                      This RTSP stream will be automatically converted to a web-compatible format using FFmpeg.
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </div>
-            </TabsContent>
-            
-            {/* File Upload Tab */}
-            <TabsContent value="file" className="mt-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="video-file">Upload a video file</Label>
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1">
+              <Label htmlFor="video-url">Video Stream URL</Label>
+              <div className="flex mt-1">
                 <Input
-                  id="video-file"
-                  type="file"
-                  accept="video/*,.dav,.h264,.h265,.ts,.mkv,.avi,video/x-msvideo,video/x-matroska"
-                  onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
-                  disabled={isProcessing || isModelLoading || isTranscoding || streamProcessing}
+                  id="video-url"
+                  placeholder="Enter video URL..."
+                  value={videoUrl}
+                  onChange={(e) => {
+                    setVideoUrl(e.target.value);
+                    setHasUploadedFile(false);
+                    setOriginalFile(null);
+                  }}
+                  className="rounded-r-none"
+                  disabled={hasUploadedFile || isProcessing || isTranscoding}
                 />
-                <div className="flex items-center">
-                  <FileVideo className="text-gray-400 mr-1" size={14} />
-                  <p className="text-xs text-muted-foreground">
-                    Supports MP4, WebM, Hikvision DAV, AVI, MKV, H.264/H.265, and other NVR export formats
-                    {ffmpegSettings.serverTranscoding ? " (Server transcoding enabled)" : " (Enable server transcoding in Settings for better compatibility)"}
-                  </p>
-                </div>
-                
-                {hasUploadedFile && originalFile && (
-                  <div className="mt-2 border rounded-md p-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium">{originalFile.name}</p>
-                      <Badge variant="outline">{(originalFile.size / (1024 * 1024)).toFixed(2)} MB</Badge>
-                    </div>
-                    
-                    <div className="mt-2 flex justify-between">
-                      <Button 
-                        size="sm"
-                        onClick={() => {
-                          setOriginalFile(null);
-                          setHasUploadedFile(false);
-                          setVideoUrl('');
-                        }}
-                        variant="outline"
-                        className="text-xs"
-                      >
-                        Remove
-                      </Button>
-                      
-                      <Button
-                        size="sm"
-                        onClick={startStream}
-                        disabled={isStreaming || isProcessing || isTranscoding || streamProcessing}
-                        className="text-xs"
-                      >
-                        {isStreaming ? "Stop" : "Process & Play"}
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                <Button
+                  variant={isStreaming ? "destructive" : "default"}
+                  onClick={isStreaming ? stopStream : startStream}
+                  className="rounded-l-none"
+                  disabled={isProcessing || isModelLoading || isTranscoding || (!videoUrl && !hasUploadedFile)}
+                >
+                  {isStreaming ? "Stop" : "Start"}
+                </Button>
               </div>
-            </TabsContent>
-          </Tabs>
-
-          {(isProcessing || isTranscoding || isModelLoading || streamProcessing) && (
-            <div className="flex flex-col items-center justify-center p-4 border rounded-md bg-gray-50 dark:bg-gray-800/50">
-              <Loader className="text-avianet-red animate-spin mb-2" size={32} />
-              <p className="font-medium">{getProcessingMessage()}</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {isTranscoding ? 'Converting video to browser-compatible format...' : 
-                 streamProcessing ? 'Setting up camera stream for web playback...' :
-                 isModelLoading ? 'Loading AI detection model...' : 
-                 'Processing video file...'}
-              </p>
-              <Progress value={45} className="w-full h-1 mt-3" />
+              {hasUploadedFile && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {isProcessing ? 'Processing video file...' : 
+                   isTranscoding ? 'Transcoding video to browser-compatible format...' :
+                   isHikvisionFormat ? 'Hikvision format detected. Click Start to begin.' : 
+                   'Local file loaded. Click Start to begin.'}
+                </p>
+              )}
             </div>
-          )}
+          </div>
+          
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex-1">
+              <Label htmlFor="video-file">Or upload a local video file:</Label>
+              <Input
+                id="video-file"
+                type="file"
+                accept="video/*,.dav,.h264,.h265,.ts,.mkv,.avi,video/x-msvideo,video/x-matroska"
+                onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
+                className="mt-1"
+                disabled={isProcessing || isModelLoading || isTranscoding}
+              />
+              <div className="flex items-center mt-1">
+                <FileVideo className="text-gray-400 mr-1" size={14} />
+                <p className="text-xs text-muted-foreground">
+                  Supports MP4, WebM, Hikvision DAV, AVI, MKV, H.264/H.265, and other NVR export formats
+                  {ffmpegSettings.serverTranscoding && " (Server transcoding enabled)"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DemoVideoButtons
+            onSelectDemo={handleDemoVideo}
+            isProcessing={isProcessing || isModelLoading || isTranscoding}
+          />
 
           <div className="video-feed mt-4 relative" ref={containerRef}>
             {isProcessing ? (
@@ -509,12 +360,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 <Loader className="text-yellow-500 animate-spin mb-2" size={48} />
                 <p className="text-gray-700 dark:text-gray-300">Transcoding video...</p>
                 <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Converting video to browser-compatible format</p>
-              </div>
-            ) : streamProcessing ? (
-              <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
-                <Loader className="text-blue-500 animate-spin mb-2" size={48} />
-                <p className="text-gray-700 dark:text-gray-300">Setting up camera stream...</p>
-                <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Converting RTSP stream to web-compatible format</p>
               </div>
             ) : isModelLoading ? (
               <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
@@ -539,7 +384,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                   onError={handleVideoError}
                   autoPlay
                   muted
-                  loop={!isLiveStream}
+                  loop
                   playsInline
                   className="w-full"
                 />
@@ -554,14 +399,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                   inferenceLocation={inferenceLocation}
                   inferenceTime={inferenceTime}
                   isHikvisionFormat={isHikvisionFormat}
-                  isLiveStream={isLiveStream}
                 />
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-md" style={{ height: '360px' }}>
                 <VideoIcon className="text-gray-400 mb-2" size={48} />
                 <p className="text-gray-500 dark:text-gray-400">No video stream active</p>
-                <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Enter a URL, connect to an IP camera, or upload a file to begin</p>
+                <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Enter a URL or upload a file and click Start to begin</p>
               </div>
             )}
           </div>
