@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Camera } from 'lucide-react';
 import { useCameraGrid } from '@/hooks/useCameraGrid';
 import CameraGridHeader from './CameraGridHeader';
@@ -38,8 +38,6 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     handleApplyModelToAll,
     getCameraModel
   } = useCameraGrid();
-  
-  const [streamErrors, setStreamErrors] = useState<Record<string, string>>({});
 
   const getGridClassName = () => {
     switch (layout) {
@@ -101,20 +99,11 @@ const CameraGrid: React.FC<CameraGridProps> = ({
   };
 
   const handleStreamTypeChange = (cameraId: string, streamType: 'main' | 'sub') => {
-    // Clear existing error for this camera when changing stream type
-    setStreamErrors(prev => ({
-      ...prev,
-      [cameraId]: ''
-    }));
-    
     setCameraStreamTypes(prev => ({
       ...prev,
       [cameraId]: streamType
     }));
-    
-    toast.success(`Switched to ${streamType} stream`, {
-      description: streamType === 'main' ? 'Higher quality, higher bandwidth' : 'Lower quality, lower bandwidth'
-    });
+    toast.success(`Switched to ${streamType} stream`);
   };
 
   const toggleAllStreams = (play: boolean) => {
@@ -123,50 +112,14 @@ const CameraGrid: React.FC<CameraGridProps> = ({
       newPlayingStreams[positionId] = play;
     });
     setPlayingStreams(newPlayingStreams);
-    
-    if (play) {
-      // Clear all stream errors when starting all streams
-      setStreamErrors({});
-      toast.success('Starting all camera streams');
-    } else {
-      toast.success('Stopping all camera streams');
-    }
+    toast.success(play ? 'Starting all streams' : 'Stopping all streams');
   };
 
   const toggleStream = (positionId: string) => {
-    // Clear error for this position when toggling stream
-    const cameraId = cameraAssignments[positionId];
-    if (cameraId) {
-      setStreamErrors(prev => ({
-        ...prev,
-        [cameraId]: ''
-      }));
-    }
-    
     setPlayingStreams(prev => ({
       ...prev,
       [positionId]: !prev[positionId]
     }));
-  };
-
-  const handleStreamError = (positionId: string, error: string) => {
-    const cameraId = cameraAssignments[positionId];
-    if (cameraId) {
-      setStreamErrors(prev => ({
-        ...prev,
-        [cameraId]: error
-      }));
-      
-      // Stop the stream if it encounters an error
-      setPlayingStreams(prev => ({
-        ...prev,
-        [positionId]: false
-      }));
-      
-      toast.error('Camera stream error', {
-        description: `Failed to connect to camera. Please check your network and camera status.`
-      });
-    }
   };
 
   const handleDrop = (e: React.DragEvent, positionId: string) => {
@@ -179,29 +132,14 @@ const CameraGrid: React.FC<CameraGridProps> = ({
     if (cameraId && cameraId.length > 0 && camera && onClearAssignment) {
       // Create a new assignments object with just this assignment - don't modify all existing ones
       const newAssignments = { ...cameraAssignments };
-      
-      // Check if this camera is already assigned to another position
-      const existingPosition = Object.entries(newAssignments).find(
-        ([pos, id]) => id === cameraId && pos !== positionId
-      );
-      
-      // If found in another position, optionally warn the user
-      if (existingPosition) {
-        console.log(`Camera was already assigned to position ${existingPosition[0]}, moving to ${positionId}`);
-      }
-      
       newAssignments[positionId] = cameraId;
       
       // Update localStorage - but don't force refresh the page
       localStorage.setItem('camera-grid-assignments', JSON.stringify(newAssignments));
+      toast.success('Camera assigned to grid position');
       
-      // Clear any previous errors for this camera
-      setStreamErrors(prev => ({
-        ...prev,
-        [cameraId]: ''
-      }));
-      
-      toast.success(`Camera ${camera.name} assigned to grid position`);
+      // Instead of reloading the page, just return and let React update
+      // window.location.reload(); - This was causing the duplication bug
     }
   };
 
@@ -216,12 +154,6 @@ const CameraGrid: React.FC<CameraGridProps> = ({
       </div>
     );
   }
-
-  // Handle errors and retries for all positions
-  useEffect(() => {
-    // Reset stream errors when camera assignments change
-    setStreamErrors({});
-  }, [cameraAssignments]);
 
   return (
     <div>
@@ -245,17 +177,15 @@ const CameraGrid: React.FC<CameraGridProps> = ({
           const streamType = assignedCamera ? 
             (cameraStreamTypes[assignedCamera.id] || 'main') : 
             'main';
-          const streamError = assignedCamera ? streamErrors[assignedCamera.id] : '';
 
           return (
             <CameraGridPosition
-              key={`grid-${positionId}`}
+              key={positionId}
               positionId={positionId}
               camera={assignedCamera}
               isPlaying={playingStreams[positionId]}
               isFullscreen={fullscreenCamera === positionId}
               streamType={streamType}
-              streamError={streamError}
               onDragOver={(e) => {
                 e.preventDefault();
                 setDragOverPosition(positionId);
@@ -266,22 +196,11 @@ const CameraGrid: React.FC<CameraGridProps> = ({
                 e.preventDefault();
                 if (onClearAssignment && cameraAssignments[positionId]) {
                   onClearAssignment(positionId);
-                  
-                  // Clear any errors when removing a camera
-                  const cameraId = cameraAssignments[positionId];
-                  if (cameraId) {
-                    setStreamErrors(prev => {
-                      const newErrors = { ...prev };
-                      delete newErrors[cameraId];
-                      return newErrors;
-                    });
-                  }
                 }
               }}
               onToggleStream={toggleStream}
               onFullscreen={handleFullscreenCamera}
               onStreamTypeChange={handleStreamTypeChange}
-              onStreamError={handleStreamError}
               onApplyModelToCamera={handleApplyModelToCamera}
               availableModels={availableModels}
               getCameraModel={getCameraModel}

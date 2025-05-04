@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { VideoIcon, Camera, AlertTriangle } from 'lucide-react';
+import { VideoIcon, Camera } from 'lucide-react';
 import VideoFeed from '@/components/video/VideoFeed';
 import CameraManagement from '@/components/camera/CameraManagement';
 import CameraGrid from '@/components/camera/CameraGrid';
@@ -12,7 +13,6 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/componen
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 const VideoPage = () => {
   // Pre-initialize all state variables
@@ -24,16 +24,11 @@ const VideoPage = () => {
   const [showCameraPanel, setShowCameraPanel] = useState(true);
   const [cameras, setCameras] = useState([]);
   const [availableModels, setAvailableModels] = useState<{id: string; name: string; path: string}[]>([]);
-  const [ffmpegSettings, setFfmpegSettings] = useState<any>({});
 
   // Load saved settings
   useEffect(() => {
     const loadSavedSettings = async () => {
       try {
-        // Get FFmpeg settings
-        const ffmpegConfig = SettingsService.getSettings('ffmpeg');
-        setFfmpegSettings(ffmpegConfig);
-        
         // Get saved active models
         const savedModels = SettingsService.getActiveModels();
         if (savedModels && savedModels.length > 0) {
@@ -144,20 +139,6 @@ const VideoPage = () => {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Video Management</h1>
       </div>
-      
-      {!ffmpegSettings.serverTranscoding && (
-        <Alert 
-          variant="destructive" 
-          className="bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-900/50"
-        >
-          <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
-          <AlertTitle>Server-side transcoding is disabled</AlertTitle>
-          <AlertDescription>
-            To play special camera formats and RTSP streams, enable server-side transcoding in Settings → FFmpeg section.
-            Without this, some video formats and camera streams may not play correctly.
-          </AlertDescription>
-        </Alert>
-      )}
       
       <Tabs defaultValue="stream">
         <TabsList className="mb-4">
@@ -276,15 +257,15 @@ const VideoPage = () => {
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span>Encoder:</span>
-              <span className="font-medium">FFmpeg {ffmpegSettings.serverTranscoding ? '(Server-side)' : '(Client-side)'}</span>
+              <span className="font-medium">FFmpeg.wasm</span>
             </div>
             <div className="flex justify-between text-sm">
               <span>Output format:</span>
-              <span className="font-medium">{ffmpegSettings.transcodeFormat || 'MP4'} (H.264)</span>
+              <span className="font-medium">MP4 (H.264)</span>
             </div>
             <div className="flex justify-between text-sm">
               <span>Processing:</span>
-              <span className="font-medium">{ffmpegSettings.serverTranscoding ? 'Server-side' : 'Client-side'}</span>
+              <span className="font-medium">Client-side</span>
             </div>
             <div className="flex justify-between text-sm">
               <span>Supported inputs:</span>
@@ -292,9 +273,7 @@ const VideoPage = () => {
             </div>
           </div>
           <p className="text-xs text-muted-foreground mt-3">
-            Note: {ffmpegSettings.serverTranscoding ? 
-              'Server-side transcoding is enabled. This provides the best compatibility for special formats.' : 
-              'Server-side transcoding is disabled. Some formats may not play correctly.'}
+            Note: Processing large video files may take some time as encoding happens in your browser.
           </p>
         </div>
       </div>

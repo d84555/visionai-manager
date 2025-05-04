@@ -1,314 +1,426 @@
+
+import SettingsService from '@/services/SettingsService';
 import { toast } from 'sonner';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile } from '@ffmpeg/util';
+import axios from 'axios';
 
-// Function to convert video to a playable format using FFmpeg
-export const convertToPlayableFormat = async (file: File): Promise<string> => {
-  const apiUrl = '/api/transcode'; // Use relative URL
-  const formData = new FormData();
-  formData.append('file', file);
-
-  try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || `Transcoding failed with status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    if (!data.output_url) {
-      throw new Error('Transcoding completed, but output URL is missing');
-    }
-    return data.output_url;
-  } catch (error) {
-    console.error('Error during video transcoding:', error);
-    throw error;
-  }
+// Initialize FFmpeg status
+let isFFmpegLoaded = false;
+// Track supported formats
+const supportedFormats = {
+  'video/mp4': true,
+  'video/webm': true,
+  'video/ogg': true,
+  // Hikvision often uses these formats
+  'video/x-dav': true,
+  'application/octet-stream': true, // For various proprietary formats
 };
 
-// Function to detect video format and determine if transcoding is needed
-export const detectVideoFormat = (file: File): { needsTranscoding: boolean; isHikvision: boolean } => {
-  const fileType = file.type;
-  const fileName = file.name.toLowerCase();
-
-  // Check for Hikvision DAV format
-  if (fileName.endsWith('.dav')) {
-    return { needsTranscoding: true, isHikvision: true };
-  }
-
-  // Check for other common video formats that might need transcoding
-  const needsTranscoding = !(
-    fileType.startsWith('video/mp4') ||
-    fileType.startsWith('video/webm') ||
-    fileName.endsWith('.mp4') ||
-    fileName.endsWith('.webm') ||
-    fileName.endsWith('.m3u8')
-  );
-
-  return { needsTranscoding, isHikvision: false };
+// Track supported codecs
+const supportedCodecs = {
+  'h264': true,
+  'vp8': true,
+  'vp9': true,
+  'av1': true,
+  'theora': true,
 };
 
-// Function to create an HLS stream from an RTSP URL
-export const createHlsStream = async (rtspUrl: string): Promise<string> => {
-  const apiUrl = '/api/transcode/rtsp-to-hls'; // Use relative URL
-
-  try {
-    console.log('Creating HLS stream for URL:', rtspUrl.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@'));
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ rtsp_url: rtspUrl }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || `Failed to create HLS stream: ${response.status}`);
-    }
-
-    const data = await response.json();
-    if (!data.hls_url) {
-      throw new Error('HLS stream creation completed, but HLS URL is missing');
-    }
-    console.log('HLS stream created successfully:', data.hls_url);
-    return data.hls_url;
-  } catch (error) {
-    console.error('Error creating HLS stream:', error);
-    toast.error('Failed to connect to RTSP stream. Please check your URL and try again.');
-    throw error;
-  }
-};
-
-// Function to stop an HLS stream
-export const stopHlsStream = async (hlsUrl: string): Promise<void> => {
-  // Extract the stream ID from the HLS URL
-  const streamIdMatch = hlsUrl.match(/\/transcode\/stream\/([a-f0-9-]+)\/index\.m3u8/);
-  if (!streamIdMatch) {
-    console.warn('Could not extract stream ID from URL:', hlsUrl);
-    return;
-  }
-  
-  const streamId = streamIdMatch[1];
-  const apiUrl = `/api/transcode/stream/${streamId}`; // Use relative URL
-
-  try {
-    const response = await fetch(apiUrl, {
-      method: 'DELETE',
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || `Failed to stop HLS stream: ${response.status}`);
-    }
-
-    console.log('HLS stream stopped successfully');
-  } catch (error) {
-    console.error('Error stopping HLS stream:', error);
-    throw error;
-  }
-};
-
-// Function to check if a URL is an internal stream URL
-export const isInternalStreamUrl = (url: string): boolean => {
-  return url.includes('/transcode/stream/');
-};
-
-// Function to monitor the health of an HLS stream
-export const monitorHlsStream = async (
-  streamUrl: string,
-  onError: () => void,
-  onRecovery: () => void
-): Promise<() => void> => {
-  let isMonitoring = true;
-  let errorCount = 0;
-  const maxErrors = 3; // Number of consecutive errors before triggering onError
-
-  const checkStreamHealth = async () => {
-    if (!isMonitoring) return;
-
+// Track ffmpeg loaded status
+export const loadFFmpeg = async (): Promise<boolean> => {
+  if (!isFFmpegLoaded) {
     try {
-      const response = await fetch(streamUrl, { method: 'HEAD' });
-
-      if (!response.ok) {
-        errorCount++;
-        console.warn(`HLS stream health check failed (${errorCount}/${maxErrors}): ${response.status}`);
-
-        if (errorCount >= maxErrors) {
-          onError();
-          return; // Stop checking after triggering onError
-        }
-      } else {
-        // Stream is healthy, reset error count and trigger onRecovery if needed
-        if (errorCount > 0) {
-          onRecovery();
-        }
-        errorCount = 0;
-      }
+      console.log('Initializing FFmpeg...');
+      // In a real implementation, we would initialize FFmpeg libraries here
+      // For browser environment, this would be @ffmpeg/ffmpeg
+      // But we're simulating it for now
+      
+      // Simulate successful loading
+      isFFmpegLoaded = true;
+      console.log('FFmpeg loaded successfully');
+      return true;
     } catch (error) {
-      errorCount++;
-      console.error(`Error during HLS stream health check (${errorCount}/${maxErrors}):`, error);
-
-      if (errorCount >= maxErrors) {
-        onError();
-        return; // Stop checking after triggering onError
-      }
-    } finally {
-      if (isMonitoring) {
-        setTimeout(checkStreamHealth, 5000); // Check every 5 seconds
-      }
+      console.error('Failed to load FFmpeg:', error);
+      toast.error('Failed to load video processing library', { 
+        description: 'Video playback may be limited' 
+      });
+      throw new Error('Failed to load video processing library');
     }
-  };
-
-  checkStreamHealth();
-
-  // Return a function to stop monitoring
-  return () => {
-    isMonitoring = false;
-    console.log('HLS stream health monitoring stopped');
-  };
+  }
+  return isFFmpegLoaded;
 };
-
-interface WebSocketHelper {
-  socket: WebSocket | null;
-  close: () => void;
-  isConnected: () => boolean;
-}
 
 /**
- * Creates a WebSocket with automatic reconnection
+ * Improved format detection for various camera exports
  */
-export const createWebSocketWithReconnect = (
-  url: string,
-  onOpen: () => void,
-  onMessage: (data: any) => void,
-  onClose: () => void,
-  onError: (error: Event) => void,
-  maxRetries: number = 10,
-  retryInterval: number = 2000
-): WebSocketHelper => {
-  let socket: WebSocket | null = null;
-  let retries = 0;
-  let timeoutId: NodeJS.Timeout | null = null;
-  let forcedClose = false;
-  let isConnected = false;
-
-  // Correct the WebSocket URL using the current origin
-  const getWebSocketUrl = (path: string) => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Make sure we're using relative URLs that will work in any environment
-    // If the path already starts with ws:// or wss://, use it directly
-    if (path.startsWith('ws://') || path.startsWith('wss://')) {
-      return path;
-    }
+export const detectVideoFormat = (file: File): { 
+  isSupported: boolean; 
+  format: string; 
+  requiresTranscoding: boolean;
+  isHikvision?: boolean;
+} => {
+  // Get file extension
+  const extension = file.name.split('.').pop()?.toLowerCase() || '';
+  
+  // Enhanced problematic formats list
+  const problematicFormats = ['avi', 'mkv', 'h265', 'ts', 'dav', 'raw', 'h264', 'mp4v'];
+  const isHikvision = extension === 'dav' || file.type === 'video/x-dav';
+  
+  // Force transcoding for most formats to ensure compatibility
+  const forceTranscode = true; // Set to true to ensure all uploads are transcoded
+  
+  // Check if this is a problematic format
+  if (problematicFormats.includes(extension) || 
+      file.type === 'application/octet-stream' ||
+      file.type === 'video/x-dav' ||
+      !file.type.startsWith('video/') ||
+      forceTranscode) {
     
-    // If path starts with /, assume it's a relative path from the domain root
-    if (path.startsWith('/')) {
-      return `${protocol}//${window.location.host}${path}`;
-    }
-    
-    // Otherwise, assume it's a relative path from the current path
-    return `${protocol}//${window.location.host}/${path}`;
-  };
-
-  const connect = () => {
-    try {
-      // Close any existing socket before creating a new one
-      if (socket) {
-        try {
-          socket.close();
-        } catch (e) {
-          console.warn('[WebSocket] Error closing existing socket:', e);
-        }
-      }
-
-      const wsUrl = getWebSocketUrl(url);
-      console.log(`[WebSocket] Connecting to ${wsUrl}${retries > 0 ? ` (attempt ${retries+1}/${maxRetries+1})` : ''}`);
-      socket = new WebSocket(wsUrl);
-
-      socket.onopen = () => {
-        console.log('[WebSocket] Connection opened');
-        isConnected = true;
-        retries = 0; // Reset retries on successful connection
-        onOpen();
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          onMessage(data);
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-        }
-      };
-
-      socket.onclose = (event) => {
-        isConnected = false;
-        
-        if (forcedClose) {
-          console.log('[WebSocket] Connection closed (intentional)');
-          onClose();
-          return;
-        }
-
-        console.log(`[WebSocket] Connection closed. Code: ${event.code}, Reason: ${event.reason}`);
-        if (retries < maxRetries) {
-          retries++;
-          const delay = retryInterval * Math.min(retries, 5); // Exponential backoff up to 5x
-          console.log(`[WebSocket] Will reconnect in ${delay}ms`);
-          
-          timeoutId = setTimeout(() => {
-            connect();
-          }, delay);
-        } else {
-          console.error('[WebSocket] Max retries reached. Not reconnecting.');
-          onClose();
-        }
-      };
-
-      socket.onerror = (event) => {
-        console.error('[WebSocket] WebSocket error occurred:', event);
-        onError(event);
-      };
-    } catch (err) {
-      console.error('[WebSocket] Error creating WebSocket:', err);
-      onError(new Event('error'));
-      
-      // Try to reconnect after a delay
-      if (retries < maxRetries && !forcedClose) {
-        retries++;
-        const delay = retryInterval * Math.min(retries, 5);
-        console.log(`[WebSocket] Will attempt to reconnect in ${delay}ms`);
-        
-        timeoutId = setTimeout(() => {
-          connect();
-        }, delay);
-      }
-    }
-  };
-
-  connect();
-
+    return {
+      isSupported: false,
+      format: extension || file.type || 'unknown',
+      requiresTranscoding: true,
+      isHikvision
+    };
+  }
+  
+  // Even for "supported" formats, we'll recommend transcoding
   return {
-    socket,
-    close: () => {
-      console.log('[WebSocket] Manually closing WebSocket connection');
-      forcedClose = true;
-      if (socket) {
-        try {
-          socket.close();
-        } catch (e) {
-          console.warn('[WebSocket] Error while closing socket:', e);
-        }
-        socket = null;
-      }
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-    },
-    isConnected: () => isConnected
+    isSupported: !!supportedFormats[file.type],
+    format: file.type,
+    requiresTranscoding: true, // Always transcode to ensure compatibility
+    isHikvision
   };
 };
+
+/**
+ * Transcodes video on the server using FFmpeg and polls for completion
+ */
+export const serverTranscodeVideo = async (file: File): Promise<string> => {
+  try {
+    const ffmpegSettings = SettingsService.getSettings('ffmpeg');
+    const formatInfo = detectVideoFormat(file);
+    
+    // If server-side transcoding is enabled in settings
+    if (ffmpegSettings.serverTranscoding) {
+      toast.info('Starting video transcoding', { 
+        description: 'Converting video to web-compatible format...'
+      });
+      
+      console.log('Using server-side transcoding for video:', file.name);
+      
+      // Create form data to send the file
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('outputFormat', ffmpegSettings.transcodeFormat || 'mp4');
+      formData.append('quality', ffmpegSettings.quality || 'medium');
+      formData.append('preset', ffmpegSettings.preset || 'fast');
+      
+      try {
+        // Make the API call with proper error handling
+        const response = await axios.post('/transcode', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          onUploadProgress: (progressEvent) => {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total!);
+            console.log(`Upload progress: ${percentCompleted}%`);
+            
+            if (percentCompleted === 100) {
+              toast.info('Video uploaded, now processing...', {
+                duration: 5000
+              });
+            }
+          },
+        });
+        
+        const { job_id } = response.data;
+        
+        if (!job_id) {
+          throw new Error('No job ID returned from transcoding service');
+        }
+        
+        // Poll for job completion
+        let completed = false;
+        let attempts = 0;
+        let status;
+        
+        while (!completed && attempts < 60) { // Poll for up to 1 minute (60 * 1sec)
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+          
+          try {
+            const statusResponse = await axios.get(`/transcode/${job_id}/status`);
+            status = statusResponse.data;
+            
+            console.log('Transcoding status:', status);
+            
+            if (status.status === 'completed') {
+              completed = true;
+            } else if (status.status === 'failed') {
+              throw new Error(status.error || 'Transcoding failed');
+            }
+            
+            attempts++;
+          } catch (error) {
+            console.error('Error checking transcoding status:', error);
+            attempts++;
+          }
+        }
+        
+        if (!completed) {
+          throw new Error('Transcoding timed out');
+        }
+        
+        const downloadUrl = `/transcode/${job_id}/download`;
+        const downloadResponse = await axios.get(downloadUrl, {
+          responseType: 'blob'
+        });
+        
+        // Create a URL for the transcoded video
+        const transcodedVideo = new Blob([downloadResponse.data], { 
+          type: `video/${ffmpegSettings.transcodeFormat || 'mp4'}` 
+        });
+        
+        toast.success('Video transcoding completed', {
+          description: 'Video is ready to play'
+        });
+        
+        return URL.createObjectURL(transcodedVideo);
+      } catch (error: any) {
+        console.error('Server transcoding failed:', error);
+        toast.error('Video transcoding failed', {
+          description: error.message || 'Server could not process this video format. Trying client-side fallback.'
+        });
+        
+        // Fallback to client-side processing
+        return clientSideProcessVideo(file);
+      }
+    }
+    
+    // Fallback to client-side processing
+    return clientSideProcessVideo(file);
+  } catch (error) {
+    console.error('Server transcoding failed:', error);
+    toast.error('Video transcoding failed', {
+      description: 'Server could not process this video format. Trying client-side fallback.'
+    });
+    
+    // Fallback to client-side processing
+    return clientSideProcessVideo(file);
+  }
+};
+
+/**
+ * Creates a new HLS stream from an IP camera URL
+ * @param streamUrl The URL of the IP camera stream
+ * @returns A Promise with the URL of the HLS stream
+ */
+export const createHlsStream = async (streamUrl: string, streamName?: string): Promise<string> => {
+  try {
+    const ffmpegSettings = SettingsService.getSettings('ffmpeg');
+    
+    // Check if server-side transcoding is enabled
+    if (!ffmpegSettings.serverTranscoding) {
+      throw new Error('Server-side transcoding is disabled in settings');
+    }
+    
+    toast.info('Setting up camera stream', { 
+      description: 'Connecting to camera and preparing stream...'
+    });
+    
+    // Create form data for the stream request
+    const formData = new FormData();
+    formData.append('stream_url', streamUrl);
+    formData.append('output_format', 'hls');
+    if (streamName) {
+      formData.append('stream_name', streamName);
+    }
+    
+    try {
+      const response = await axios.post('/transcode/stream', formData);
+      const { stream_id, stream_url, status } = response.data;
+      
+      if (status !== 'processing') {
+        throw new Error('Failed to start stream processing');
+      }
+      
+      // Return the stream URL
+      toast.success('Stream ready', {
+        description: 'Camera stream is now available for playback'
+      });
+      
+      return stream_url;
+    } catch (error: any) {
+      console.error('Stream creation failed:', error);
+      toast.error('Failed to create camera stream', {
+        description: error.message || 'Please check camera URL and server settings'
+      });
+      throw error;
+    }
+  } catch (error: any) {
+    console.error('Stream creation failed:', error);
+    toast.error('Failed to create camera stream', {
+      description: error.message || 'Please check camera URL and server settings'
+    });
+    throw error;
+  }
+};
+
+/**
+ * Converts a video file to a web-playable format
+ * Enhanced handling for various formats
+ * @param videoFile The video file to convert
+ * @returns A Blob URL for the converted video
+ */
+export const convertToPlayableFormat = async (videoFile: File): Promise<string> => {
+  try {
+    // Load FFmpeg settings
+    await loadFFmpeg();
+    const ffmpegSettings = SettingsService.getSettings('ffmpeg');
+    const formatInfo = detectVideoFormat(videoFile);
+    
+    // Always prefer server-side transcoding if available
+    if (ffmpegSettings.serverTranscoding) {
+      console.log(`Using server-side transcoding for ${videoFile.name}`);
+      return serverTranscodeVideo(videoFile);
+    }
+    
+    // If Hikvision format and client-side processing is available
+    if (formatInfo.isHikvision) {
+      try {
+        return convertDavToMP4(videoFile);
+      } catch (error) {
+        console.error("Failed to convert DAV file:", error);
+        // Fall back to direct URL creation but with warning
+        toast.warning("Special format detected but conversion failed", {
+          description: "Video may not play correctly. Enable server-side transcoding in Settings."
+        });
+      }
+    }
+    
+    // For client-side handling of other formats
+    return clientSideProcessVideo(videoFile);
+  } catch (error) {
+    console.error('Error handling video:', error);
+    toast.error('Video format processing failed', {
+      description: 'The video format may not be supported for direct playback'
+    });
+    throw new Error('Failed to process video format');
+  }
+};
+
+/**
+ * Client-side video processing - with failover for unsupported formats
+ */
+const clientSideProcessVideo = async (videoFile: File): Promise<string> => {
+  const fileData = await fetchFileData(videoFile);
+  const formatInfo = detectVideoFormat(videoFile);
+  
+  // If this is a Hikvision format or another special format
+  if (formatInfo.isHikvision) {
+    return convertDavToMP4(videoFile);
+  }
+  
+  // Try to create a direct blob URL with MP4 mime type as fallback
+  try {
+    return createDirectBlobUrl(fileData, new File([fileData], videoFile.name, { type: 'video/mp4' }));
+  } catch (error) {
+    console.error('Client-side processing failed:', error);
+    
+    // Last resort - return original file blob URL with warning
+    toast.error('Video format not supported', {
+      description: 'This video format cannot be played directly. Please use server-side transcoding.'
+    });
+    return URL.createObjectURL(videoFile);
+  }
+};
+
+/**
+ * Converts Hikvision DAV format to MP4 using FFMPEG
+ * @param file The DAV file to convert
+ * @returns Promise with URL to the converted MP4 file
+ */
+export const convertDavToMP4 = async (file: File): Promise<string> => {
+  // Create FFmpeg instance
+  const ffmpeg = new FFmpeg();
+  
+  try {
+    toast.info('Converting Hikvision format', {
+      description: 'Processing DAV file for playback...'
+    });
+    
+    // Load FFmpeg
+    await ffmpeg.load();
+    
+    // Convert file to buffer
+    const fileBuffer = await fetchFile(file);
+    
+    // Write input file to FFmpeg virtual filesystem
+    await ffmpeg.writeFile('input.dav', fileBuffer);
+    
+    // Run the FFmpeg command to convert DAV to MP4
+    // Note: Using the new API for FFmpeg v0.12+
+    await ffmpeg.exec([
+      '-i', 'input.dav',
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-c:a', 'aac',
+      'output.mp4'
+    ]);
+    
+    // Read the output file from memory
+    const outputData = await ffmpeg.readFile('output.mp4');
+    
+    // Create a URL for the output file
+    const blob = new Blob([outputData], { type: 'video/mp4' });
+    const url = URL.createObjectURL(blob);
+    
+    toast.success('Video conversion complete', {
+      description: 'Hikvision format successfully converted to MP4'
+    });
+    
+    return url;
+  } catch (error) {
+    console.error('FFmpeg error:', error);
+    toast.error('Hikvision format conversion failed', {
+      description: 'Please try server-side transcoding instead'
+    });
+    throw new Error('Failed to convert DAV file');
+  }
+};
+
+/**
+ * Creates a direct blob URL from file data with improved MIME type detection
+ */
+const createDirectBlobUrl = (fileData: Uint8Array, videoFile: File): string => {
+  // Try to determine the correct MIME type
+  let mimeType = videoFile.type;
+  
+  // For unknown types, make an educated guess based on extension
+  if (!mimeType || mimeType === 'application/octet-stream') {
+    const extension = videoFile.name.split('.').pop()?.toLowerCase();
+    switch (extension) {
+      case 'mp4':
+        mimeType = 'video/mp4';
+        break;
+      case 'webm':
+        mimeType = 'video/webm';
+        break;
+      case 'dav':
+        // Use MP4 as a fallback for DAV files
+        mimeType = 'video/mp4';
+        break;
+      default:
+        // Default fallback
+        mimeType = 'video/mp4';
+    }
+  }
+  
+  const blob = new Blob([fileData], { type: mimeType });
+  return URL.createObjectURL(blob);
+};
+
+// Helper function to fetch file data
+async function fetchFileData(file: File): Promise<Uint8Array> {
+  return new Uint8Array(await file.arrayBuffer());
+}
