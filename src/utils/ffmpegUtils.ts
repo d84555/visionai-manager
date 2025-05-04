@@ -1,6 +1,6 @@
 
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile } from '@ffmpeg/util';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import axios from 'axios';
 import SettingsService from '../services/SettingsService';
 
@@ -110,34 +110,50 @@ async function sendToServerTranscoder(file: File): Promise<string> {
 // Client-side transcoding using FFmpeg.wasm
 async function transcodeClientSide(file: File, formatInfo: any): Promise<string> {
   const settings = getFFmpegSettings();
-  const ffmpeg = new FFmpeg({
-    log: true,
-    corePath: settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-  });
+  
+  // Create FFmpeg instance without configuration (it will be configured in load method)
+  const ffmpeg = new FFmpeg();
   
   try {
-    await ffmpeg.load();
+    // Get core URL from settings or use default
+    const coreURL = await toBlobURL(
+      settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+      'text/javascript'
+    );
+    
+    // Load FFmpeg with the correct configuration
+    await ffmpeg.load({
+      coreURL,
+      wasmURL: settings.wasmPath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.wasm',
+    });
     
     const inputFileName = 'input_file';
     const outputFileName = 'output.mp4';
     
-    ffmpeg.FS('writeFile', inputFileName, await fetchFile(file));
+    // Write input file to memory
+    await ffmpeg.writeFile(inputFileName, await fetchFile(file));
     
-    await ffmpeg.run(
+    // Run FFmpeg command with the correct arguments
+    await ffmpeg.exec([
       '-i', inputFileName,
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-c:a', 'aac',
       '-strict', 'experimental',
       outputFileName
-    );
+    ]);
     
-    const data = ffmpeg.FS('readFile', outputFileName);
-    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    // Read the output file
+    const data = await ffmpeg.readFile(outputFileName);
+    const blob = new Blob([data], { type: 'video/mp4' });
     
     // Clean up files
-    ffmpeg.FS('unlink', inputFileName);
-    ffmpeg.FS('unlink', outputFileName);
+    try {
+      await ffmpeg.deleteFile(inputFileName);
+      await ffmpeg.deleteFile(outputFileName);
+    } catch (e) {
+      console.warn('Error cleaning up FFmpeg files:', e);
+    }
     
     return URL.createObjectURL(blob);
   } catch (error) {
