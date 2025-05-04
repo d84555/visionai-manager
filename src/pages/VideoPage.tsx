@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { VideoIcon, Camera, AlertTriangle } from 'lucide-react';
@@ -147,7 +146,10 @@ const VideoPage = () => {
       </div>
       
       {!ffmpegSettings.serverTranscoding && (
-        <Alert variant="warning" className="bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-900/50">
+        <Alert 
+          variant="destructive" 
+          className="bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-900/50"
+        >
           <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
           <AlertTitle>Server-side transcoding is disabled</AlertTitle>
           <AlertDescription>

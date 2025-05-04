@@ -32,16 +32,20 @@ os.environ["MODELS_DIR"] = models_dir
 logger.info(f"Using models directory: {models_dir}")
 
 # Set FFmpeg binary path from environment variable or use default
-ffmpeg_binary_path = os.environ.get("FFMPEG_BINARY_PATH", "ffmpeg")
+# Using a more reliable default path that's common on many Linux systems
+ffmpeg_binary_path = os.environ.get("FFMPEG_BINARY_PATH", "/usr/bin/ffmpeg")
+if not os.path.exists(ffmpeg_binary_path):
+    logger.warning(f"FFmpeg binary not found at {ffmpeg_binary_path}, falling back to system path")
+    ffmpeg_binary_path = "ffmpeg"  # Fall back to system path if not found
 os.environ["FFMPEG_BINARY_PATH"] = ffmpeg_binary_path
 logger.info(f"Using FFmpeg binary path: {ffmpeg_binary_path}")
 
-# Include routers
+# Include routers - IMPORTANT: Do not add prefixes to transcode router
 app.include_router(inference.router)
 app.include_router(models.router)    
 app.include_router(websocket.router)
 app.include_router(health.router)
-app.include_router(transcode.router)  # Important: Include the transcode router directly without any prefix
+app.include_router(transcode.router)  # No prefix, will use routes directly as defined in router
 
 @app.get("/")
 async def root():
