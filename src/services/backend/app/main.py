@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
 import logging
-from app.routers import websocket, health, inference, models
+from app.routers import inference, models, websocket, health, transcode
 
 # Configure logging
 logging.basicConfig(
@@ -36,12 +36,12 @@ ffmpeg_binary_path = os.environ.get("FFMPEG_BINARY_PATH", "ffmpeg")
 os.environ["FFMPEG_BINARY_PATH"] = ffmpeg_binary_path
 logger.info(f"Using FFmpeg binary path: {ffmpeg_binary_path}")
 
-# Make sure inference router is included before websocket router
-# because websocket router depends on inference module's classes and functions
+# Include routers
 app.include_router(inference.router)
 app.include_router(models.router)    
 app.include_router(websocket.router)
 app.include_router(health.router)
+app.include_router(transcode.router)  # Important: Include the transcode router directly without any prefix
 
 @app.get("/")
 async def root():
