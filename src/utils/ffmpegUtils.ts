@@ -184,8 +184,8 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     
     console.log('Stream response received:', response.data);
     
-    if (response.data.status === 'initializing') {
-      console.log('Stream is initializing, waiting for HLS files to be created...');
+    if (response.data.status === 'initializing' || response.data.status === 'streaming') {
+      console.log(`Stream is ${response.data.status}, waiting for HLS files to be created...`);
       
       // Wait for HLS files to be created with exponential backoff
       const streamUrl = response.data.stream_url;
@@ -205,13 +205,13 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
 // Helper function to wait for HLS files to be created
 async function waitForHlsFiles(url: string): Promise<void> {
   let attempts = 0;
-  const maxAttempts = 45;  // Increased from 30 to 45
-  const initialDelay = 300; // Start with 300ms delay instead of 500ms
+  const maxAttempts = 60;  // Increased from 45 to 60
+  const initialDelay = 250; // Start with 250ms delay
   
   while (attempts < maxAttempts) {
     try {
       // Try to fetch the m3u8 manifest
-      const delay = initialDelay * Math.pow(1.2, attempts); // Using 1.2 exponent for smoother backoff
+      const delay = initialDelay * Math.pow(1.1, attempts); // Gentler exponential backoff
       await new Promise(resolve => setTimeout(resolve, delay));
       
       console.log(`Attempt ${attempts + 1}/${maxAttempts}: Checking if HLS manifest exists at ${url}`);
@@ -226,7 +226,7 @@ async function waitForHlsFiles(url: string): Promise<void> {
         console.log(`HLS manifest found after ${attempts + 1} attempts`);
         
         // Check if it contains segment references (a more reliable test)
-        if (response.data && response.data.includes(".ts")) {
+        if (response.data && (response.data.includes(".ts") || response.data.includes("#EXTINF"))) {
           console.log("HLS manifest contains segment references, stream is ready");
           return;
         } else {

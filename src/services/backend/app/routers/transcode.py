@@ -216,37 +216,62 @@ async def download_transcoded_file(job_id: str):
         headers={"Content-Disposition": f"attachment; filename=transcoded.{file_format}"}
     )
 
-async def wait_for_hls_files(stream_dir: str, max_wait_time: int = 15) -> bool:
+async def wait_for_hls_files(stream_dir: str, max_wait_time: int = 20) -> bool:
     """
     Wait for HLS files to be created before returning success
-    Now checks for index.m3u8, index.m3u8.tmp, or any .ts segment files
+    Checks for any of: index.m3u8, index.m3u8.tmp, or any .ts segment files
     Returns True if any of these files were created within the timeout period
     """
     start_time = time.time()
     
     logger.info(f"Waiting for HLS files in {stream_dir}")
     
+    # Log initial directory state
+    try:
+        initial_files = os.listdir(stream_dir)
+        logger.info(f"Initial directory contents: {initial_files}")
+    except Exception as e:
+        logger.error(f"Error listing directory contents: {e}")
+    
+    check_count = 0
     while time.time() - start_time < max_wait_time:
-        # Check for .m3u8, .m3u8.tmp or any .ts segments
-        index_file = os.path.join(stream_dir, "index.m3u8")
-        tmp_index_file = os.path.join(stream_dir, "index.m3u8.tmp")
+        check_count += 1
         
-        if os.path.exists(index_file):
-            logger.info(f"✅ HLS index file created at {index_file}")
-            return True
-            
-        if os.path.exists(tmp_index_file):
-            logger.info(f"✅ HLS temporary index file created at {tmp_index_file}")
-            return True
+        # Every few checks, log directory contents to help troubleshoot
+        if check_count % 3 == 0:
+            try:
+                current_files = os.listdir(stream_dir)
+                logger.info(f"Current directory contents after {int(time.time() - start_time)}s: {current_files}")
+            except Exception as e:
+                logger.error(f"Error listing directory contents: {e}")
         
-        # Check for any .ts segments
+        # Check for any .ts segments first (most reliable indicator)
         ts_segments = list(Path(stream_dir).glob("*.ts"))
         if ts_segments:
             logger.info(f"✅ HLS segment files created: {[s.name for s in ts_segments[:3]]}...")
             return True
         
-        # Short sleep before checking again
-        await asyncio.sleep(0.5)
+        # Check for .m3u8 file
+        index_file = os.path.join(stream_dir, "index.m3u8")
+        if os.path.exists(index_file):
+            logger.info(f"✅ HLS index file created at {index_file}")
+            return True
+        
+        # Check for .m3u8.tmp file
+        tmp_index_file = os.path.join(stream_dir, "index.m3u8.tmp")
+        if os.path.exists(tmp_index_file):
+            logger.info(f"✅ HLS temporary index file created at {tmp_index_file}")
+            return True
+        
+        # Short sleep before checking again (using a shorter interval)
+        await asyncio.sleep(0.3)
+    
+    # One final directory listing to debug timeout cases
+    try:
+        final_files = os.listdir(stream_dir)
+        logger.error(f"❌ Timeout waiting for HLS files. Final directory contents: {final_files}")
+    except Exception as e:
+        logger.error(f"Error listing directory on timeout: {e}")
     
     logger.error(f"❌ Timeout waiting for HLS files in {stream_dir}")
     return False
@@ -328,7 +353,7 @@ async def start_stream_process(stream_id: str, input_url: str, output_path: str,
     try:
         # Build FFmpeg command for HLS streaming with improved options
         if output_format == "hls":
-            # Modified command with parameters for reliable real-time HLS streaming
+            # Enhanced command with parameters for reliable real-time HLS streaming
             cmd = [
                 ffmpeg_binary_path,
                 # Input options for low latency
@@ -351,11 +376,13 @@ async def start_stream_process(stream_id: str, input_url: str, output_path: str,
                 
                 # HLS specific options
                 "-f", "hls",
-                "-hls_time", "2",               # 2-second segments
+                "-hls_time", "1",               # 1-second segments (reduced from 2s for faster startup)
                 "-hls_list_size", "6",          # Keep 6 segments in playlist
-                "-hls_flags", "delete_segments+append_list+discont_start+temp_file", # Added temp_file flag
+                "-hls_flags", "delete_segments+append_list+discont_start+temp_file",
                 "-hls_segment_type", "mpegts",
                 "-start_number", "0",
+                "-hls_allow_cache", "0",        # Disable caching
+                "-flush_packets", "1",          # Flush packets immediately
                 
                 # Output file paths
                 "-hls_segment_filename", f"{os.path.dirname(output_path)}/segment_%03d.ts",
@@ -378,7 +405,6 @@ async def start_stream_process(stream_id: str, input_url: str, output_path: str,
         logger.info(f"Running FFmpeg stream command: {' '.join(cmd)}")
         
         # Run FFmpeg in non-blocking mode with proper buffering settings
-        # bufsize=1 ensures line buffering which helps with real-time output
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -492,7 +518,6 @@ async def get_stream_file(stream_id: str, file_name: str):
     if not os.path.exists(file_path):
         if file_name == "index.m3u8":
             logger.warning(f"Stream file not found: {file_path}")
-            status_path = os.path.join(stream_dir, "status.json")
             
             # Check if temporary m3u8 file exists
             temp_m3u8_path = os.path.join(stream_dir, "index.m3u8.tmp")
@@ -510,14 +535,27 @@ async def get_stream_file(stream_id: str, file_name: str):
             ts_segments = list(Path(stream_dir).glob("*.ts"))
             if ts_segments:
                 # We have segments but no playlist - this is a temporary state
-                # Return a 202 Accepted to tell the client to retry
+                # Generate a simple M3U8 playlist on the fly with the existing segments
+                segments = [s.name for s in sorted(ts_segments)]
+                
+                # Create a basic HLS playlist pointing to existing segments
+                playlist_content = "#EXTM3U\n"
+                playlist_content += "#EXT-X-VERSION:3\n"
+                playlist_content += "#EXT-X-TARGETDURATION:2\n"
+                playlist_content += "#EXT-X-MEDIA-SEQUENCE:0\n"
+                
+                for segment in segments:
+                    playlist_content += f"#EXTINF:1.0,\n{segment}\n"
+                
+                logger.info(f"Generated temporary playlist with {len(segments)} segments")
+                
                 return Response(
-                    content="Stream initializing, please retry",
-                    status_code=202,
-                    media_type="text/plain"
+                    content=playlist_content,
+                    media_type="application/vnd.apple.mpegurl"
                 )
             
             # Check status file
+            status_path = os.path.join(stream_dir, "status.json")
             if os.path.exists(status_path):
                 with open(status_path, "r") as f:
                     try:
