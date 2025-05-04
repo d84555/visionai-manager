@@ -1,4 +1,3 @@
-
 import SettingsService from '@/services/SettingsService';
 import { toast } from 'sonner';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -116,85 +115,78 @@ export const serverTranscodeVideo = async (file: File): Promise<string> => {
       formData.append('quality', ffmpegSettings.quality || 'medium');
       formData.append('preset', ffmpegSettings.preset || 'fast');
       
-      try {
-        // Make the API call to /transcode endpoint (no /api prefix)
-        const response = await axios.post('/transcode', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-          onUploadProgress: (progressEvent) => {
-            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total!);
-            console.log(`Upload progress: ${percentCompleted}%`);
-            
-            if (percentCompleted === 100) {
-              toast.info('Video uploaded, now processing...', {
-                duration: 5000
-              });
-            }
-          },
-        });
-        
-        const { job_id } = response.data;
-        
-        if (!job_id) {
-          throw new Error('No job ID returned from transcoding service');
-        }
-        
-        // Poll for job completion
-        let completed = false;
-        let attempts = 0;
-        let status;
-        
-        while (!completed && attempts < 60) { // Poll for up to 1 minute (60 * 1sec)
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+      // Fix: Use the correct API endpoint without /api prefix 
+      // since FastAPI is handling the routes directly
+      const response = await axios.post('/transcode', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total!);
+          console.log(`Upload progress: ${percentCompleted}%`);
           
-          try {
-            const statusResponse = await axios.get(`/transcode/${job_id}/status`);
-            status = statusResponse.data;
-            
-            console.log('Transcoding status:', status);
-            
-            if (status.status === 'completed') {
-              completed = true;
-            } else if (status.status === 'failed') {
-              throw new Error(status.error || 'Transcoding failed');
-            }
-            
-            attempts++;
-          } catch (error) {
-            console.error('Error checking transcoding status:', error);
-            attempts++;
+          if (percentCompleted === 100) {
+            toast.info('Video uploaded, now processing...', {
+              duration: 5000
+            });
           }
-        }
-        
-        if (!completed) {
-          throw new Error('Transcoding timed out');
-        }
-        
-        const downloadUrl = `/transcode/${job_id}/download`;
-        const downloadResponse = await axios.get(downloadUrl, {
-          responseType: 'blob'
-        });
-        
-        // Create a URL for the transcoded video
-        const transcodedVideo = new Blob([downloadResponse.data], { 
-          type: `video/${ffmpegSettings.transcodeFormat || 'mp4'}` 
-        });
-        
-        toast.success('Video transcoding completed', {
-          description: 'Video is ready to play'
-        });
-        
-        return URL.createObjectURL(transcodedVideo);
-      } catch (error: any) {
-        console.error('Server transcoding failed:', error);
-        toast.error('Video transcoding failed', {
-          description: error.message || 'Server could not process this video format. Trying client-side fallback.'
-        });
-        
-        // Fallback to client-side processing
-        return clientSideProcessVideo(file);
+        },
+      });
+      
+      const { job_id } = response.data;
+      
+      if (!job_id) {
+        throw new Error('No job ID returned from transcoding service');
       }
+      
+      // Poll for job completion
+      let completed = false;
+      let attempts = 0;
+      let status;
+      
+      while (!completed && attempts < 60) { // Poll for up to 1 minute (60 * 1sec)
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        
+        try {
+          // Fix: Use the correct API endpoint without /api prefix
+          const statusResponse = await axios.get(`/transcode/${job_id}/status`);
+          status = statusResponse.data;
+          
+          console.log('Transcoding status:', status);
+          
+          if (status.status === 'completed') {
+            completed = true;
+          } else if (status.status === 'failed') {
+            throw new Error(status.error || 'Transcoding failed');
+          }
+          
+          attempts++;
+        } catch (error) {
+          console.error('Error checking transcoding status:', error);
+          attempts++;
+        }
+      }
+      
+      if (!completed) {
+        throw new Error('Transcoding timed out');
+      }
+      
+      // Fix: Use the correct API endpoint without /api prefix
+      const downloadUrl = `/transcode/${job_id}/download`;
+      const downloadResponse = await axios.get(downloadUrl, {
+        responseType: 'blob'
+      });
+      
+      // Create a URL for the transcoded video
+      const transcodedVideo = new Blob([downloadResponse.data], { 
+        type: `video/${ffmpegSettings.transcodeFormat || 'mp4'}` 
+      });
+      
+      toast.success('Video transcoding completed', {
+        description: 'Video is ready to play'
+      });
+      
+      return URL.createObjectURL(transcodedVideo);
     }
     
     // Fallback to client-side processing
@@ -236,50 +228,24 @@ export const createHlsStream = async (streamUrl: string, streamName?: string): P
       formData.append('stream_name', streamName);
     }
     
-    try {
-      // Updated endpoint to match backend route - /transcode/stream
-      const response = await axios.post('/transcode/stream', formData);
-      const { stream_id, stream_url, status } = response.data;
-      
-      if (status !== 'processing') {
-        throw new Error('Failed to start stream processing');
-      }
-      
-      // Return the stream URL
-      toast.success('Stream ready', {
-        description: 'Camera stream is now available for playback'
-      });
-      
-      return stream_url;
-    } catch (error: any) {
-      console.error('Stream creation failed:', error);
-      
-      // Improved error messages with troubleshooting suggestions
-      if (error.response) {
-        if (error.response.status === 404) {
-          toast.error('Stream creation failed: Endpoint not found', {
-            description: 'The transcoding service may not be running or is unreachable. Check server logs.'
-          });
-        } else {
-          toast.error(`Stream creation failed: Server returned ${error.response.status}`, {
-            description: error.response.data?.message || 'Check camera URL format and server settings'
-          });
-        }
-      } else if (error.request) {
-        toast.error('Stream creation failed: No response from server', {
-          description: 'The server may be down or unreachable. Check network connection.'
-        });
-      } else {
-        toast.error('Stream creation failed', {
-          description: error.message || 'Please check camera URL and server settings'
-        });
-      }
-      throw error;
+    // Fix: Use the correct API endpoint without /api prefix
+    const response = await axios.post('/stream', formData);
+    const { stream_id, stream_url, status } = response.data;
+    
+    if (status !== 'processing') {
+      throw new Error('Failed to start stream processing');
     }
-  } catch (error: any) {
+    
+    // Return the stream URL
+    toast.success('Stream ready', {
+      description: 'Camera stream is now available for playback'
+    });
+    
+    return stream_url;
+  } catch (error) {
     console.error('Stream creation failed:', error);
     toast.error('Failed to create camera stream', {
-      description: error.message || 'Please check camera URL and server settings'
+      description: 'Please check camera URL and server settings'
     });
     throw error;
   }

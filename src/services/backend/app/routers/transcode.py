@@ -10,8 +10,8 @@ from pathlib import Path
 import time
 import json
 
-# Define the router with no prefix - we'll use routes like /transcode and /transcode/stream directly
 router = APIRouter(
+    prefix="/transcode",
     tags=["transcode"],
     responses={404: {"description": "Not found"}},
 )
@@ -212,7 +212,7 @@ async def download_transcoded_file(job_id: str):
         headers={"Content-Disposition": f"attachment; filename=transcoded.{file_format}"}
     )
 
-@router.post("/transcode/stream", status_code=202)
+@router.post("/stream", status_code=202)
 async def create_stream(
     backgroundTasks: BackgroundTasks,
     stream_url: str = Form(...),
@@ -259,7 +259,7 @@ async def create_stream(
     )
     
     # Construct the public URL for the stream
-    stream_url = f"/transcode/stream/{stream_id}/index.m3u8"
+    stream_url = f"/api/transcode/stream/{stream_id}/index.m3u8"
     
     return {
         "stream_id": stream_id, 
@@ -342,7 +342,7 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 "error": str(e)
             }, f)
 
-@router.get("/transcode/stream/{stream_id}/{file_name}")
+@router.get("/stream/{stream_id}/{file_name}")
 async def get_stream_file(stream_id: str, file_name: str):
     """
     Serve HLS stream files
