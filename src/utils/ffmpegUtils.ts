@@ -205,14 +205,16 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
 // Helper function to wait for HLS files to be created
 async function waitForHlsFiles(url: string): Promise<void> {
   let attempts = 0;
-  const maxAttempts = 10;
+  const maxAttempts = 30;  // Increased from 10 to 30
   const initialDelay = 500; // Start with 500ms delay
   
   while (attempts < maxAttempts) {
     try {
       // Try to fetch the m3u8 manifest
-      const delay = initialDelay * Math.pow(1.5, attempts); // Exponential backoff
+      const delay = initialDelay * Math.pow(1.3, attempts); // Exponential backoff
       await new Promise(resolve => setTimeout(resolve, delay));
+      
+      console.log(`Attempt ${attempts + 1}/${maxAttempts}: Checking if HLS manifest exists at ${url}`);
       
       const response = await axios.get(url, { 
         responseType: 'text',
@@ -222,7 +224,14 @@ async function waitForHlsFiles(url: string): Promise<void> {
       if (response.status === 200) {
         // If we get a valid response, the file exists
         console.log(`HLS manifest found after ${attempts + 1} attempts`);
-        return;
+        
+        // Check if it contains segment references (a more reliable test)
+        if (response.data && response.data.includes(".ts")) {
+          console.log("HLS manifest contains segment references, stream is ready");
+          return;
+        } else {
+          console.log("HLS manifest found but contains no segments yet, continuing to wait...");
+        }
       }
       
       if (response.status === 202) {
