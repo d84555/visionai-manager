@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -12,6 +11,7 @@ import time
 import json
 import asyncio
 from typing import Optional
+import glob  # Add glob import for better file checking
 
 # Define the router with no prefix but explicitly setting the correct tags
 router = APIRouter(
@@ -219,16 +219,27 @@ async def download_transcoded_file(job_id: str):
 async def wait_for_hls_files(stream_dir: str, max_wait_time: int = 15) -> bool:
     """
     Wait for HLS files to be created before returning success
-    Specifically looks for TS segment files, not just the index.m3u8
-    Returns True if files were created within the timeout period
+    Now checks for index.m3u8, index.m3u8.tmp, or any .ts segment files
+    Returns True if any of these files were created within the timeout period
     """
-    segment_file_pattern = os.path.join(stream_dir, "segment_*.ts")
     start_time = time.time()
     
-    logger.info(f"Waiting for HLS segment files in {stream_dir}")
+    logger.info(f"Waiting for HLS files in {stream_dir}")
     
     while time.time() - start_time < max_wait_time:
-        # Check if any .ts segments exist (this is more reliable than checking for index.m3u8)
+        # Check for .m3u8, .m3u8.tmp or any .ts segments
+        index_file = os.path.join(stream_dir, "index.m3u8")
+        tmp_index_file = os.path.join(stream_dir, "index.m3u8.tmp")
+        
+        if os.path.exists(index_file):
+            logger.info(f"✅ HLS index file created at {index_file}")
+            return True
+            
+        if os.path.exists(tmp_index_file):
+            logger.info(f"✅ HLS temporary index file created at {tmp_index_file}")
+            return True
+        
+        # Check for any .ts segments
         ts_segments = list(Path(stream_dir).glob("*.ts"))
         if ts_segments:
             logger.info(f"✅ HLS segment files created: {[s.name for s in ts_segments[:3]]}...")
@@ -342,7 +353,7 @@ async def start_stream_process(stream_id: str, input_url: str, output_path: str,
                 "-f", "hls",
                 "-hls_time", "2",               # 2-second segments
                 "-hls_list_size", "6",          # Keep 6 segments in playlist
-                "-hls_flags", "delete_segments+append_list+discont_start", # Important flags!
+                "-hls_flags", "delete_segments+append_list+discont_start+temp_file", # Added temp_file flag
                 "-hls_segment_type", "mpegts",
                 "-start_number", "0",
                 
@@ -482,6 +493,18 @@ async def get_stream_file(stream_id: str, file_name: str):
         if file_name == "index.m3u8":
             logger.warning(f"Stream file not found: {file_path}")
             status_path = os.path.join(stream_dir, "status.json")
+            
+            # Check if temporary m3u8 file exists
+            temp_m3u8_path = os.path.join(stream_dir, "index.m3u8.tmp")
+            if os.path.exists(temp_m3u8_path):
+                logger.info(f"Found temporary m3u8 file: {temp_m3u8_path}")
+                # If we have a temporary file, return it instead
+                with open(temp_m3u8_path, "rb") as f:
+                    content = f.read()
+                return Response(
+                    content=content,
+                    media_type="application/vnd.apple.mpegurl"
+                )
             
             # Check if any TS segments exist even if index doesn't yet
             ts_segments = list(Path(stream_dir).glob("*.ts"))

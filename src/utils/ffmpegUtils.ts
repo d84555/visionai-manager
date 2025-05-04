@@ -205,13 +205,13 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
 // Helper function to wait for HLS files to be created
 async function waitForHlsFiles(url: string): Promise<void> {
   let attempts = 0;
-  const maxAttempts = 30;  // Increased from 10 to 30
-  const initialDelay = 500; // Start with 500ms delay
+  const maxAttempts = 45;  // Increased from 30 to 45
+  const initialDelay = 300; // Start with 300ms delay instead of 500ms
   
   while (attempts < maxAttempts) {
     try {
       // Try to fetch the m3u8 manifest
-      const delay = initialDelay * Math.pow(1.3, attempts); // Exponential backoff
+      const delay = initialDelay * Math.pow(1.2, attempts); // Using 1.2 exponent for smoother backoff
       await new Promise(resolve => setTimeout(resolve, delay));
       
       console.log(`Attempt ${attempts + 1}/${maxAttempts}: Checking if HLS manifest exists at ${url}`);
@@ -242,6 +242,11 @@ async function waitForHlsFiles(url: string): Promise<void> {
     } catch (error) {
       console.log(`Attempt ${attempts + 1}/${maxAttempts}: HLS file not ready yet`);
       attempts++;
+      
+      // If this is on attempt 15+, log more details to help debug
+      if (attempts > 15 && attempts % 5 === 0) {
+        console.warn(`Continuing to retry after ${attempts} attempts. This may indicate a server-side issue with FFmpeg.`);
+      }
     }
   }
   
