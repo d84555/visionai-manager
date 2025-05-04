@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -249,6 +250,26 @@ async def wait_for_hls_files(stream_dir: str, max_wait_time: int = 20) -> bool:
         ts_segments = list(Path(stream_dir).glob("*.ts"))
         if ts_segments:
             logger.info(f"✅ HLS segment files created: {[s.name for s in ts_segments[:3]]}...")
+            
+            # If we have segments but no m3u8, generate one on-the-fly
+            index_file = os.path.join(stream_dir, "index.m3u8")
+            if not os.path.exists(index_file) and len(ts_segments) > 0:
+                logger.info("Found segments but no playlist - generating temporary m3u8 file")
+                try:
+                    # Create a basic HLS playlist with the segments we have
+                    segments = sorted([s.name for s in ts_segments])
+                    with open(index_file, "w") as f:
+                        f.write("#EXTM3U\n")
+                        f.write("#EXT-X-VERSION:3\n")
+                        f.write("#EXT-X-TARGETDURATION:2\n")
+                        f.write("#EXT-X-MEDIA-SEQUENCE:0\n")
+                        for segment in segments:
+                            f.write("#EXTINF:2.0,\n")
+                            f.write(f"{segment}\n")
+                    logger.info(f"✅ Generated temporary m3u8 file with {len(segments)} segments")
+                except Exception as e:
+                    logger.error(f"Error generating temporary m3u8 file: {e}")
+            
             return True
         
         # Check for .m3u8 file
@@ -261,6 +282,13 @@ async def wait_for_hls_files(stream_dir: str, max_wait_time: int = 20) -> bool:
         tmp_index_file = os.path.join(stream_dir, "index.m3u8.tmp")
         if os.path.exists(tmp_index_file):
             logger.info(f"✅ HLS temporary index file created at {tmp_index_file}")
+            # Try to copy .tmp to .m3u8 to help browsers
+            try:
+                with open(tmp_index_file, "rb") as src, open(index_file, "wb") as dst:
+                    dst.write(src.read())
+                logger.info("✅ Copied m3u8.tmp to m3u8 to help browser playback")
+            except Exception as e:
+                logger.error(f"Error copying m3u8.tmp to m3u8: {e}")
             return True
         
         # Short sleep before checking again (using a shorter interval)
@@ -296,6 +324,17 @@ async def create_stream(
     # Create stream directory
     stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
     os.makedirs(stream_dir, exist_ok=True)
+    
+    # Test write access to the directory
+    test_file_path = os.path.join(stream_dir, "write_test.txt")
+    try:
+        with open(test_file_path, "w") as f:
+            f.write("Testing write access")
+        os.unlink(test_file_path)
+        logger.info(f"Write access test successful for {stream_dir}")
+    except Exception as e:
+        logger.error(f"Write access test failed for {stream_dir}: {e}")
+        raise HTTPException(status_code=500, detail=f"No write access to stream directory: {e}")
     
     # Set output paths - Use index.m3u8 instead of stream.m3u8
     if output_format == "hls":
@@ -356,10 +395,12 @@ async def start_stream_process(stream_id: str, input_url: str, output_path: str,
             # Enhanced command with parameters for reliable real-time HLS streaming
             cmd = [
                 ffmpeg_binary_path,
-                # Input options for low latency
+                # Input options for low latency and RTSP stability
                 "-fflags", "nobuffer",
-                "-analyzeduration", "1000000",  # Reduced from default
-                "-probesize", "32768",          # Reduced from default
+                "-rtsp_transport", "tcp",      # Force TCP for RTSP streams
+                "-timeout", "1000000",         # Increase timeout for RTSP
+                "-analyzeduration", "1000000", # Reduced from default
+                "-probesize", "32768",         # Reduced from default
                 "-i", input_url,
                 
                 # Video encoding options
@@ -368,30 +409,47 @@ async def start_stream_process(stream_id: str, input_url: str, output_path: str,
                 "-tune", "zerolatency",
                 "-force_key_frames", "expr:gte(t,n_forced*1)", # Force keyframes every 1 second
                 
-                # Audio encoding options (if stream has audio)
-                "-c:a", "aac",
-                "-ac", "2",                     # 2 audio channels
-                "-ar", "44100",                 # Audio sample rate
-                "-strict", "experimental",
+                # Audio mapping and encoding (conditionally)
+                "-listen", "1",                # Enable HTTP server mode
+                "-movflags", "isml+frag_keyframe", # Optimize for low latency
                 
                 # HLS specific options
                 "-f", "hls",
                 "-hls_time", "1",               # 1-second segments (reduced from 2s for faster startup)
                 "-hls_list_size", "6",          # Keep 6 segments in playlist
-                "-hls_flags", "delete_segments+append_list+discont_start+temp_file",
+                "-hls_flags", "delete_segments+append_list+discont_start+temp_file", # Added temp_file
                 "-hls_segment_type", "mpegts",
-                "-start_number", "0",
                 "-hls_allow_cache", "0",        # Disable caching
                 "-flush_packets", "1",          # Flush packets immediately
+                "-method", "PUT",               # Use PUT for writing segments
                 
                 # Output file paths
                 "-hls_segment_filename", f"{os.path.dirname(output_path)}/segment_%03d.ts",
                 output_path
             ]
+            
+            # Check if RTSP URL is likely to have audio (common absence in security cameras)
+            if not input_url.lower().startswith("rtsp://") or "audio" in input_url.lower():
+                # Only add audio encoding if likely to have audio
+                audio_options = [
+                    "-c:a", "aac",
+                    "-ac", "2",                     # 2 audio channels
+                    "-ar", "44100",                 # Audio sample rate
+                    "-strict", "experimental"
+                ]
+                # Insert audio options before the -f hls
+                insert_idx = cmd.index("-f")
+                cmd[insert_idx:insert_idx] = audio_options
+            else:
+                # If RTSP without audio indication, add option to disable audio
+                cmd.insert(cmd.index("-i") + 2, "-an")
+                logger.info("Disabling audio for RTSP stream (likely security camera)")
         else:
             # For other formats (mp4, webm, etc.)
             cmd = [
                 ffmpeg_binary_path,
+                "-rtsp_transport", "tcp",      # Force TCP for RTSP streams
+                "-timeout", "1000000",         # Increase timeout 
                 "-i", input_url,
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
@@ -404,13 +462,14 @@ async def start_stream_process(stream_id: str, input_url: str, output_path: str,
         
         logger.info(f"Running FFmpeg stream command: {' '.join(cmd)}")
         
-        # Run FFmpeg in non-blocking mode with proper buffering settings
+        # Run FFmpeg in non-blocking mode with proper buffering settings and expanded debug logging
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             universal_newlines=True,
-            bufsize=1     # Line buffering
+            bufsize=1,     # Line buffering
+            cwd=os.path.dirname(output_path),  # Set working directory to stream folder
         )
         
         # Update status file
@@ -419,7 +478,8 @@ async def start_stream_process(stream_id: str, input_url: str, output_path: str,
             json.dump({
                 "status": "streaming",
                 "progress": 0,
-                "pid": process.pid
+                "pid": process.pid,
+                "command": ' '.join(cmd)  # Store the command for debugging
             }, f)
         
         # Store process in jobs dictionary
@@ -466,12 +526,36 @@ async def monitor_stream_process(stream_id: str, process: subprocess.Popen, stre
                 ts_segments = list(Path(stream_dir).glob("*.ts"))
                 segment_count = len(ts_segments)
                 
+                # Update status.json with segment info and last lines from FFmpeg
                 with open(status_path, "w") as f:
                     json.dump({
                         "status": "streaming",
                         "segmentCount": segment_count,
-                        "lastUpdated": time.time()
+                        "lastUpdated": time.time(),
+                        "lastLines": stderr_lines[-5:] if stderr_lines else []
                     }, f)
+                
+                # If we have segments but no m3u8, generate one
+                index_file = os.path.join(stream_dir, "index.m3u8")
+                tmp_index_file = os.path.join(stream_dir, "index.m3u8.tmp")
+                
+                if segment_count > 0 and not os.path.exists(index_file) and not os.path.exists(tmp_index_file):
+                    logger.info(f"Found {segment_count} segments but no playlist - generating temporary m3u8")
+                    try:
+                        # Create a basic HLS playlist with the segments we have
+                        segments = sorted([s.name for s in ts_segments])
+                        with open(index_file, "w") as f:
+                            f.write("#EXTM3U\n")
+                            f.write("#EXT-X-VERSION:3\n")
+                            f.write("#EXT-X-TARGETDURATION:2\n")
+                            f.write("#EXT-X-MEDIA-SEQUENCE:0\n")
+                            for segment in segments:
+                                f.write("#EXTINF:1.0,\n")
+                                f.write(f"{segment}\n")
+                        logger.info(f"Generated temporary m3u8 file with {len(segments)} segments")
+                    except Exception as e:
+                        logger.error(f"Error generating temporary m3u8: {e}")
+                
             except Exception as e:
                 logger.warning(f"Error updating status file: {e}")
                 
