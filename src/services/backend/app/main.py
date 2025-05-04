@@ -35,8 +35,17 @@ logger.info(f"Using models directory: {models_dir}")
 # Using a more reliable default path that's common on many Linux systems
 ffmpeg_binary_path = os.environ.get("FFMPEG_BINARY_PATH", "/usr/bin/ffmpeg")
 if not os.path.exists(ffmpeg_binary_path):
-    logger.warning(f"FFmpeg binary not found at {ffmpeg_binary_path}, falling back to system path")
-    ffmpeg_binary_path = "ffmpeg"  # Fall back to system path if not found
+    # Try alternate common paths
+    common_paths = ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"]
+    for path in common_paths:
+        if os.path.exists(path):
+            ffmpeg_binary_path = path
+            logger.info(f"Found FFmpeg at {ffmpeg_binary_path}")
+            break
+    else:
+        logger.warning(f"FFmpeg binary not found at common paths, falling back to system path")
+        ffmpeg_binary_path = "ffmpeg"  # Fall back to system path if not found
+
 os.environ["FFMPEG_BINARY_PATH"] = ffmpeg_binary_path
 logger.info(f"Using FFmpeg binary path: {ffmpeg_binary_path}")
 
