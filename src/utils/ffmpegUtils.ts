@@ -1,3 +1,4 @@
+
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import axios from 'axios';
@@ -167,10 +168,57 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     
     console.log('Stream response received:', response.data);
     
+    if (response.data.status === 'initializing') {
+      console.log('Stream is initializing, waiting for HLS files to be created...');
+      
+      // Wait for HLS files to be created with exponential backoff
+      const streamUrl = response.data.stream_url;
+      await waitForHlsFiles(streamUrl);
+      
+      return streamUrl;
+    }
+    
     // Return the stream URL path (this will be relative)
     return response.data.stream_url;
   } catch (error) {
     console.error('Error creating HLS stream:', error);
     throw new Error(`Failed to create HLS stream: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+// Helper function to wait for HLS files to be created
+async function waitForHlsFiles(url: string): Promise<void> {
+  let attempts = 0;
+  const maxAttempts = 10;
+  const initialDelay = 500; // Start with 500ms delay
+  
+  while (attempts < maxAttempts) {
+    try {
+      // Try to fetch the m3u8 manifest
+      const delay = initialDelay * Math.pow(1.5, attempts); // Exponential backoff
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      const response = await axios.get(url, { 
+        responseType: 'text',
+        validateStatus: (status) => status === 200 || status === 202
+      });
+      
+      if (response.status === 200) {
+        // If we get a valid response, the file exists
+        console.log(`HLS manifest found after ${attempts + 1} attempts`);
+        return;
+      }
+      
+      if (response.status === 202) {
+        console.log('Stream still initializing, retrying...');
+      }
+      
+      attempts++;
+    } catch (error) {
+      console.log(`Attempt ${attempts + 1}/${maxAttempts}: HLS file not ready yet`);
+      attempts++;
+    }
+  }
+  
+  console.warn(`Failed to access HLS manifest after ${maxAttempts} attempts. Continuing anyway...`);
 }

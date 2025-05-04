@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -9,6 +10,8 @@ import shutil
 from pathlib import Path
 import time
 import json
+import asyncio
+from typing import Optional
 
 # Define the router with no prefix but explicitly setting the correct tags
 router = APIRouter(
@@ -213,6 +216,28 @@ async def download_transcoded_file(job_id: str):
         headers={"Content-Disposition": f"attachment; filename=transcoded.{file_format}"}
     )
 
+async def wait_for_hls_files(stream_dir: str, max_wait_time: int = 15) -> bool:
+    """
+    Wait for HLS files to be created before returning success
+    Returns True if files were created within the timeout period
+    """
+    index_path = os.path.join(stream_dir, "index.m3u8")
+    start_time = time.time()
+    
+    while time.time() - start_time < max_wait_time:
+        if os.path.exists(index_path):
+            # Also check if at least one .ts segment exists
+            ts_segments = list(Path(stream_dir).glob("*.ts"))
+            if ts_segments:
+                logger.info(f"HLS files created successfully in {stream_dir}")
+                return True
+        
+        # Short sleep before checking again
+        await asyncio.sleep(0.5)
+    
+    logger.error(f"Timeout waiting for HLS files in {stream_dir}")
+    return False
+
 @router.post("/transcode/stream", status_code=202)
 async def create_stream(
     backgroundTasks: BackgroundTasks,
@@ -258,28 +283,36 @@ async def create_stream(
             "progress": 0
         }, f)
     
-    # Start streaming in background
-    backgroundTasks.add_task(
-        process_stream, stream_id, stream_url, output_path, output_format
-    )
+    # Start FFmpeg process in background
+    process = await start_stream_process(stream_id, stream_url, output_path, output_format)
+    
+    if process is None:
+        raise HTTPException(status_code=500, detail="Failed to start streaming process")
+    
+    # Wait for initial HLS files to be created (with timeout)
+    file_creation_successful = await wait_for_hls_files(stream_dir)
     
     # Construct the public URL for the stream - using relative URL
     stream_url_path = f"/transcode/stream/{stream_id}/index.m3u8"
     
+    # Start background monitoring task
+    backgroundTasks.add_task(
+        monitor_stream_process, stream_id, process, stream_dir
+    )
+    
     logger.info(f"Stream job created: {stream_id}, URL: {stream_url_path}")
     
+    # Return immediately with status and URL
     return {
         "stream_id": stream_id, 
-        "status": "processing",
+        "status": "streaming" if file_creation_successful else "initializing",
         "stream_url": stream_url_path
     }
 
-def process_stream(stream_id, input_url, output_path, output_format):
-    """Background task for processing stream"""
-    status_path = os.path.join(os.path.dirname(output_path), "status.json")
-    
+async def start_stream_process(stream_id: str, input_url: str, output_path: str, output_format: str) -> Optional[subprocess.Popen]:
+    """Start FFmpeg process for streaming and return process object"""
     try:
-        # Build FFmpeg command for HLS streaming
+        # Build FFmpeg command for HLS streaming with improved options
         if output_format == "hls":
             cmd = [
                 ffmpeg_binary_path,
@@ -293,7 +326,10 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 "-hls_time", "2",
                 "-hls_list_size", "10",
                 "-hls_wrap", "10",
-                "-hls_flags", "delete_segments",
+                "-hls_flags", "delete_segments+append_list",
+                "-hls_segment_type", "mpegts",
+                "-start_number", "0",
+                "-hls_segment_filename", f"{os.path.dirname(output_path)}/segment_%03d.ts",
                 output_path
             ]
         else:
@@ -312,7 +348,7 @@ def process_stream(stream_id, input_url, output_path, output_format):
         
         logger.info(f"Running FFmpeg stream command: {' '.join(cmd)}")
         
-        # Run FFmpeg
+        # Run FFmpeg in non-blocking mode
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -320,29 +356,67 @@ def process_stream(stream_id, input_url, output_path, output_format):
             universal_newlines=True
         )
         
-        # Update status
+        # Update status file
+        status_path = os.path.join(os.path.dirname(output_path), "status.json")
         with open(status_path, "w") as f:
             json.dump({
                 "status": "streaming",
-                "progress": 100
+                "progress": 100,
+                "pid": process.pid
             }, f)
         
-        # This will block until the stream is terminated
-        stdout, stderr = process.communicate()
+        # Store process in jobs dictionary
+        transcode_jobs[stream_id]["process"] = process
+        transcode_jobs[stream_id]["status"] = "streaming"
         
-        # Check result
-        if process.returncode == 0:
-            logger.info(f"Stream completed successfully for job {stream_id}")
-        else:
-            logger.error(f"Stream failed for job {stream_id}: {stderr}")
+        return process
+    except Exception as e:
+        logger.exception(f"Error starting FFmpeg process for stream {stream_id}")
+        status_path = os.path.join(os.path.dirname(output_path), "status.json")
+        with open(status_path, "w") as f:
+            json.dump({
+                "status": "failed",
+                "error": str(e)
+            }, f)
+        return None
+
+async def monitor_stream_process(stream_id: str, process: subprocess.Popen, stream_dir: str):
+    """Monitor FFmpeg process and handle errors"""
+    try:
+        # Read stderr in a non-blocking way to monitor the process
+        # This runs in a background task
+        stderr_lines = []
+        for line in iter(process.stderr.readline, ""):
+            if not line:
+                break
+            stderr_lines.append(line.strip())
+            # Check for specific FFmpeg errors in the output
+            if "Error" in line:
+                logger.error(f"FFmpeg error for stream {stream_id}: {line}")
+        
+        # Wait for process to complete (should only happen if stream ends or errors)
+        return_code = process.wait()
+        
+        # Update status based on return code
+        status_path = os.path.join(stream_dir, "status.json")
+        if return_code != 0:
+            logger.error(f"FFmpeg process for stream {stream_id} exited with code {return_code}")
+            error_output = "\n".join(stderr_lines[-20:])  # Last 20 lines of stderr
             with open(status_path, "w") as f:
                 json.dump({
                     "status": "failed",
-                    "error": stderr
+                    "error": f"FFmpeg exited with code {return_code}: {error_output}"
+                }, f)
+        else:
+            logger.info(f"FFmpeg process for stream {stream_id} completed normally")
+            with open(status_path, "w") as f:
+                json.dump({
+                    "status": "completed"
                 }, f)
     
     except Exception as e:
-        logger.exception(f"Error during stream job {stream_id}")
+        logger.exception(f"Error monitoring stream {stream_id}")
+        status_path = os.path.join(stream_dir, "status.json")
         with open(status_path, "w") as f:
             json.dump({
                 "status": "failed",
@@ -361,6 +435,25 @@ async def get_stream_file(stream_id: str, file_name: str):
     
     if not os.path.exists(file_path):
         logger.error(f"Stream file not found: {file_path}")
+        
+        # Special handling for index.m3u8 - if it doesn't exist yet, check if we're still initializing
+        if file_name == "index.m3u8":
+            status_path = os.path.join(stream_dir, "status.json")
+            if os.path.exists(status_path):
+                with open(status_path, "r") as f:
+                    try:
+                        status = json.load(f)
+                        if status.get("status") == "processing" or status.get("status") == "initializing":
+                            # Still initializing, return a 202 Accepted to tell the client to retry
+                            return Response(
+                                content="Stream initializing, please retry",
+                                status_code=202,
+                                media_type="text/plain"
+                            )
+                    except json.JSONDecodeError:
+                        pass
+        
+        # If not initializing or not the index file, return 404
         raise HTTPException(status_code=404, detail="Stream file not found")
     
     # Determine content type
@@ -368,6 +461,18 @@ async def get_stream_file(stream_id: str, file_name: str):
     if file_name.endswith(".ts"):
         content_type = "video/mp2t"
     
+    # For m3u8 files, make sure we return the latest version
+    if file_name.endswith(".m3u8"):
+        # Read the file and return it directly to ensure we have the most recent version
+        with open(file_path, "rb") as f:
+            content = f.read()
+        
+        return Response(
+            content=content,
+            media_type=content_type
+        )
+    
+    # For ts segments, stream the response
     return StreamingResponse(
         open(file_path, "rb"),
         media_type=content_type
