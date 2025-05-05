@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -69,8 +68,6 @@ if gstreamer_available:
     except Exception as e:
         logger.error(f"Failed to initialize GStreamer: {e}")
         gstreamer_available = False
-
-# ... keep existing code (transcode_video, transcode_file, get_job_status, download_transcoded_file functions)
 
 async def wait_for_hls_files(stream_dir: str, max_wait_time: int = 20) -> bool:
     """
@@ -273,16 +270,16 @@ async def start_gstreamer_stream_process(stream_id: str, input_url: str, output_
         
         # Build GStreamer command line
         if gst_launch_path:
-            # Using gst-launch-1.0 CLI (more compatible approach)
-            # Updated GStreamer pipeline with TCP protocol explicitly set
+            # Using gst-launch-1.0 CLI with UPDATED pipeline structure
+            # Modified pipeline as recommended: added avdec_h264, videoconvert, videoscale, and x264enc with bitrate
             cmd = [
                 gst_launch_path,
                 "-e",  # Handle EOS gracefully
                 "--gst-debug=3",  # Enable more detailed logging
                 "rtspsrc",
                 f"location={input_url}",
-                "protocols=tcp",  # Force TCP transport for RTSP - ADDED THIS LINE
-                "latency=0",
+                "protocols=tcp",  # Force TCP transport
+                "latency=200",    # Changed from 0 to 200 as recommended
                 "is-live=true",
                 "drop-on-latency=true",
                 "buffer-mode=auto",
@@ -291,15 +288,23 @@ async def start_gstreamer_stream_process(stream_id: str, input_url: str, output_
                 "!",
                 "h264parse",
                 "!",
-                "queue",
-                "max-size-buffers=4096",
+                "avdec_h264",    # Added decoder
+                "!",
+                "videoconvert",  # Added videoconvert
+                "!",
+                "videoscale",    # Added videoscale
+                "!",
+                "x264enc",       # Using proper encoder
+                "tune=zerolatency",
+                "speed-preset=ultrafast",
+                "bitrate=512",    # Added bitrate to prevent instability
                 "!",
                 "mpegtsmux",
                 "!",
                 "hlssink",
                 f"playlist-location={playlist_location}",
                 f"location={segment_location}",
-                "target-duration=1",
+                "target-duration=2",
                 "playlist-length=5",
                 "max-files=10", 
                 "sync=false"
@@ -332,12 +337,13 @@ async def start_gstreamer_stream_process(stream_id: str, input_url: str, output_
         else:
             # Using GStreamer Python bindings
             logger.info("Using GStreamer Python bindings to create pipeline")
-            # Construct the GStreamer pipeline string (for Python bindings) with TCP protocol
+            # Construct the GStreamer pipeline string (for Python bindings) with updated structure
             pipeline_str = (
-                f'rtspsrc location={input_url} protocols=tcp latency=0 is-live=true drop-on-latency=true ! '  # Added protocols=tcp
-                f'rtph264depay ! h264parse ! queue max-size-buffers=4096 ! mpegtsmux ! '
+                f'rtspsrc location={input_url} protocols=tcp latency=200 is-live=true drop-on-latency=true ! '
+                f'rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! videoscale ! '
+                f'x264enc tune=zerolatency speed-preset=ultrafast bitrate=512 ! mpegtsmux ! '
                 f'hlssink playlist-location="{playlist_location}" location="{segment_location}" '
-                f'target-duration=1 max-files=10 playlist-length=5 sync=false'
+                f'target-duration=2 max-files=10 playlist-length=5 sync=false'
             )
             
             # Log the pipeline string (with sensitive parts redacted)
@@ -446,38 +452,36 @@ async def check_for_segments_or_retry(process, stream_id, input_url, stream_dir,
             protocol_auth = url_parts[0].split('://')
             safe_url = f"{protocol_auth[0]}://***:***@{url_parts[1]}"
         
-        # The alternative pipeline uses decodebin + videoconvert + x264enc to handle more stream types
-        # Also explicitly setting protocols=tcp
+        # Alternative pipeline based on recommendations
         cmd = [
             gst_launch_path,
             "-e",
             "--gst-debug=3",
             "rtspsrc", 
             f"location={input_url}", 
-            "protocols=tcp",  # Force TCP transport - ADDED THIS LINE
-            "latency=0", 
+            "protocols=tcp",
+            "latency=200",  # Using recommended latency value
             "is-live=true", 
             "drop-on-latency=true",
             "buffer-mode=auto",
             "!",
             "decodebin",
-            "name=dec",
-            "dec.",
-            "!",
-            "queue",
             "!",
             "videoconvert",
+            "!",
+            "videoscale",
             "!",
             "x264enc",
             "tune=zerolatency",
             "speed-preset=ultrafast",
+            "bitrate=512",  # Setting bitrate to prevent encoder instability
             "!",
             "mpegtsmux",
             "!",
             "hlssink",
             f"playlist-location={playlist_location}",
             f"location={segment_location}",
-            "target-duration=1",
+            "target-duration=2",
             "playlist-length=5",
             "max-files=10",
             "sync=false"
