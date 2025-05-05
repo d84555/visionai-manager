@@ -6,12 +6,20 @@ import os
 import logging
 from app.routers import inference, models, websocket, health, transcode
 
-# Configure logging
+# Configure logging with more detailed configuration
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()  # Output to standard output/console
+    ]
 )
+
+# Get logger
 logger = logging.getLogger(__name__)
+
+# Increase logging level for GStreamer-related logs
+logging.getLogger('gi.repository').setLevel(logging.INFO)
 
 # Create FastAPI app
 app = FastAPI(title="Vision AI API", description="Computer Vision AI API for object detection and video analysis")

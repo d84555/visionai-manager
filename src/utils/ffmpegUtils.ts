@@ -205,7 +205,7 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
 // Helper function to wait for HLS files to be created
 async function waitForHlsFiles(url: string): Promise<void> {
   let attempts = 0;
-  const maxAttempts = 90;  // Increased to 90 attempts (30 seconds at 1 attempt per 1/3 second)
+  const maxAttempts = 120;  // Increased to 120 attempts (60 seconds at 1 attempt per 1/2 second)
   const initialDelay = 250; // Start with 250ms delay
   
   while (attempts < maxAttempts) {

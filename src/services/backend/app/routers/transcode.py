@@ -41,12 +41,13 @@ except (ImportError, ValueError):
     logger.warning("GStreamer Python bindings not available, falling back to command-line approach")
 
 # Try to find gst-launch-1.0 binary
-gst_launch_path = None
-for path in ["/usr/bin/gst-launch-1.0", "/usr/local/bin/gst-launch-1.0", "/opt/homebrew/bin/gst-launch-1.0"]:
-    if os.path.exists(path):
-        gst_launch_path = path
-        logger.info(f"Found gst-launch-1.0 at: {gst_launch_path}")
-        break
+gst_launch_path = os.environ.get("GSTREAMER_PATH", None)
+if not gst_launch_path or not os.path.exists(gst_launch_path):
+    for path in ["/usr/bin/gst-launch-1.0", "/usr/local/bin/gst-launch-1.0", "/opt/homebrew/bin/gst-launch-1.0"]:
+        if os.path.exists(path):
+            gst_launch_path = path
+            logger.info(f"Found gst-launch-1.0 at: {gst_launch_path}")
+            break
 
 if not gst_launch_path:
     logger.warning("gst-launch-1.0 binary not found, will attempt to use 'gst-launch-1.0' from PATH")
@@ -80,47 +81,7 @@ async def transcode_video(
     """
     Upload and transcode a video file
     """
-    # Generate unique job ID
-    job_id = str(uuid.uuid4())
-    
-    # Create job directory
-    job_dir = os.path.join(TRANSCODE_DIR, job_id)
-    os.makedirs(job_dir, exist_ok=True)
-    
-    # Save input file
-    input_path = os.path.join(job_dir, file.filename)
-    output_path = os.path.join(job_dir, f"output.{outputFormat}")
-    
-    # Create status file
-    status_path = os.path.join(job_dir, "status.json")
-    
-    # Save the uploaded file
-    logger.info(f"Saving uploaded file to {input_path}")
-    with open(input_path, "wb") as buffer:
-        # Read file in chunks to handle large files
-        shutil.copyfileobj(file.file, buffer)
-    
-    # Update status
-    transcode_jobs[job_id] = {
-        "status": "queued",
-        "input_file": input_path,
-        "output_file": output_path,
-        "format": outputFormat,
-        "created_at": time.time()
-    }
-    
-    with open(status_path, "w") as f:
-        json.dump({
-            "status": "queued",
-            "progress": 0
-        }, f)
-    
-    # Start transcoding in background
-    backgroundTasks.add_task(
-        transcode_file, job_id, input_path, output_path, outputFormat, quality, preset
-    )
-    
-    return {"job_id": job_id, "status": "queued"}
+    # ... keep existing code (for file transcoding)
 
 def transcode_file(job_id, input_path, output_path, output_format, quality, preset):
     """Background task for transcoding video"""
@@ -332,9 +293,11 @@ async def start_gstreamer_stream_process(stream_id: str, input_url: str, output_
         # Build GStreamer command line
         if gst_launch_path:
             # Using gst-launch-1.0 CLI (more compatible approach)
+            # Updated GStreamer pipeline with improved element configuration and debug flags
             cmd = [
                 gst_launch_path,
                 "-e",  # Handle EOS gracefully
+                "--gst-debug=3",  # Enable more detailed logging
                 "rtspsrc",
                 f"location={input_url}",
                 "latency=0",
@@ -355,12 +318,14 @@ async def start_gstreamer_stream_process(stream_id: str, input_url: str, output_
                 f"playlist-location={playlist_location}",
                 f"location={segment_location}",
                 "target-duration=1",
-                "max-files=10",
                 "playlist-length=5",
+                "max-files=10", 
                 "sync=false"
             ]
             
-            logger.info(f"Starting GStreamer CLI process with command: {' '.join(cmd)}")
+            # Log the full command for debugging
+            full_cmd = ' '.join(cmd)
+            logger.info(f"Starting GStreamer CLI process with command: {full_cmd}")
             
             # Create process with proper environment
             process = subprocess.Popen(
@@ -371,6 +336,12 @@ async def start_gstreamer_stream_process(stream_id: str, input_url: str, output_
                 bufsize=1,     # Line buffering
                 cwd=stream_dir,  # Set working directory to stream folder
             )
+            
+            # Log the process ID for debugging
+            logger.info(f"GStreamer process started with PID: {process.pid}")
+            
+            # Try alternative pipeline if the first one doesn't produce segments within 5 seconds
+            timer = asyncio.create_task(check_for_segments_or_retry(process, stream_id, input_url, stream_dir))
         else:
             # Using GStreamer Python bindings
             logger.info("Using GStreamer Python bindings to create pipeline")
@@ -437,116 +408,112 @@ async def start_gstreamer_stream_process(stream_id: str, input_url: str, output_
             }, f)
         return None
 
-async def start_stream_process(stream_id: str, input_url: str, output_path: str, output_format: str) -> Optional[subprocess.Popen]:
-    """Start FFmpeg process for streaming and return process object"""
+async def check_for_segments_or_retry(process, stream_id, input_url, stream_dir, timeout=5):
+    """Check for segment files, and if none exist after timeout, try alternative pipeline"""
     try:
-        # Build FFmpeg command for HLS streaming with improved options
-        if output_format == "hls":
-            # Enhanced command with parameters for reliable real-time HLS streaming
-            cmd = [
-                ffmpeg_binary_path,
-                # Input options for low latency and RTSP stability
-                "-fflags", "nobuffer",
-                "-rtsp_transport", "tcp",      # Force TCP for RTSP streams
-                "-timeout", "1000000",         # Increase timeout for RTSP
-                "-analyzeduration", "1000000", # Reduced from default
-                "-probesize", "32768",         # Reduced from default
-                "-i", input_url,
-                
-                # Video encoding options
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-tune", "zerolatency",
-                "-force_key_frames", "expr:gte(t,n_forced*1)", # Force keyframes every 1 second
-                
-                # Audio mapping and encoding (conditionally)
-                "-listen", "1",                # Enable HTTP server mode
-                "-movflags", "isml+frag_keyframe", # Optimize for low latency
-                
-                # HLS specific options
-                "-f", "hls",
-                "-hls_time", "1",               # 1-second segments (reduced from 2s for faster startup)
-                "-hls_list_size", "6",          # Keep 6 segments in playlist
-                "-hls_flags", "delete_segments+append_list+discont_start+temp_file", # Added temp_file
-                "-hls_segment_type", "mpegts",
-                "-hls_allow_cache", "0",        # Disable caching
-                "-flush_packets", "1",          # Flush packets immediately
-                "-method", "PUT",               # Use PUT for writing segments
-                
-                # Output file paths
-                "-hls_segment_filename", f"{os.path.dirname(output_path)}/segment_%03d.ts",
-                output_path
-            ]
+        # Wait for a few seconds to see if segments are created
+        for i in range(timeout * 2):
+            await asyncio.sleep(0.5)
             
-            # Check if RTSP URL is likely to have audio (common absence in security cameras)
-            if not input_url.lower().startswith("rtsp://") or "audio" in input_url.lower():
-                # Only add audio encoding if likely to have audio
-                audio_options = [
-                    "-c:a", "aac",
-                    "-ac", "2",                     # 2 audio channels
-                    "-ar", "44100",                 # Audio sample rate
-                    "-strict", "experimental"
-                ]
-                # Insert audio options before the -f hls
-                insert_idx = cmd.index("-f")
-                cmd[insert_idx:insert_idx] = audio_options
-            else:
-                # If RTSP without audio indication, add option to disable audio
-                cmd.insert(cmd.index("-i") + 2, "-an")
-                logger.info("Disabling audio for RTSP stream (likely security camera)")
-        else:
-            # For other formats (mp4, webm, etc.)
-            cmd = [
-                ffmpeg_binary_path,
-                "-rtsp_transport", "tcp",      # Force TCP for RTSP streams
-                "-timeout", "1000000",         # Increase timeout 
-                "-i", input_url,
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-tune", "zerolatency",
-                "-c:a", "aac",
-                "-strict", "experimental",
-                "-f", output_format,
-                output_path
-            ]
+            # Check for .ts files
+            ts_files = list(Path(stream_dir).glob("*.ts"))
+            if ts_files:
+                logger.info(f"✅ GStreamer segments created successfully: {[f.name for f in ts_files[:3]]}")
+                return
+            
+            # Check if process is still running
+            if process.poll() is not None:
+                logger.error("❌ GStreamer process has exited prematurely")
+                break
         
-        logger.info(f"Running FFmpeg stream command: {' '.join(cmd)}")
+        # If we get here, no segments were created and/or process exited
+        logger.warning(f"No segments produced after {timeout}s, trying alternative GStreamer pipeline")
         
-        # Run FFmpeg in non-blocking mode with proper buffering settings and expanded debug logging
-        process = subprocess.Popen(
+        # Try to terminate the first process if still running
+        if process.poll() is None:
+            try:
+                process.terminate()
+                await asyncio.sleep(1)
+                if process.poll() is None:
+                    process.kill()
+            except Exception as e:
+                logger.error(f"Error terminating GStreamer process: {e}")
+        
+        # Create alternative pipeline with decodebin
+        playlist_location = os.path.join(stream_dir, "index.m3u8")
+        segment_location = os.path.join(stream_dir, "segment_%05d.ts")
+        
+        # The alternative pipeline uses decodebin + videoconvert + x264enc to handle more stream types
+        cmd = [
+            gst_launch_path,
+            "-e",
+            "--gst-debug=3",
+            "rtspsrc", 
+            f"location={input_url}", 
+            "latency=0", 
+            "is-live=true", 
+            "drop-on-latency=true",
+            "buffer-mode=auto",
+            "!",
+            "decodebin",
+            "name=dec",
+            "dec.",
+            "!",
+            "queue",
+            "!",
+            "videoconvert",
+            "!",
+            "x264enc",
+            "tune=zerolatency",
+            "speed-preset=ultrafast",
+            "!",
+            "mpegtsmux",
+            "!",
+            "hlssink",
+            f"playlist-location={playlist_location}",
+            f"location={segment_location}",
+            "target-duration=1",
+            "playlist-length=5",
+            "max-files=10",
+            "sync=false"
+        ]
+        
+        logger.info(f"Starting alternative GStreamer pipeline: {' '.join(cmd)}")
+        
+        alt_process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             universal_newlines=True,
-            bufsize=1,     # Line buffering
-            cwd=os.path.dirname(output_path),  # Set working directory to stream folder
+            bufsize=1,
+            cwd=stream_dir
         )
         
-        # Update status file
-        status_path = os.path.join(os.path.dirname(output_path), "status.json")
-        with open(status_path, "w") as f:
-            json.dump({
-                "status": "streaming",
-                "progress": 0,
-                "pid": process.pid,
-                "command": ' '.join(cmd)  # Store the command for debugging
-            }, f)
+        # Update the process reference in the jobs dictionary
+        if stream_id in transcode_jobs:
+            transcode_jobs[stream_id]["process"] = alt_process
+            transcode_jobs[stream_id]["command"] = ' '.join(cmd)
         
-        # Store process in jobs dictionary
-        transcode_jobs[stream_id]["process"] = process
-        transcode_jobs[stream_id]["status"] = "streaming"
-        transcode_jobs[stream_id]["using_gstreamer"] = False
+        # Update status.json with new command
+        status_path = os.path.join(stream_dir, "status.json")
+        try:
+            with open(status_path, "r") as f:
+                status = json.load(f)
+            status["command"] = ' '.join(cmd)
+            status["pid"] = alt_process.pid
+            with open(status_path, "w") as f:
+                json.dump(status, f)
+        except Exception as e:
+            logger.error(f"Error updating status file: {e}")
         
-        return process
+        logger.info(f"Alternative GStreamer pipeline started with PID: {alt_process.pid}")
+    
     except Exception as e:
-        logger.exception(f"Error starting FFmpeg process for stream {stream_id}")
-        status_path = os.path.join(os.path.dirname(output_path), "status.json")
-        with open(status_path, "w") as f:
-            json.dump({
-                "status": "failed",
-                "error": str(e)
-            }, f)
-        return None
+        logger.exception(f"Error in check_for_segments_or_retry: {e}")
+
+async def start_stream_process(stream_id: str, input_url: str, output_path: str, output_format: str) -> Optional[subprocess.Popen]:
+    """Start FFmpeg process for streaming and return process object"""
+    # ... keep existing code (for FFmpeg-based streaming)
 
 async def monitor_stream_process(stream_id: str, process: subprocess.Popen, stream_dir: str):
     """Monitor streaming process and handle errors"""
@@ -570,8 +537,17 @@ async def monitor_stream_process(stream_id: str, process: subprocess.Popen, stre
                     # Log important FFmpeg/GStreamer messages
                     if "Error" in line or "WARNING" in line:
                         logger.error(f"Stream error for {stream_id}: {line}")
-                    elif "Opening" in line or "Stream mapping" in line:
+                    elif "Opening" in line or "Stream mapping" in line or "rtspsrc" in line:
                         logger.info(f"Stream info: {line}")
+            
+            # Read any available stdout for GStreamer debug info
+            if hasattr(process, 'stdout') and process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    if not line:
+                        break
+                    
+                    if "hlssink" in line:
+                        logger.info(f"GStreamer hlssink: {line}")
             
             # Update status file periodically
             status_path = os.path.join(stream_dir, "status.json")
@@ -665,4 +641,3 @@ async def get_stream_file(stream_id: str, file_name: str):
 def cleanup_old_jobs():
     """Clean up old transcoding jobs"""
     # ... keep existing code (for job cleanup)
-
