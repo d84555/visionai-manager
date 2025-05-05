@@ -162,14 +162,14 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
   }
 }
 
-// Create HLS Stream from RTSP URL
+// Create HLS Stream from RTSP URL using backend (now with GStreamer support)
 export async function createHlsStream(streamUrl: string, streamName: string = 'camera'): Promise<string> {
   try {
     const settings = getFFmpegSettings();
     
     // Always use server-side transcoding for RTSP streams
     if (!settings.serverTranscoding) {
-      console.warn('Server-side transcoding is disabled but required for RTSP streams. Using server anyway.');
+      console.warn('Server-side transcoding is required for RTSP streams. Using server transcoding.');
     }
     
     const formData = new FormData();
@@ -205,7 +205,7 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
 // Helper function to wait for HLS files to be created
 async function waitForHlsFiles(url: string): Promise<void> {
   let attempts = 0;
-  const maxAttempts = 90;  // Increased from 60 to 90 (30 seconds at 1 attempt per 1/3 second)
+  const maxAttempts = 90;  // Increased to 90 attempts (30 seconds at 1 attempt per 1/3 second)
   const initialDelay = 250; // Start with 250ms delay
   
   while (attempts < maxAttempts) {
@@ -245,7 +245,7 @@ async function waitForHlsFiles(url: string): Promise<void> {
       
       // If this is on attempt 15+, log more details to help debug
       if (attempts > 15 && attempts % 5 === 0) {
-        console.warn(`Continuing to retry after ${attempts} attempts. This may indicate a server-side issue with FFmpeg.`);
+        console.warn(`Continuing to retry after ${attempts} attempts. This may indicate a server-side issue with stream processing.`);
       }
     }
   }

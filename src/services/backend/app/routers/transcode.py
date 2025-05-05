@@ -11,7 +11,7 @@ from pathlib import Path
 import time
 import json
 import asyncio
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import glob  # Add glob import for better file checking
 
 # Define the router with no prefix but explicitly setting the correct tags
@@ -28,6 +28,30 @@ logger = logging.getLogger(__name__)
 ffmpeg_binary_path = os.environ.get("FFMPEG_BINARY_PATH", "/usr/bin/ffmpeg")
 logger.info(f"Transcode module using FFmpeg binary from: {ffmpeg_binary_path}")
 
+# Check for GStreamer installation
+try:
+    # Import GStreamer Python bindings
+    import gi
+    gi.require_version('Gst', '1.0')
+    from gi.repository import Gst, GLib
+    gstreamer_available = True
+    logger.info("GStreamer Python bindings available")
+except (ImportError, ValueError):
+    gstreamer_available = False
+    logger.warning("GStreamer Python bindings not available, falling back to command-line approach")
+
+# Try to find gst-launch-1.0 binary
+gst_launch_path = None
+for path in ["/usr/bin/gst-launch-1.0", "/usr/local/bin/gst-launch-1.0", "/opt/homebrew/bin/gst-launch-1.0"]:
+    if os.path.exists(path):
+        gst_launch_path = path
+        logger.info(f"Found gst-launch-1.0 at: {gst_launch_path}")
+        break
+
+if not gst_launch_path:
+    logger.warning("gst-launch-1.0 binary not found, will attempt to use 'gst-launch-1.0' from PATH")
+    gst_launch_path = "gst-launch-1.0"
+
 # Create temp directory for transcoding jobs
 TRANSCODE_DIR = os.path.join(tempfile.gettempdir(), "transcode_jobs")
 os.makedirs(TRANSCODE_DIR, exist_ok=True)
@@ -35,6 +59,15 @@ logger.info(f"Using transcode directory: {TRANSCODE_DIR}")
 
 # Keep track of transcoding jobs
 transcode_jobs = {}
+
+# Initialize GStreamer if available
+if gstreamer_available:
+    try:
+        Gst.init(None)
+        logger.info("GStreamer initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize GStreamer: {e}")
+        gstreamer_available = False
 
 @router.post("/transcode", status_code=202)
 async def transcode_video(
@@ -91,131 +124,21 @@ async def transcode_video(
 
 def transcode_file(job_id, input_path, output_path, output_format, quality, preset):
     """Background task for transcoding video"""
-    status_path = os.path.join(os.path.dirname(output_path), "status.json")
-    
-    try:
-        # Update status
-        transcode_jobs[job_id]["status"] = "processing"
-        with open(status_path, "w") as f:
-            json.dump({
-                "status": "processing",
-                "progress": 0
-            }, f)
-        
-        # Set quality parameters based on quality setting
-        crf = "23"  # Default medium quality
-        if quality == "high":
-            crf = "18"
-        elif quality == "low":
-            crf = "28"
-        
-        # Build FFmpeg command
-        cmd = [
-            ffmpeg_binary_path,
-            "-i", input_path,
-            "-c:v", "libx264",
-            "-preset", preset,
-            "-crf", crf,
-            "-c:a", "aac",
-            "-strict", "experimental",
-            output_path
-        ]
-        
-        logger.info(f"Running FFmpeg command: {' '.join(cmd)}")
-        
-        # Run FFmpeg
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
-        
-        # Wait for completion
-        stdout, stderr = process.communicate()
-        
-        # Check if successful
-        if process.returncode == 0:
-            logger.info(f"Transcoding completed successfully for job {job_id}")
-            transcode_jobs[job_id]["status"] = "completed"
-            with open(status_path, "w") as f:
-                json.dump({
-                    "status": "completed",
-                    "progress": 100
-                }, f)
-        else:
-            logger.error(f"Transcoding failed for job {job_id}: {stderr}")
-            transcode_jobs[job_id]["status"] = "failed"
-            transcode_jobs[job_id]["error"] = stderr
-            with open(status_path, "w") as f:
-                json.dump({
-                    "status": "failed",
-                    "error": stderr
-                }, f)
-    
-    except Exception as e:
-        logger.exception(f"Error during transcoding job {job_id}")
-        transcode_jobs[job_id]["status"] = "failed"
-        transcode_jobs[job_id]["error"] = str(e)
-        with open(status_path, "w") as f:
-            json.dump({
-                "status": "failed",
-                "error": str(e)
-            }, f)
+    # ... keep existing code (for FFmpeg-based file transcoding)
 
 @router.get("/transcode/{job_id}/status")
 async def get_job_status(job_id: str):
     """
     Get the status of a transcoding job
     """
-    status_path = os.path.join(TRANSCODE_DIR, job_id, "status.json")
-    
-    if not os.path.exists(status_path):
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    with open(status_path, "r") as f:
-        status = json.load(f)
-    
-    return status
+    # ... keep existing code (job status retrieval)
 
 @router.get("/transcode/{job_id}/download")
 async def download_transcoded_file(job_id: str):
     """
     Download the transcoded file
     """
-    job_dir = os.path.join(TRANSCODE_DIR, job_id)
-    output_files = list(Path(job_dir).glob("output.*"))
-    
-    if not output_files:
-        raise HTTPException(status_code=404, detail="Output file not found")
-    
-    output_path = str(output_files[0])
-    
-    # Check if the file exists and job is completed
-    status_path = os.path.join(job_dir, "status.json")
-    if not os.path.exists(output_path) or not os.path.exists(status_path):
-        raise HTTPException(status_code=404, detail="Output file not found")
-    
-    with open(status_path, "r") as f:
-        status = json.load(f)
-    
-    if status.get("status") != "completed":
-        raise HTTPException(status_code=400, detail="Transcoding job not completed")
-    
-    # Determine file mime type
-    file_format = os.path.splitext(output_path)[1][1:]
-    mime_type = f"video/{file_format}"
-    
-    def file_iterator(file_path, chunk_size=8192):
-        with open(file_path, "rb") as f:
-            while chunk := f.read(chunk_size):
-                yield chunk
-    
-    return StreamingResponse(
-        file_iterator(output_path),
-        media_type=mime_type,
-        headers={"Content-Disposition": f"attachment; filename=transcoded.{file_format}"}
-    )
+    # ... keep existing code (file download functionality)
 
 async def wait_for_hls_files(stream_dir: str, max_wait_time: int = 20) -> bool:
     """
@@ -360,8 +283,20 @@ async def create_stream(
             "progress": 0
         }, f)
     
-    # Start FFmpeg process in background with improved HLS parameters
-    process = await start_stream_process(stream_id, stream_url, output_path, output_format)
+    # Start streaming process in background based on URL type and available tools
+    if stream_url.lower().startswith(("rtsp://", "rtsps://")):
+        # Use GStreamer for RTSP streams when available
+        if gst_launch_path or gstreamer_available:
+            logger.info("Using GStreamer for RTSP stream processing")
+            process = await start_gstreamer_stream_process(stream_id, stream_url, output_path, stream_dir)
+        else:
+            # Fall back to FFmpeg if GStreamer is not available
+            logger.info("GStreamer not available, falling back to FFmpeg for RTSP stream")
+            process = await start_stream_process(stream_id, stream_url, output_path, output_format)
+    else:
+        # Use FFmpeg for non-RTSP streams
+        logger.info("Using FFmpeg for non-RTSP stream processing")
+        process = await start_stream_process(stream_id, stream_url, output_path, output_format)
     
     if process is None:
         raise HTTPException(status_code=500, detail="Failed to start streaming process")
@@ -386,6 +321,121 @@ async def create_stream(
         "status": "streaming" if file_creation_successful else "initializing",
         "stream_url": stream_url_path
     }
+
+async def start_gstreamer_stream_process(stream_id: str, input_url: str, output_path: str, stream_dir: str) -> Optional[subprocess.Popen]:
+    """Start GStreamer process for RTSP streaming and return process object"""
+    try:
+        # Get base filename and path
+        playlist_location = os.path.join(stream_dir, "index.m3u8")
+        segment_location = os.path.join(stream_dir, "segment_%05d.ts")
+        
+        # Build GStreamer command line
+        if gst_launch_path:
+            # Using gst-launch-1.0 CLI (more compatible approach)
+            cmd = [
+                gst_launch_path,
+                "-e",  # Handle EOS gracefully
+                "rtspsrc",
+                f"location={input_url}",
+                "latency=0",
+                "is-live=true",
+                "drop-on-latency=true",
+                "buffer-mode=auto",
+                "!",
+                "rtph264depay",
+                "!",
+                "h264parse",
+                "!",
+                "queue",
+                "max-size-buffers=4096",
+                "!",
+                "mpegtsmux",
+                "!",
+                "hlssink",
+                f"playlist-location={playlist_location}",
+                f"location={segment_location}",
+                "target-duration=1",
+                "max-files=10",
+                "playlist-length=5",
+                "sync=false"
+            ]
+            
+            logger.info(f"Starting GStreamer CLI process with command: {' '.join(cmd)}")
+            
+            # Create process with proper environment
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+                bufsize=1,     # Line buffering
+                cwd=stream_dir,  # Set working directory to stream folder
+            )
+        else:
+            # Using GStreamer Python bindings
+            logger.info("Using GStreamer Python bindings to create pipeline")
+            # Construct the GStreamer pipeline string (for Python bindings)
+            pipeline_str = (
+                f'rtspsrc location={input_url} latency=0 is-live=true drop-on-latency=true ! '
+                f'rtph264depay ! h264parse ! queue max-size-buffers=4096 ! mpegtsmux ! '
+                f'hlssink playlist-location="{playlist_location}" location="{segment_location}" '
+                f'target-duration=1 max-files=10 playlist-length=5 sync=false'
+            )
+            
+            logger.info(f"Creating GStreamer pipeline: {pipeline_str}")
+            
+            # Create GStreamer pipeline using Python bindings
+            pipeline = Gst.parse_launch(pipeline_str)
+            if not pipeline:
+                raise Exception("Could not create GStreamer pipeline")
+            
+            # Start the pipeline
+            pipeline.set_state(Gst.State.PLAYING)
+            logger.info("GStreamer pipeline started")
+            
+            # Store the pipeline in the jobs dict for later cleanup
+            transcode_jobs[stream_id]["gst_pipeline"] = pipeline
+            
+            # Create a dummy process object to be compatible with the monitoring code
+            class DummyProcess:
+                def __init__(self):
+                    self.pid = 0
+                    self.returncode = None
+                
+                def poll(self):
+                    # Check if pipeline is still running (to be compatible with existing code)
+                    state = pipeline.get_state(0)
+                    if state[1] == Gst.State.PLAYING:
+                        return None  # Still running
+                    return 0  # Stopped
+            
+            process = DummyProcess()
+        
+        # Update status file
+        status_path = os.path.join(stream_dir, "status.json")
+        with open(status_path, "w") as f:
+            json.dump({
+                "status": "streaming",
+                "progress": 0,
+                "pid": process.pid if hasattr(process, "pid") else 0,
+                "command": "GStreamer pipeline" if not gst_launch_path else ' '.join(cmd)
+            }, f)
+        
+        # Store process in jobs dictionary
+        transcode_jobs[stream_id]["process"] = process
+        transcode_jobs[stream_id]["status"] = "streaming"
+        transcode_jobs[stream_id]["using_gstreamer"] = True
+        
+        return process
+    except Exception as e:
+        logger.exception(f"Error starting GStreamer process for stream {stream_id}")
+        status_path = os.path.join(stream_dir, "status.json")
+        with open(status_path, "w") as f:
+            json.dump({
+                "status": "failed",
+                "error": str(e)
+            }, f)
+        return None
 
 async def start_stream_process(stream_id: str, input_url: str, output_path: str, output_format: str) -> Optional[subprocess.Popen]:
     """Start FFmpeg process for streaming and return process object"""
@@ -485,6 +535,7 @@ async def start_stream_process(stream_id: str, input_url: str, output_path: str,
         # Store process in jobs dictionary
         transcode_jobs[stream_id]["process"] = process
         transcode_jobs[stream_id]["status"] = "streaming"
+        transcode_jobs[stream_id]["using_gstreamer"] = False
         
         return process
     except Exception as e:
@@ -498,26 +549,29 @@ async def start_stream_process(stream_id: str, input_url: str, output_path: str,
         return None
 
 async def monitor_stream_process(stream_id: str, process: subprocess.Popen, stream_dir: str):
-    """Monitor FFmpeg process and handle errors"""
+    """Monitor streaming process and handle errors"""
     try:
+        # Check if this is a GStreamer pipeline that needs special handling
+        is_gstreamer = transcode_jobs.get(stream_id, {}).get("using_gstreamer", False)
+        
         # Read stderr in a non-blocking way to monitor the process
-        # This runs in a background task
         stderr_lines = []
         
         # Check for process health every few seconds
         while process.poll() is None:  # While process is still running
             # Read any available output without blocking
-            for line in iter(process.stderr.readline, ""):
-                if not line:
-                    break
+            if hasattr(process, 'stderr') and process.stderr:
+                for line in iter(process.stderr.readline, ""):
+                    if not line:
+                        break
+                        
+                    stderr_lines.append(line.strip())
                     
-                stderr_lines.append(line.strip())
-                
-                # Check for specific FFmpeg errors in the output
-                if "Error" in line:
-                    logger.error(f"FFmpeg error for stream {stream_id}: {line}")
-                elif "Opening" in line or "Stream mapping" in line:
-                    logger.info(f"FFmpeg stream info: {line}")
+                    # Log important FFmpeg/GStreamer messages
+                    if "Error" in line or "WARNING" in line:
+                        logger.error(f"Stream error for {stream_id}: {line}")
+                    elif "Opening" in line or "Stream mapping" in line:
+                        logger.info(f"Stream info: {line}")
             
             # Update status file periodically
             status_path = os.path.join(stream_dir, "status.json")
@@ -526,13 +580,14 @@ async def monitor_stream_process(stream_id: str, process: subprocess.Popen, stre
                 ts_segments = list(Path(stream_dir).glob("*.ts"))
                 segment_count = len(ts_segments)
                 
-                # Update status.json with segment info and last lines from FFmpeg
+                # Update status.json with segment info and last lines from output
                 with open(status_path, "w") as f:
                     json.dump({
                         "status": "streaming",
                         "segmentCount": segment_count,
                         "lastUpdated": time.time(),
-                        "lastLines": stderr_lines[-5:] if stderr_lines else []
+                        "lastLines": stderr_lines[-5:] if stderr_lines else [],
+                        "engine": "gstreamer" if is_gstreamer else "ffmpeg"
                     }, f)
                 
                 # If we have segments but no m3u8, generate one
@@ -547,7 +602,7 @@ async def monitor_stream_process(stream_id: str, process: subprocess.Popen, stre
                         with open(index_file, "w") as f:
                             f.write("#EXTM3U\n")
                             f.write("#EXT-X-VERSION:3\n")
-                            f.write("#EXT-X-TARGETDURATION:2\n")
+                            f.write("#EXT-X-TARGETDURATION:1\n")
                             f.write("#EXT-X-MEDIA-SEQUENCE:0\n")
                             for segment in segments:
                                 f.write("#EXTINF:1.0,\n")
@@ -560,21 +615,31 @@ async def monitor_stream_process(stream_id: str, process: subprocess.Popen, stre
                 logger.warning(f"Error updating status file: {e}")
                 
             await asyncio.sleep(3)  # Check every 3 seconds
-            
-        # Process has exited, get return code
+        
+        # Process has exited, handle cleanup
         return_code = process.poll()
+        
+        # Special handling for GStreamer pipelines
+        if is_gstreamer and "gst_pipeline" in transcode_jobs.get(stream_id, {}):
+            pipeline = transcode_jobs[stream_id]["gst_pipeline"]
+            if hasattr(pipeline, "set_state"):
+                try:
+                    pipeline.set_state(Gst.State.NULL)
+                    logger.info(f"GStreamer pipeline for stream {stream_id} stopped")
+                except Exception as e:
+                    logger.error(f"Error stopping GStreamer pipeline: {e}")
         
         # Update status based on return code
         if return_code != 0:
-            logger.error(f"FFmpeg process for stream {stream_id} exited with code {return_code}")
+            logger.error(f"Stream process for {stream_id} exited with code {return_code}")
             error_output = "\n".join(stderr_lines[-20:])  # Last 20 lines of stderr
             with open(os.path.join(stream_dir, "status.json"), "w") as f:
                 json.dump({
                     "status": "failed",
-                    "error": f"FFmpeg exited with code {return_code}: {error_output}"
+                    "error": f"Process exited with code {return_code}: {error_output}"
                 }, f)
         else:
-            logger.info(f"FFmpeg process for stream {stream_id} completed normally")
+            logger.info(f"Stream process for {stream_id} completed normally")
             with open(os.path.join(stream_dir, "status.json"), "w") as f:
                 json.dump({
                     "status": "completed"
@@ -594,100 +659,10 @@ async def get_stream_file(stream_id: str, file_name: str):
     """
     Serve HLS stream files
     """
-    logger.debug(f"Requested stream file: {stream_id}/{file_name}")
-    
-    stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
-    file_path = os.path.join(stream_dir, file_name)
-    
-    if not os.path.exists(file_path):
-        if file_name == "index.m3u8":
-            logger.warning(f"Stream file not found: {file_path}")
-            
-            # Check if temporary m3u8 file exists
-            temp_m3u8_path = os.path.join(stream_dir, "index.m3u8.tmp")
-            if os.path.exists(temp_m3u8_path):
-                logger.info(f"Found temporary m3u8 file: {temp_m3u8_path}")
-                # If we have a temporary file, return it instead
-                with open(temp_m3u8_path, "rb") as f:
-                    content = f.read()
-                return Response(
-                    content=content,
-                    media_type="application/vnd.apple.mpegurl"
-                )
-            
-            # Check if any TS segments exist even if index doesn't yet
-            ts_segments = list(Path(stream_dir).glob("*.ts"))
-            if ts_segments:
-                # We have segments but no playlist - this is a temporary state
-                # Generate a simple M3U8 playlist on the fly with the existing segments
-                segments = [s.name for s in sorted(ts_segments)]
-                
-                # Create a basic HLS playlist pointing to existing segments
-                playlist_content = "#EXTM3U\n"
-                playlist_content += "#EXT-X-VERSION:3\n"
-                playlist_content += "#EXT-X-TARGETDURATION:2\n"
-                playlist_content += "#EXT-X-MEDIA-SEQUENCE:0\n"
-                
-                for segment in segments:
-                    playlist_content += f"#EXTINF:1.0,\n{segment}\n"
-                
-                logger.info(f"Generated temporary playlist with {len(segments)} segments")
-                
-                return Response(
-                    content=playlist_content,
-                    media_type="application/vnd.apple.mpegurl"
-                )
-            
-            # Check status file
-            status_path = os.path.join(stream_dir, "status.json")
-            if os.path.exists(status_path):
-                with open(status_path, "r") as f:
-                    try:
-                        status = json.load(f)
-                        if status.get("status") in ["processing", "initializing", "streaming"]:
-                            # Still initializing, return a 202 Accepted to tell the client to retry
-                            return Response(
-                                content="Stream initializing, please retry",
-                                status_code=202,
-                                media_type="text/plain"
-                            )
-                    except json.JSONDecodeError:
-                        pass
-        
-        # If not initializing or not the index file, return 404
-        raise HTTPException(status_code=404, detail="Stream file not found")
-    
-    # Determine content type
-    content_type = "application/vnd.apple.mpegurl"
-    if file_name.endswith(".ts"):
-        content_type = "video/mp2t"
-    
-    # For m3u8 files, make sure we return the latest version
-    if file_name.endswith(".m3u8"):
-        # Read the file and return it directly to ensure we have the most recent version
-        with open(file_path, "rb") as f:
-            content = f.read()
-        
-        return Response(
-            content=content,
-            media_type=content_type
-        )
-    
-    # For ts segments, stream the response
-    return StreamingResponse(
-        open(file_path, "rb"),
-        media_type=content_type
-    )
+    # ... keep existing code (for serving stream files)
 
 # Cleanup old jobs periodically (could be implemented as a background task)
 def cleanup_old_jobs():
     """Clean up old transcoding jobs"""
-    current_time = time.time()
-    for job_id, job in list(transcode_jobs.items()):
-        # If job is older than 1 hour and completed or failed
-        if (current_time - job.get("created_at", current_time)) > 3600 and \
-           job.get("status") in ["completed", "failed"]:
-            job_dir = os.path.join(TRANSCODE_DIR, job_id)
-            if os.path.exists(job_dir):
-                shutil.rmtree(job_dir)
-            del transcode_jobs[job_id]
+    # ... keep existing code (for job cleanup)
+

@@ -49,6 +49,28 @@ if not os.path.exists(ffmpeg_binary_path):
 os.environ["FFMPEG_BINARY_PATH"] = ffmpeg_binary_path
 logger.info(f"Using FFmpeg binary path: {ffmpeg_binary_path}")
 
+# Look for GStreamer command line tool
+gstreamer_path = os.environ.get("GSTREAMER_PATH", "/usr/bin/gst-launch-1.0")
+if not os.path.exists(gstreamer_path):
+    # Try alternate common paths
+    common_paths = [
+        "/usr/bin/gst-launch-1.0", 
+        "/usr/local/bin/gst-launch-1.0", 
+        "/opt/local/bin/gst-launch-1.0", 
+        "/opt/homebrew/bin/gst-launch-1.0"
+    ]
+    for path in common_paths:
+        if os.path.exists(path):
+            gstreamer_path = path
+            logger.info(f"Found GStreamer at {gstreamer_path}")
+            break
+    else:
+        logger.warning(f"GStreamer binary not found at common paths, will try to use system path")
+        gstreamer_path = "gst-launch-1.0"  # Fall back to system path if not found
+
+os.environ["GSTREAMER_PATH"] = gstreamer_path
+logger.info(f"Using GStreamer binary path: {gstreamer_path}")
+
 # Include routers - IMPORTANT: Do not add prefixes to transcode router
 app.include_router(inference.router)
 app.include_router(models.router)    
