@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -69,107 +70,7 @@ if gstreamer_available:
         logger.error(f"Failed to initialize GStreamer: {e}")
         gstreamer_available = False
 
-@router.post("/transcode", status_code=202)
-async def transcode_video(
-    backgroundTasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    outputFormat: str = Form("mp4"),
-    quality: str = Form("medium"),
-    preset: str = Form("fast")
-):
-    """
-    Upload and transcode a video file
-    """
-    job_id = str(uuid.uuid4())
-    input_path = os.path.join(TRANSCODE_DIR, f"input_{job_id}_{file.filename}")
-    output_path = os.path.join(TRANSCODE_DIR, f"output_{job_id}.{outputFormat}")
-    
-    try:
-        # Save the uploaded file
-        with open(input_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
-        
-        # Start transcoding in the background
-        backgroundTasks.add_task(
-            transcode_file, job_id, input_path, output_path, outputFormat, quality, preset
-        )
-        
-        # Update job status
-        transcode_jobs[job_id] = {"status": "processing", "input_file": file.filename, "output_file": f"output_{job_id}.{outputFormat}"}
-        
-        return {"job_id": job_id, "status": "processing"}
-    except Exception as e:
-        logger.error(f"Error during file upload and transcoding: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        await file.close()
-
-def transcode_file(job_id, input_path, output_path, output_format, quality, preset):
-    """Background task for transcoding video"""
-    try:
-        # Construct FFmpeg command
-        cmd = [
-            ffmpeg_binary_path,
-            "-y",  # Overwrite output file if it exists
-            "-i", input_path,
-            "-c:v", "libx264",  # Video codec
-            "-preset", preset,  # Preset (affects speed and quality)
-            "-crf", "23",  # Constant Rate Factor (adjust for quality)
-            "-c:a", "aac",  # Audio codec
-            "-strict", "experimental",  # Allow experimental AAC encoder
-            output_path
-        ]
-        
-        logger.info(f"Starting FFmpeg process: {' '.join(cmd)}")
-        
-        # Execute FFmpeg command
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        
-        logger.info(f"FFmpeg process completed successfully for job {job_id}")
-        transcode_jobs[job_id]["status"] = "completed"
-        
-    except subprocess.CalledProcessError as e:
-        logger.error(f"FFmpeg process failed with error: {e.stderr}")
-        transcode_jobs[job_id]["status"] = "failed"
-        transcode_jobs[job_id]["error"] = e.stderr
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during transcoding: {e}")
-        transcode_jobs[job_id]["status"] = "failed"
-        transcode_jobs[job_id]["error"] = str(e)
-
-@router.get("/transcode/{job_id}/status")
-async def get_job_status(job_id: str):
-    """
-    Get the status of a transcoding job
-    """
-    if job_id not in transcode_jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    return transcode_jobs[job_id]
-
-@router.get("/transcode/{job_id}/download")
-async def download_transcoded_file(job_id: str):
-    """
-    Download the transcoded file
-    """
-    if job_id not in transcode_jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    job = transcode_jobs[job_id]
-    if job["status"] != "completed":
-        raise HTTPException(status_code=400, detail="Job not completed")
-    
-    output_path = os.path.join(TRANSCODE_DIR, job["output_file"])
-    
-    if not os.path.exists(output_path):
-        raise HTTPException(status_code=500, detail="Transcoded file not found")
-    
-    def file_iterator(file_path):
-        with open(file_path, "rb") as f:
-            yield from f
-    
-    return StreamingResponse(file_iterator(output_path), media_type="video/mp4", 
-                                 headers={"Content-Disposition": f"attachment;filename={job['output_file']}"})
+# ... keep existing code (transcode_video, transcode_file, get_job_status, download_transcoded_file functions)
 
 async def wait_for_hls_files(stream_dir: str, max_wait_time: int = 20) -> bool:
     """
@@ -731,7 +632,28 @@ async def monitor_stream_process(stream_id: str, process: subprocess.Popen, stre
         
         # Process has exited, handle cleanup
         return_code = process.poll()
+        logger.warning(f"Stream process for {stream_id} exited with code {return_code}")
         
         # Special handling for GStreamer pipelines
         if is_gstreamer and "gst_pipeline" in transcode_jobs.get(stream_id, {}):
-            pipeline = transcode_jobs[
+            pipeline = transcode_jobs[stream_id]["gst_pipeline"]
+            pipeline.set_state(Gst.State.NULL)
+            logger.info(f"Stopped GStreamer pipeline for {stream_id}")
+        
+        # Update status based on exit code
+        transcode_jobs[stream_id]["status"] = "completed" if return_code == 0 else "failed"
+        
+        # Update status file
+        status_path = os.path.join(stream_dir, "status.json")
+        try:
+            with open(status_path, "r") as f:
+                status = json.load(f)
+            status["status"] = "completed" if return_code == 0 else "failed"
+            status["exitCode"] = return_code
+            with open(status_path, "w") as f:
+                json.dump(status, f)
+        except Exception as e:
+            logger.error(f"Error updating status file after process exit: {e}")
+    
+    except Exception as e:
+        logger.exception(f"Error monitoring stream process: {e}")
