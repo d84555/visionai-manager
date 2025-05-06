@@ -6,20 +6,12 @@ import os
 import logging
 from app.routers import inference, models, websocket, health, transcode
 
-# Configure logging with more detailed configuration
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()  # Output to standard output/console
-    ]
 )
-
-# Get logger
 logger = logging.getLogger(__name__)
-
-# Increase logging level for GStreamer-related logs
-logging.getLogger('gi.repository').setLevel(logging.INFO)
 
 # Create FastAPI app
 app = FastAPI(title="Vision AI API", description="Computer Vision AI API for object detection and video analysis")
@@ -56,28 +48,6 @@ if not os.path.exists(ffmpeg_binary_path):
 
 os.environ["FFMPEG_BINARY_PATH"] = ffmpeg_binary_path
 logger.info(f"Using FFmpeg binary path: {ffmpeg_binary_path}")
-
-# Look for GStreamer command line tool
-gstreamer_path = os.environ.get("GSTREAMER_PATH", "/usr/bin/gst-launch-1.0")
-if not os.path.exists(gstreamer_path):
-    # Try alternate common paths
-    common_paths = [
-        "/usr/bin/gst-launch-1.0", 
-        "/usr/local/bin/gst-launch-1.0", 
-        "/opt/local/bin/gst-launch-1.0", 
-        "/opt/homebrew/bin/gst-launch-1.0"
-    ]
-    for path in common_paths:
-        if os.path.exists(path):
-            gstreamer_path = path
-            logger.info(f"Found GStreamer at {gstreamer_path}")
-            break
-    else:
-        logger.warning(f"GStreamer binary not found at common paths, will try to use system path")
-        gstreamer_path = "gst-launch-1.0"  # Fall back to system path if not found
-
-os.environ["GSTREAMER_PATH"] = gstreamer_path
-logger.info(f"Using GStreamer binary path: {gstreamer_path}")
 
 # Include routers - IMPORTANT: Do not add prefixes to transcode router
 app.include_router(inference.router)

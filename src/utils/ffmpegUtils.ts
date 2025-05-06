@@ -1,6 +1,5 @@
-
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { fetchFile } from '@ffmpeg/util';
 import axios from 'axios';
 import SettingsService from '../services/SettingsService';
 
@@ -110,50 +109,34 @@ async function sendToServerTranscoder(file: File): Promise<string> {
 // Client-side transcoding using FFmpeg.wasm
 async function transcodeClientSide(file: File, formatInfo: any): Promise<string> {
   const settings = getFFmpegSettings();
-  
-  // Create FFmpeg instance without configuration (it will be configured in load method)
-  const ffmpeg = new FFmpeg();
+  const ffmpeg = new FFmpeg({
+    log: true,
+    corePath: settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+  });
   
   try {
-    // Get core URL from settings or use default
-    const coreURL = await toBlobURL(
-      settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-      'text/javascript'
-    );
-    
-    // Load FFmpeg with the correct configuration
-    await ffmpeg.load({
-      coreURL,
-      wasmURL: settings.wasmPath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.wasm',
-    });
+    await ffmpeg.load();
     
     const inputFileName = 'input_file';
     const outputFileName = 'output.mp4';
     
-    // Write input file to memory
-    await ffmpeg.writeFile(inputFileName, await fetchFile(file));
+    ffmpeg.FS('writeFile', inputFileName, await fetchFile(file));
     
-    // Run FFmpeg command with the correct arguments
-    await ffmpeg.exec([
+    await ffmpeg.run(
       '-i', inputFileName,
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-c:a', 'aac',
       '-strict', 'experimental',
       outputFileName
-    ]);
+    );
     
-    // Read the output file
-    const data = await ffmpeg.readFile(outputFileName);
-    const blob = new Blob([data], { type: 'video/mp4' });
+    const data = ffmpeg.FS('readFile', outputFileName);
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
     
     // Clean up files
-    try {
-      await ffmpeg.deleteFile(inputFileName);
-      await ffmpeg.deleteFile(outputFileName);
-    } catch (e) {
-      console.warn('Error cleaning up FFmpeg files:', e);
-    }
+    ffmpeg.FS('unlink', inputFileName);
+    ffmpeg.FS('unlink', outputFileName);
     
     return URL.createObjectURL(blob);
   } catch (error) {
@@ -162,14 +145,14 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
   }
 }
 
-// Create HLS Stream from RTSP URL using backend (now with GStreamer support)
+// Create HLS Stream from RTSP URL
 export async function createHlsStream(streamUrl: string, streamName: string = 'camera'): Promise<string> {
   try {
     const settings = getFFmpegSettings();
     
     // Always use server-side transcoding for RTSP streams
     if (!settings.serverTranscoding) {
-      console.warn('Server-side transcoding is required for RTSP streams. Using server transcoding.');
+      console.warn('Server-side transcoding is disabled but required for RTSP streams. Using server anyway.');
     }
     
     const formData = new FormData();
@@ -184,71 +167,10 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     
     console.log('Stream response received:', response.data);
     
-    if (response.data.status === 'initializing' || response.data.status === 'streaming') {
-      console.log(`Stream is ${response.data.status}, waiting for HLS files to be created...`);
-      
-      // Wait for HLS files to be created with exponential backoff
-      const streamUrl = response.data.stream_url;
-      await waitForHlsFiles(streamUrl);
-      
-      return streamUrl;
-    }
-    
     // Return the stream URL path (this will be relative)
     return response.data.stream_url;
   } catch (error) {
     console.error('Error creating HLS stream:', error);
     throw new Error(`Failed to create HLS stream: ${error instanceof Error ? error.message : String(error)}`);
   }
-}
-
-// Helper function to wait for HLS files to be created
-async function waitForHlsFiles(url: string): Promise<void> {
-  let attempts = 0;
-  const maxAttempts = 120;  // Increased to 120 attempts (60 seconds at 1 attempt per 1/2 second)
-  const initialDelay = 250; // Start with 250ms delay
-  
-  while (attempts < maxAttempts) {
-    try {
-      // Try to fetch the m3u8 manifest
-      const delay = initialDelay * Math.pow(1.05, attempts); // Very gentle exponential backoff
-      await new Promise(resolve => setTimeout(resolve, delay));
-      
-      console.log(`Attempt ${attempts + 1}/${maxAttempts}: Checking if HLS manifest exists at ${url}`);
-      
-      const response = await axios.get(url, { 
-        responseType: 'text',
-        validateStatus: (status) => status === 200 || status === 202
-      });
-      
-      if (response.status === 200) {
-        // If we get a valid response, the file exists
-        console.log(`HLS manifest found after ${attempts + 1} attempts`);
-        
-        // Check if it contains segment references (a more reliable test)
-        if (response.data && (response.data.includes(".ts") || response.data.includes("#EXTINF"))) {
-          console.log("HLS manifest contains segment references, stream is ready");
-          return;
-        } else {
-          console.log("HLS manifest found but contains no segments yet, continuing to wait...");
-        }
-      }
-      
-      if (response.status === 202) {
-        console.log('Stream still initializing, retrying...');
-      }
-      
-      attempts++;
-    } catch (error) {
-      console.log(`Attempt ${attempts + 1}/${maxAttempts}: HLS file not ready yet`);
-      attempts++;
-      
-      // If this is on attempt 15+, log more details to help debug
-      if (attempts > 15 && attempts % 5 === 0) {
-        console.warn(`Continuing to retry after ${attempts} attempts. This may indicate a server-side issue with stream processing.`);
-      }
-    }
-  }
-  
-  console.warn(`Failed to access HLS manifest after ${maxAttempts} attempts. Continuing anyway...`);
 }
