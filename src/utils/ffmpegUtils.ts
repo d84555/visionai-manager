@@ -118,10 +118,10 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
     const coreURL = await toBlobURL(`${baseURL}ffmpeg-core.js`, 'text/javascript');
     const wasmURL = await toBlobURL(`${baseURL}ffmpeg-core.wasm`, 'application/wasm');
     
+    // Remove the 'log' property as it's not part of FFMessageLoadConfig
     await ffmpeg.load({
       coreURL,
-      wasmURL,
-      log: true
+      wasmURL
     });
     
     const inputFileName = 'input_file';
@@ -139,7 +139,18 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
     ]);
     
     const data = await ffmpeg.readFile(outputFileName);
-    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    // Fix the buffer access - FileData doesn't have a buffer property directly
+    // Create a Blob using the proper Uint8Array data
+    let uint8Array;
+    if (typeof data === 'string') {
+      // Handle string case - convert to Uint8Array
+      uint8Array = new TextEncoder().encode(data);
+    } else {
+      // Handle Uint8Array case
+      uint8Array = data;
+    }
+    
+    const blob = new Blob([uint8Array], { type: 'video/mp4' });
     
     // Clean up files
     await ffmpeg.deleteFile(inputFileName);
