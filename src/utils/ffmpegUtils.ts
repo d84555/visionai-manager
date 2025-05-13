@@ -1,6 +1,6 @@
 
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile } from '@ffmpeg/util';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import axios from 'axios';
 import SettingsService from '../services/SettingsService';
 import { toast } from 'sonner';
@@ -111,34 +111,39 @@ async function sendToServerTranscoder(file: File): Promise<string> {
 // Client-side transcoding using FFmpeg.wasm
 async function transcodeClientSide(file: File, formatInfo: any): Promise<string> {
   const settings = getFFmpegSettings();
-  const ffmpeg = new FFmpeg({
-    log: true,
-    corePath: settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-  });
+  const ffmpeg = new FFmpeg();
   
   try {
-    await ffmpeg.load();
+    const baseURL = settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/';
+    const coreURL = await toBlobURL(`${baseURL}ffmpeg-core.js`, 'text/javascript');
+    const wasmURL = await toBlobURL(`${baseURL}ffmpeg-core.wasm`, 'application/wasm');
+    
+    await ffmpeg.load({
+      coreURL,
+      wasmURL,
+      log: true
+    });
     
     const inputFileName = 'input_file';
     const outputFileName = 'output.mp4';
     
-    ffmpeg.FS('writeFile', inputFileName, await fetchFile(file));
+    await ffmpeg.writeFile(inputFileName, await fetchFile(file));
     
-    await ffmpeg.run(
+    await ffmpeg.exec([
       '-i', inputFileName,
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-c:a', 'aac',
       '-strict', 'experimental',
       outputFileName
-    );
+    ]);
     
-    const data = ffmpeg.FS('readFile', outputFileName);
+    const data = await ffmpeg.readFile(outputFileName);
     const blob = new Blob([data.buffer], { type: 'video/mp4' });
     
     // Clean up files
-    ffmpeg.FS('unlink', inputFileName);
-    ffmpeg.FS('unlink', outputFileName);
+    await ffmpeg.deleteFile(inputFileName);
+    await ffmpeg.deleteFile(outputFileName);
     
     return URL.createObjectURL(blob);
   } catch (error) {
