@@ -1,7 +1,9 @@
+
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import axios from 'axios';
 import SettingsService from '../services/SettingsService';
+import { toast } from 'sonner';
 
 // Load FFmpeg settings
 const getFFmpegSettings = () => {
@@ -152,7 +154,15 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     
     // Always use server-side transcoding for RTSP streams
     if (!settings.serverTranscoding) {
-      console.warn('Server-side transcoding is disabled but required for RTSP streams. Using server anyway.');
+      toast.warning('Server-side transcoding is recommended for RTSP streams', {
+        description: 'Enabling server-side transcoding in Settings will improve RTSP performance'
+      });
+    }
+    
+    // Check if this is an RTSP stream and warn if server transcoding is disabled
+    const isRtsp = streamUrl.toLowerCase().startsWith('rtsp://');
+    if (isRtsp && !settings.serverTranscoding) {
+      console.warn('RTSP streams work best with server-side transcoding enabled');
     }
     
     const formData = new FormData();
