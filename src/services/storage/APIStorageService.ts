@@ -37,7 +37,8 @@ export default class APIStorageService implements StorageServiceInterface {
           'Content-Type': 'multipart/form-data'
         },
         // Add timeout and better error handling
-        timeout: 30000
+        timeout: 30000,
+        validateStatus: (status) => status >= 200 && status < 300
       });
       
       const result = response.data;
@@ -70,7 +71,18 @@ export default class APIStorageService implements StorageServiceInterface {
   
   async listModels(): Promise<ModelInfo[]> {
     try {
-      const response = await axios.get(`${this.baseUrl}/models/list`);
+      console.log(`Fetching models list from ${this.baseUrl}/models/list`);
+      const response = await axios.get(`${this.baseUrl}/models/list`, {
+        validateStatus: (status) => status >= 200 && status < 300,
+        timeout: 5000
+      });
+      
+      // Check if response is HTML (indicates a server-side error or misconfiguration)
+      const contentType = response.headers['content-type'];
+      if (contentType && contentType.includes('text/html')) {
+        console.error('Received HTML response instead of JSON', response.data);
+        throw new Error('Received invalid response format from server. Expected JSON, got HTML.');
+      }
       
       // Fix: Check if response.data is actually an array before using map
       if (!Array.isArray(response.data)) {
@@ -89,6 +101,7 @@ export default class APIStorageService implements StorageServiceInterface {
         }
         
         // If not an array and no models property, return empty array
+        console.info('Returning empty array as fallback for listModels');
         return [];
       }
       
@@ -110,7 +123,10 @@ export default class APIStorageService implements StorageServiceInterface {
   async deleteModel(modelId: string): Promise<void> {
     try {
       // Make a DELETE request to remove the model
-      await axios.delete(`${this.baseUrl}/models/${modelId}`);
+      await axios.delete(`${this.baseUrl}/models/${modelId}`, {
+        validateStatus: (status) => status >= 200 && status < 300,
+        timeout: 5000
+      });
       
       // Check if the model was active and reset active model if needed
       const activeModel = await this.getActiveModel();
@@ -131,6 +147,9 @@ export default class APIStorageService implements StorageServiceInterface {
       await axios.post(`${this.baseUrl}/models/select`, {
         name: modelName,
         path: modelPath
+      }, {
+        validateStatus: (status) => status >= 200 && status < 300,
+        timeout: 5000
       });
     } catch (error) {
       console.error('Error setting active model:', error);
@@ -142,6 +161,9 @@ export default class APIStorageService implements StorageServiceInterface {
     try {
       await axios.post(`${this.baseUrl}/models/select-multiple`, {
         models: models
+      }, {
+        validateStatus: (status) => status >= 200 && status < 300,
+        timeout: 5000
       });
     } catch (error) {
       console.error('Error setting multiple active models:', error);
@@ -151,7 +173,19 @@ export default class APIStorageService implements StorageServiceInterface {
   
   async getActiveModel(): Promise<{ name: string; path: string } | null> {
     try {
-      const response = await axios.get(`${this.baseUrl}/models/active`);
+      console.log(`Fetching active model from ${this.baseUrl}/models/active`);
+      const response = await axios.get(`${this.baseUrl}/models/active`, {
+        validateStatus: (status) => status === 200 || status === 404,
+        timeout: 5000
+      });
+      
+      // Check if response is HTML (indicates server error)
+      const contentType = response.headers['content-type'];
+      if (contentType && contentType.includes('text/html')) {
+        console.error('Received HTML response instead of JSON', response.data);
+        throw new Error('Received invalid response format from server. Expected JSON, got HTML.');
+      }
+
       return response.data ? {
         name: response.data.name,
         path: response.data.path
@@ -168,7 +202,18 @@ export default class APIStorageService implements StorageServiceInterface {
   
   async getActiveModels(): Promise<{ name: string; path: string }[]> {
     try {
-      const response = await axios.get(`${this.baseUrl}/models/active-multiple`);
+      console.log(`Fetching active models from ${this.baseUrl}/models/active-multiple`);
+      const response = await axios.get(`${this.baseUrl}/models/active-multiple`, {
+        validateStatus: (status) => status === 200 || status === 404,
+        timeout: 5000
+      });
+      
+      // Check if response is HTML (indicates server error)
+      const contentType = response.headers['content-type'];
+      if (contentType && contentType.includes('text/html')) {
+        console.error('Received HTML response instead of JSON', response.data);
+        throw new Error('Received invalid response format from server. Expected JSON, got HTML.');
+      }
       
       // Add handling for different response formats
       if (!Array.isArray(response.data)) {
@@ -183,6 +228,7 @@ export default class APIStorageService implements StorageServiceInterface {
         }
         
         // If not an array and no models property, return empty array
+        console.info('Returning empty array as fallback for getActiveModels');
         return [];
       }
       
@@ -202,7 +248,9 @@ export default class APIStorageService implements StorageServiceInterface {
   async getModelFileUrl(modelPath: string): Promise<string | null> {
     try {
       const response = await axios.get(`${this.baseUrl}/models/file-url`, {
-        params: { path: modelPath }
+        params: { path: modelPath },
+        validateStatus: (status) => status >= 200 && status < 300,
+        timeout: 5000
       });
       return response.data.url;
     } catch (error) {

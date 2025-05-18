@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 import os
 import logging
 from app.routers import inference, models, websocket, health, transcode
+import traceback
 
 # Configure logging
 logging.basicConfig(
@@ -63,7 +64,35 @@ async def root():
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Global exception handler: {exc}", exc_info=True)
+    # Make sure we return a JSON response even for errors
     return JSONResponse(
         status_code=500,
-        content={"message": f"An unexpected error occurred: {str(exc)}"}
+        content={
+            "message": f"An unexpected error occurred: {str(exc)}",
+            "path": request.url.path,
+            "method": request.method
+        }
     )
+
+# Add a middleware to ensure all responses have Content-Type set to application/json
+@app.middleware("http")
+async def ensure_json_content_type(request: Request, call_next):
+    try:
+        # Process the request
+        response = await call_next(request)
+        
+        # Check if this is an API request (not static files, etc.)
+        if request.url.path.startswith("/api/"):
+            # Set the Content-Type header to application/json
+            response.headers["Content-Type"] = "application/json"
+            
+        return response
+    except Exception as e:
+        logger.error(f"Error in middleware: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Return a JSON response even for errors
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"An unexpected error occurred: {str(e)}"}
+        )
