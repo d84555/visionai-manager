@@ -22,11 +22,12 @@ ACTIVE_MODELS_FILE = os.path.join(MODELS_DIR, "active_models.json")
 # Create models directory if it doesn't exist
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-# Create Router
-router = APIRouter(prefix="/models", tags=["models"])
+# Create Router - NOTE: No prefix here, it's set in main.py
+router = APIRouter(tags=["models"])
 
 # Log the router setup for debugging
-logger.info(f"Models router initialized with prefix /models and models directory: {MODELS_DIR}")
+logger.info(f"Models router initialized with models directory: {MODELS_DIR}")
+logger.info(f"Active models file path: {ACTIVE_MODELS_FILE}")
 
 class ModelRequest(BaseModel):
     name: str
@@ -59,7 +60,7 @@ def get_models() -> List[Dict[str, Any]]:
             filepath = os.path.join(MODELS_DIR, filename)
             
             # Skip directories and non-model files
-            if os.path.isdir(filepath):
+            if os.path.isdir(filepath) or filename == "active_models.json":
                 continue
             
             if any(filename.lower().endswith(ext) for ext in ['.pt', '.pth', '.onnx', '.tflite', '.pb']):
@@ -272,6 +273,14 @@ async def get_active_model(request: Request, response: Response):
         logger.info("Getting active model")
         if not os.path.exists(ACTIVE_MODELS_FILE):
             logger.info("No active models file found")
+            # Create empty active_models.json to prevent repeated 404 errors
+            try:
+                with open(ACTIVE_MODELS_FILE, 'w') as f:
+                    json.dump([], f)
+                logger.info(f"Created empty active_models.json at {ACTIVE_MODELS_FILE}")
+            except Exception as e:
+                logger.error(f"Failed to create empty active_models.json: {e}")
+            
             return JSONResponse(
                 status_code=404, 
                 content={"detail": "No active model set"}
@@ -292,13 +301,28 @@ async def get_active_model(request: Request, response: Response):
             )
     except FileNotFoundError:
         logger.warning(f"Active models file not found at {ACTIVE_MODELS_FILE}")
+        # Create empty active_models.json to prevent repeated errors
+        try:
+            with open(ACTIVE_MODELS_FILE, 'w') as f:
+                json.dump([], f)
+            logger.info(f"Created empty active_models.json at {ACTIVE_MODELS_FILE}")
+        except Exception as e:
+            logger.error(f"Failed to create empty active_models.json: {e}")
+            
         return JSONResponse(
             status_code=404, 
             content={"detail": "No active model set"}
         )
     except json.JSONDecodeError as e:
         logger.error(f"Error decoding active models JSON: {str(e)}")
-        # If file exists but is invalid JSON, return empty result
+        # If file exists but is invalid JSON, recreate it
+        try:
+            with open(ACTIVE_MODELS_FILE, 'w') as f:
+                json.dump([], f)
+            logger.info(f"Recreated active_models.json due to JSON decode error")
+        except Exception as write_error:
+            logger.error(f"Failed to recreate active_models.json: {write_error}")
+            
         return JSONResponse(
             status_code=404, 
             content={"detail": "Invalid active model configuration"}
@@ -321,6 +345,14 @@ async def get_active_models(request: Request, response: Response):
         logger.info("Getting active models")
         if not os.path.exists(ACTIVE_MODELS_FILE):
             logger.info("No active models file found")
+            # Create empty active_models.json to prevent repeated 404 errors
+            try:
+                with open(ACTIVE_MODELS_FILE, 'w') as f:
+                    json.dump([], f)
+                logger.info(f"Created empty active_models.json at {ACTIVE_MODELS_FILE}")
+            except Exception as e:
+                logger.error(f"Failed to create empty active_models.json: {e}")
+                
             return []
             
         with open(ACTIVE_MODELS_FILE, 'r') as f:
@@ -330,10 +362,25 @@ async def get_active_models(request: Request, response: Response):
         return active_models
     except FileNotFoundError:
         logger.warning(f"Active models file not found at {ACTIVE_MODELS_FILE}")
+        # Create empty active_models.json to prevent repeated 404 errors
+        try:
+            with open(ACTIVE_MODELS_FILE, 'w') as f:
+                json.dump([], f)
+            logger.info(f"Created empty active_models.json at {ACTIVE_MODELS_FILE}")
+        except Exception as e:
+            logger.error(f"Failed to create empty active_models.json: {e}")
+            
         return []
     except json.JSONDecodeError as e:
         logger.error(f"Error decoding active models JSON: {str(e)}")
-        # If file exists but is invalid JSON, return empty list
+        # If file exists but is invalid JSON, recreate it
+        try:
+            with open(ACTIVE_MODELS_FILE, 'w') as f:
+                json.dump([], f)
+            logger.info(f"Recreated active_models.json due to JSON decode error")
+        except Exception as write_error:
+            logger.error(f"Failed to recreate active_models.json: {write_error}")
+            
         return []
     except Exception as e:
         logger.error(f"Error getting active models: {str(e)}")

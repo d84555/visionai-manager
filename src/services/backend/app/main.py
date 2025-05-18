@@ -26,11 +26,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Set models directory from environment variable or use default
-models_dir = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"))
+# Set models directory from environment variable or use absolute path for better reliability
+models_dir = os.environ.get("MODELS_DIR")
+if not models_dir:
+    # Use an absolute path if environment variable is not set
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    models_dir = os.path.join(base_dir, "models")
+    
+# Ensure the models directory exists
 os.makedirs(models_dir, exist_ok=True)
 os.environ["MODELS_DIR"] = models_dir
 logger.info(f"Using models directory: {models_dir}")
+
+# Log current directory and verify models directory exists
+logger.info(f"Current working directory: {os.getcwd()}")
+logger.info(f"Models directory exists: {os.path.exists(models_dir)}")
+logger.info(f"Models directory is absolute: {os.path.isabs(models_dir)}")
 
 # Set FFmpeg binary path from environment variable or use default
 # Using a more reliable default path that's common on many Linux systems
@@ -52,7 +63,7 @@ logger.info(f"Using FFmpeg binary path: {ffmpeg_binary_path}")
 
 # Include routers - IMPORTANT: Do not add prefixes to transcode router
 app.include_router(inference.router)
-app.include_router(models.router)    
+app.include_router(models.router, prefix="/models")  # Updated with explicit prefix
 app.include_router(websocket.router)
 app.include_router(health.router)
 app.include_router(transcode.router)  # No prefix, will use routes directly as defined in router
