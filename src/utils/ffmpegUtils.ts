@@ -1,9 +1,7 @@
-
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { fetchFile } from '@ffmpeg/util';
 import axios from 'axios';
 import SettingsService from '../services/SettingsService';
-import { toast } from 'sonner';
 
 // Load FFmpeg settings
 const getFFmpegSettings = () => {
@@ -111,50 +109,34 @@ async function sendToServerTranscoder(file: File): Promise<string> {
 // Client-side transcoding using FFmpeg.wasm
 async function transcodeClientSide(file: File, formatInfo: any): Promise<string> {
   const settings = getFFmpegSettings();
-  const ffmpeg = new FFmpeg();
+  const ffmpeg = new FFmpeg({
+    log: true,
+    corePath: settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+  });
   
   try {
-    const baseURL = settings.corePath || 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/';
-    const coreURL = await toBlobURL(`${baseURL}ffmpeg-core.js`, 'text/javascript');
-    const wasmURL = await toBlobURL(`${baseURL}ffmpeg-core.wasm`, 'application/wasm');
-    
-    // Remove the 'log' property as it's not part of FFMessageLoadConfig
-    await ffmpeg.load({
-      coreURL,
-      wasmURL
-    });
+    await ffmpeg.load();
     
     const inputFileName = 'input_file';
     const outputFileName = 'output.mp4';
     
-    await ffmpeg.writeFile(inputFileName, await fetchFile(file));
+    ffmpeg.FS('writeFile', inputFileName, await fetchFile(file));
     
-    await ffmpeg.exec([
+    await ffmpeg.run(
       '-i', inputFileName,
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-c:a', 'aac',
       '-strict', 'experimental',
       outputFileName
-    ]);
+    );
     
-    const data = await ffmpeg.readFile(outputFileName);
-    // Fix the buffer access - FileData doesn't have a buffer property directly
-    // Create a Blob using the proper Uint8Array data
-    let uint8Array;
-    if (typeof data === 'string') {
-      // Handle string case - convert to Uint8Array
-      uint8Array = new TextEncoder().encode(data);
-    } else {
-      // Handle Uint8Array case
-      uint8Array = data;
-    }
-    
-    const blob = new Blob([uint8Array], { type: 'video/mp4' });
+    const data = ffmpeg.FS('readFile', outputFileName);
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
     
     // Clean up files
-    await ffmpeg.deleteFile(inputFileName);
-    await ffmpeg.deleteFile(outputFileName);
+    ffmpeg.FS('unlink', inputFileName);
+    ffmpeg.FS('unlink', outputFileName);
     
     return URL.createObjectURL(blob);
   } catch (error) {
@@ -170,15 +152,7 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     
     // Always use server-side transcoding for RTSP streams
     if (!settings.serverTranscoding) {
-      toast.warning('Server-side transcoding is recommended for RTSP streams', {
-        description: 'Enabling server-side transcoding in Settings will improve RTSP performance'
-      });
-    }
-    
-    // Check if this is an RTSP stream and warn if server transcoding is disabled
-    const isRtsp = streamUrl.toLowerCase().startsWith('rtsp://');
-    if (isRtsp && !settings.serverTranscoding) {
-      console.warn('RTSP streams work best with server-side transcoding enabled');
+      console.warn('Server-side transcoding is disabled but required for RTSP streams. Using server anyway.');
     }
     
     const formData = new FormData();

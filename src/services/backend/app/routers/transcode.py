@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -7,10 +6,9 @@ import subprocess
 import tempfile
 import logging
 import shutil
+from pathlib import Path
 import time
 import json
-from pathlib import Path
-import re
 
 # Define the router with no prefix but explicitly setting the correct tags
 router = APIRouter(
@@ -276,92 +274,32 @@ async def create_stream(
         "stream_url": stream_url_path
     }
 
-def is_rtsp_url(url):
-    """Check if URL is RTSP protocol"""
-    return url.lower().startswith("rtsp://")
-
-def wait_for_file_creation(file_path, timeout=30, check_interval=1):
-    """Wait for a file to be created with timeout"""
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        if os.path.exists(file_path):
-            return True
-        # Also check for temporary files that indicate the process is working
-        temp_files = list(Path(os.path.dirname(file_path)).glob("*.ts")) + \
-                    list(Path(os.path.dirname(file_path)).glob("*.m3u8.tmp"))
-        if temp_files:
-            logger.info(f"Found temporary segment files: {temp_files}")
-            return True
-        time.sleep(check_interval)
-        logger.info(f"Waiting for stream file creation: {file_path}")
-    return False
-
 def process_stream(stream_id, input_url, output_path, output_format):
     """Background task for processing stream"""
-    stream_dir = os.path.dirname(output_path)
-    status_path = os.path.join(stream_dir, "status.json")
+    status_path = os.path.join(os.path.dirname(output_path), "status.json")
     
     try:
-        # Check if this is an RTSP stream
-        is_rtsp = is_rtsp_url(input_url)
-        logger.info(f"Stream type detection: RTSP={is_rtsp}")
-        
         # Build FFmpeg command for HLS streaming
         if output_format == "hls":
-            if is_rtsp:
-                # Enhanced RTSP-specific command with TCP transport
-                cmd = [
-                    ffmpeg_binary_path,
-                    # Force RTSP over TCP - critical for many IP cameras
-                    "-rtsp_transport", "tcp",
-                    # Add extra input options for RTSP
-                    "-i", input_url,
-                    # Use hardware-friendly codec settings
-                    "-c:v", "libx264",
-                    "-preset", "ultrafast",
-                    "-tune", "zerolatency",
-                    "-profile:v", "baseline",
-                    "-level", "3.0",
-                    "-pix_fmt", "yuv420p",
-                    # Control bitrate for better stability
-                    "-b:v", "1500k",
-                    # Audio settings (if present)
-                    "-c:a", "aac",
-                    "-strict", "experimental",
-                    "-ac", "2",
-                    # HLS specific flags with improved options
-                    "-f", "hls",
-                    "-hls_time", "2",
-                    "-hls_list_size", "10",
-                    "-hls_flags", "delete_segments+append_list+discont_start+temp_file",
-                    "-hls_segment_filename", f"{stream_dir}/segment_%03d.ts",
-                    "-hls_playlist_type", "event",
-                    # Output path
-                    output_path
-                ]
-            else:
-                # Standard non-RTSP command
-                cmd = [
-                    ffmpeg_binary_path,
-                    "-i", input_url,
-                    "-c:v", "libx264",
-                    "-preset", "ultrafast",
-                    "-tune", "zerolatency",
-                    "-c:a", "aac",
-                    "-strict", "experimental",
-                    "-f", "hls",
-                    "-hls_time", "2",
-                    "-hls_list_size", "10",
-                    "-hls_wrap", "10",
-                    "-hls_flags", "delete_segments",
-                    output_path
-                ]
+            cmd = [
+                ffmpeg_binary_path,
+                "-i", input_url,
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-tune", "zerolatency",
+                "-c:a", "aac",
+                "-strict", "experimental",
+                "-f", "hls",
+                "-hls_time", "2",
+                "-hls_list_size", "10",
+                "-hls_wrap", "10",
+                "-hls_flags", "delete_segments",
+                output_path
+            ]
         else:
             # For other formats (mp4, webm, etc.)
             cmd = [
                 ffmpeg_binary_path,
-                # Add TCP for RTSP
-                *(["-rtsp_transport", "tcp"] if is_rtsp else []),
                 "-i", input_url,
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
@@ -374,101 +312,34 @@ def process_stream(stream_id, input_url, output_path, output_format):
         
         logger.info(f"Running FFmpeg stream command: {' '.join(cmd)}")
         
-        # Run FFmpeg with pipe for stderr so we can capture output
+        # Run FFmpeg
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_newlines=True,
-            bufsize=1  # Line buffered
+            universal_newlines=True
         )
         
-        # Update status to streaming
-        with open(status_path, "w") as f:
-            json.dump({
-                "status": "streaming",
-                "progress": 0,
-                "message": "Starting stream..."
-            }, f)
-        
-        # Wait for the first segment file to appear (indicates stream is working)
-        file_created = wait_for_file_creation(output_path, timeout=15)
-        
-        if not file_created:
-            logger.warning(f"No HLS files created after timeout for {stream_id}")
-            # Don't fail yet - FFmpeg might still be working
-        
-        # Start reading stderr in a non-blocking way
-        error_log = []
-        
-        # Check if we have at least one HLS segment after a reasonable time
-        if output_format == "hls":
-            time.sleep(5)  # Give some time for at least one segment
-            segment_count = len(list(Path(stream_dir).glob("*.ts")))
-            logger.info(f"After initial wait, found {segment_count} TS segments")
-            
-            if segment_count == 0:
-                # No segments created after 5 seconds - something's wrong
-                # Capture any error output
-                stderr = process.stderr.read()
-                error_log.append(stderr)
-                
-                logger.error(f"No segments created for stream {stream_id}. FFmpeg stderr: {stderr}")
-                
-                # Try to terminate the process
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                
-                # Update status
-                with open(status_path, "w") as f:
-                    json.dump({
-                        "status": "failed",
-                        "error": "No HLS segments created. Stream may be unreachable or in wrong format."
-                    }, f)
-                return
-        
-        # Update status to reflect working stream
+        # Update status
         with open(status_path, "w") as f:
             json.dump({
                 "status": "streaming",
                 "progress": 100
             }, f)
         
-        # This will collect output but not block
-        def read_stderr():
-            for line in iter(process.stderr.readline, ""):
-                if line:
-                    error_log.append(line)
-                    # Look for critical errors that might indicate stream failure
-                    if "Error" in line or "Invalid data" in line or "not found" in line:
-                        logger.error(f"FFmpeg error: {line.strip()}")
-                else:
-                    break
+        # This will block until the stream is terminated
+        stdout, stderr = process.communicate()
         
-        import threading
-        stderr_thread = threading.Thread(target=read_stderr)
-        stderr_thread.daemon = True
-        stderr_thread.start()
-        
-        # Monitor process but don't wait indefinitely
-        try:
-            exit_code = process.wait(timeout=3600)  # 1 hour timeout
-            logger.info(f"Stream process exited with code {exit_code} for job {stream_id}")
-            
-            if exit_code != 0:
-                logger.error(f"Stream failed with exit code {exit_code}")
-                errors = "\n".join(error_log[-20:])  # Last 20 error lines
-                with open(status_path, "w") as f:
-                    json.dump({
-                        "status": "failed",
-                        "error": f"FFmpeg exited with code {exit_code}. Errors: {errors}"
-                    }, f)
-        except subprocess.TimeoutExpired:
-            logger.info(f"Stream process {stream_id} still running after timeout")
-            # Process is still running, which is fine for a stream
+        # Check result
+        if process.returncode == 0:
+            logger.info(f"Stream completed successfully for job {stream_id}")
+        else:
+            logger.error(f"Stream failed for job {stream_id}: {stderr}")
+            with open(status_path, "w") as f:
+                json.dump({
+                    "status": "failed",
+                    "error": stderr
+                }, f)
     
     except Exception as e:
         logger.exception(f"Error during stream job {stream_id}")
@@ -490,17 +361,6 @@ async def get_stream_file(stream_id: str, file_name: str):
     
     if not os.path.exists(file_path):
         logger.error(f"Stream file not found: {file_path}")
-        # Check if any segment files exist
-        segment_files = list(Path(stream_dir).glob("*.ts"))
-        manifest_file = Path(os.path.join(stream_dir, "index.m3u8"))
-        
-        if segment_files:
-            logger.info(f"Found {len(segment_files)} segment files, but requested file missing")
-        elif manifest_file.exists():
-            logger.info(f"Manifest exists but requested file missing")
-        else:
-            logger.error(f"No stream files found in directory: {stream_dir}")
-            
         raise HTTPException(status_code=404, detail="Stream file not found")
     
     # Determine content type
