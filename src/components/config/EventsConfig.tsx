@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { HardHat, Eye, HandMetal, ShirtFolded, PersonStanding, Clock, MapPin, FireExtinguisher, Flame, AlarmSmoke, MapPinOff, MapPinX, Camera, CameraOff, Bug, User, LogIn, LogOut, FileText } from 'lucide-react';
+import { HardHat, Eye, HandMetal, Shirt, PersonStanding, Clock, MapPin, FireExtinguisher, Flame, AlarmSmoke, MapPinOff, MapPinX, Camera, CameraOff, Bug, User, LogIn, LogOut, FileText } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -114,7 +115,7 @@ const EventsConfig: React.FC = () => {
       case 'helmet-not-detected':
         return <HardHat size={20} className="text-red-500" />;
       case 'coverall-not-detected':
-        return <ShirtFolded size={20} className="text-red-500" />;
+        return <Shirt size={20} className="text-red-500" />;
       case 'gloves-not-detected':
         return <HandMetal size={20} className="text-red-500" />;
       case 'goggles-not-detected':
