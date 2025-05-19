@@ -20,7 +20,7 @@ export const useHLSPlayer = ({
 }: UseHLSPlayerProps) => {
   const hlsRef = useRef<Hls | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isHlsSupported, setIsHlsSupported] = useState<boolean>(Hls.isSupported());
+  const [isHlsSupported, setIsHlsSupported] = useState<boolean>(() => Hls.isSupported());
   const [isHlsNativeSupported, setIsHlsNativeSupported] = useState<boolean>(false);
   
   // Check for native HLS support
