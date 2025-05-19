@@ -16,14 +16,23 @@ export const detectVideoFormat = (file: File) => {
   const isH264Raw = fileName.endsWith('.264') || fileName.endsWith('.h264');
   const isH265Raw = fileName.endsWith('.265') || fileName.endsWith('.h265');
   const isRawStream = fileName.endsWith('.ts') || isH264Raw || isH265Raw;
+  const isHLSStream = fileName.endsWith('.m3u8') || fileName.endsWith('.m3u');
   
   return {
     isHikvision,
     isH264Raw,
     isH265Raw,
     isRawStream,
-    needsTranscoding: isHikvision || isRawStream
+    isHLSStream,
+    needsTranscoding: isHikvision || isRawStream || isHLSStream
   };
+};
+
+// Check if a URL is an HLS stream
+export const isHLSStream = (url: string): boolean => {
+  return url.toLowerCase().endsWith('.m3u8') || 
+         url.toLowerCase().includes('.m3u8?') || 
+         url.toLowerCase().includes('/index.m3u8');
 };
 
 // Convert video to playable format (browser compatible)
@@ -182,3 +191,15 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
     throw new Error(`Failed to create HLS stream: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
+
+// Function to check if a URL is a direct HLS stream that can be played without transcoding
+export const isDirectHLSStream = (url: string): boolean => {
+  const lowerCaseUrl = url.toLowerCase();
+  return (
+    lowerCaseUrl.endsWith('.m3u8') ||
+    lowerCaseUrl.includes('.m3u8?') ||
+    lowerCaseUrl.includes('/index.m3u8') ||
+    lowerCaseUrl.includes('/playlist.m3u8') ||
+    lowerCaseUrl.includes('/manifest.m3u8')
+  );
+};

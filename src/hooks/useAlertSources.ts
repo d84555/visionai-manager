@@ -1,11 +1,12 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAlerts } from '@/contexts/AlertContext';
 import SettingsService from '@/services/SettingsService';
 
 interface AlertSourcesOptions {
   enableMockData?: boolean;
   autoConnect?: boolean;
+  enableHLS?: boolean; // New option to toggle HLS compatibility mode
 }
 
 interface AlertSourcesReturn {
@@ -18,18 +19,20 @@ interface AlertSourcesReturn {
   isConnected: boolean;
   connect: () => void;
   disconnect: () => void;
+  enableHLS?: boolean; // Expose the HLS setting
 }
 
 /**
  * Hook for managing alert data sources (RTSP streams and uploaded videos)
  */
 export const useAlertSources = (options: AlertSourcesOptions = {}): AlertSourcesReturn => {
-  const { enableMockData = true, autoConnect = true } = options;
+  const { enableMockData = true, autoConnect = true, enableHLS = true } = options;
   const { addAlert } = useAlerts();
   
   const [rtspFeeds, setRtspFeeds] = useState<string[]>([]);
   const [uploadedVideos, setUploadedVideos] = useState<string[]>([]);
   const [isConnected, setIsConnected] = useState<boolean>(false);
+  const hlsPlayers = useRef<Map<string, any>>(new Map());
   
   // Load any saved feeds from settings/localStorage
   useEffect(() => {
@@ -56,6 +59,16 @@ export const useAlertSources = (options: AlertSourcesOptions = {}): AlertSources
     if (autoConnect) {
       setIsConnected(true);
     }
+
+    // Clean up any HLS instances when component unmounts
+    return () => {
+      hlsPlayers.current.forEach((player) => {
+        if (player && typeof player.destroy === 'function') {
+          player.destroy();
+        }
+      });
+      hlsPlayers.current.clear();
+    };
   }, [autoConnect]);
   
   // Save feeds when they change
@@ -156,6 +169,7 @@ export const useAlertSources = (options: AlertSourcesOptions = {}): AlertSources
     removeUploadedVideo,
     isConnected,
     connect,
-    disconnect
+    disconnect,
+    enableHLS
   };
 };
