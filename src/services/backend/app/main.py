@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
 import logging
-from app.routers import inference, models, websocket, health, transcode
+from app.routers import inference, models, websocket, health, transcode, events
 import traceback
 
 # Configure logging
@@ -67,6 +67,7 @@ app.include_router(models.router, prefix="/models")  # Updated with explicit pre
 app.include_router(websocket.router)
 app.include_router(health.router)
 app.include_router(transcode.router)  # No prefix, will use routes directly as defined in router
+app.include_router(events.router, prefix="/events")  # Add new events router
 
 @app.get("/")
 async def root():

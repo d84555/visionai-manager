@@ -1,3 +1,4 @@
+
 import { CacheService } from './CacheService';
 
 interface GridLayout {
@@ -83,6 +84,27 @@ export interface BrandingSettings {
   logoUrl: string;
   customFooterText: string;
   useCustomFooter: boolean;
+}
+
+// New interface for event types configuration
+export interface EventTypeConfig {
+  id: string;
+  name: string;
+  category: 'ppe' | 'zone' | 'environment' | 'system';
+  enabled: boolean;
+  notifyOnTriggered: boolean;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  recordVideo: boolean;
+  description?: string;
+}
+
+// Interface for event configuration settings
+export interface EventsSettings {
+  types: EventTypeConfig[];
+  notificationsEnabled: boolean;
+  recordEvents: boolean;
+  autoDeleteAfterDays: number;
+  alertSoundEnabled: boolean;
 }
 
 // Interface for custom AI models
@@ -269,6 +291,194 @@ class SettingsService {
     return modelsStr ? JSON.parse(modelsStr) : [];
   }
 
+  // Events Configuration
+  getEventTypes(): EventTypeConfig[] {
+    const eventsSettings = this.getSettings('events') as EventsSettings;
+    return eventsSettings.types || this.getDefaultEventTypes();
+  }
+
+  getDefaultEventTypes(): EventTypeConfig[] {
+    return [
+      // PPE Compliance Events
+      { 
+        id: 'helmet-not-detected', 
+        name: 'Helmet Not Detected', 
+        category: 'ppe', 
+        enabled: true, 
+        notifyOnTriggered: true,
+        severity: 'high',
+        recordVideo: true,
+        description: 'Person detected without required helmet'
+      },
+      { 
+        id: 'coverall-not-detected', 
+        name: 'CoverAll Not Detected', 
+        category: 'ppe', 
+        enabled: true, 
+        notifyOnTriggered: true,
+        severity: 'high',
+        recordVideo: true,
+        description: 'Person detected without required coverall'
+      },
+      { 
+        id: 'gloves-not-detected', 
+        name: 'Gloves Not Detected', 
+        category: 'ppe', 
+        enabled: true, 
+        notifyOnTriggered: true,
+        severity: 'high',
+        recordVideo: true,
+        description: 'Person detected without required gloves'
+      },
+      { 
+        id: 'goggles-not-detected', 
+        name: 'Goggles/Glasses Not Detected', 
+        category: 'ppe', 
+        enabled: true, 
+        notifyOnTriggered: true,
+        severity: 'high',
+        recordVideo: true,
+        description: 'Person detected without required eye protection'
+      },
+      { 
+        id: 'all-ppe-detected', 
+        name: 'All PPE Detected (Compliant)', 
+        category: 'ppe', 
+        enabled: true, 
+        notifyOnTriggered: false,
+        severity: 'low',
+        recordVideo: false,
+        description: 'Person detected with all required PPE'
+      },
+      
+      // Zone & Time-Based Violations
+      { 
+        id: 'unauthorized-zone-entry', 
+        name: 'Unauthorized Zone Entry', 
+        category: 'zone', 
+        enabled: true, 
+        notifyOnTriggered: true,
+        severity: 'high',
+        recordVideo: true,
+        description: 'Person detected in unauthorized area (e.g., pedestrian in forklift area)'
+      },
+      { 
+        id: 'loitering-detection', 
+        name: 'Loitering Detection', 
+        category: 'zone', 
+        enabled: true, 
+        notifyOnTriggered: true,
+        severity: 'medium',
+        recordVideo: true,
+        description: 'Person detected in same area for extended period'
+      },
+      { 
+        id: 'entry-outside-hours', 
+        name: 'Entry Outside Working Hours', 
+        category: 'zone', 
+        enabled: true, 
+        notifyOnTriggered: true,
+        severity: 'critical',
+        recordVideo: true,
+        description: 'Person detected outside of scheduled working hours'
+      },
+      { 
+        id: 'restricted-area-detection', 
+        name: 'Person Detected in Restricted Area', 
+        category: 'zone', 
+        enabled: true, 
+        notifyOnTriggered: true,
+        severity: 'critical',
+        recordVideo: true,
+        description: 'Person detected in area marked as restricted'
+      },
+      
+      // Environment-Based Events
+      { 
+        id: 'smoke-fire-detection', 
+        name: 'Smoke/Fire Detection', 
+        category: 'environment', 
+        enabled: true, 
+        notifyOnTriggered: true,
+        severity: 'critical',
+        recordVideo: true,
+        description: 'Smoke or fire detected in monitored area'
+      },
+      
+      // System & User Events
+      { 
+        id: 'camera-offline', 
+        name: 'Camera Offline/Feed Lost', 
+        category: 'system', 
+        enabled: true, 
+        notifyOnTriggered: true,
+        severity: 'high',
+        recordVideo: false,
+        description: 'Camera connection lost or feed unavailable'
+      },
+      { 
+        id: 'model-inference-error', 
+        name: 'Model Inference Error', 
+        category: 'system', 
+        enabled: true, 
+        notifyOnTriggered: true,
+        severity: 'medium',
+        recordVideo: false,
+        description: 'AI model failed to process video frame'
+      },
+      { 
+        id: 'user-login-logout', 
+        name: 'Admin/User Login/Logout', 
+        category: 'system', 
+        enabled: true, 
+        notifyOnTriggered: false,
+        severity: 'low',
+        recordVideo: false,
+        description: 'User authentication event'
+      },
+      { 
+        id: 'manual-event-tagging', 
+        name: 'Manual Event Tagging', 
+        category: 'system', 
+        enabled: true, 
+        notifyOnTriggered: false,
+        severity: 'medium',
+        recordVideo: false,
+        description: 'Event manually created by security team'
+      },
+      { 
+        id: 'configuration-changes', 
+        name: 'Configuration Changes', 
+        category: 'system', 
+        enabled: true, 
+        notifyOnTriggered: false,
+        severity: 'low',
+        recordVideo: false,
+        description: 'System configuration modified'
+      }
+    ];
+  }
+
+  updateEventType(updatedEventType: EventTypeConfig): void {
+    const eventsSettings = this.getSettings('events') as EventsSettings;
+    const updatedTypes = eventsSettings.types.map(eventType => 
+      eventType.id === updatedEventType.id ? updatedEventType : eventType
+    );
+    
+    this.updateSettings('events', {
+      ...eventsSettings,
+      types: updatedTypes
+    });
+  }
+
+  updateEventsSettings(settings: Partial<EventsSettings>): void {
+    const currentSettings = this.getSettings('events') as EventsSettings;
+    this.updateSettings('events', {
+      ...currentSettings,
+      ...settings
+    });
+  }
+
   // User preferences
   saveUserPreferences(preferences: Record<string, any>): void {
     localStorage.setItem('user-preferences', JSON.stringify(preferences));
@@ -369,6 +579,14 @@ class SettingsService {
           logoUrl: '',
           customFooterText: '',
           useCustomFooter: false
+        };
+      case 'events':
+        return {
+          types: this.getDefaultEventTypes(),
+          notificationsEnabled: true,
+          recordEvents: true,
+          autoDeleteAfterDays: 30,
+          alertSoundEnabled: false
         };
       default:
         return {};

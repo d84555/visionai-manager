@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Mail, Database, Logs, Server, Layers, Info, Upload, Type, Image, Palette } from 'lucide-react';
+import { 
+  Settings, Save, Mail, Database, Logs, Server, Layers, Info, 
+  Upload, Type, Image, Palette, AlarmSmoke 
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +17,7 @@ import { toast } from 'sonner';
 import SyslogConfig from '@/components/config/SyslogConfig';
 import SmtpConfig from '@/components/config/SmtpConfig';
 import StorageConfig from '@/components/config/StorageConfig';
+import EventsConfig from '@/components/config/EventsConfig';
 import ModelSelector from '@/components/ai/ModelSelector';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import SettingsService, { 
@@ -169,6 +173,7 @@ const SettingsPage = () => {
       ffmpeg: ffmpegSettings,
       gridLayout: SettingsService.getSettings('gridLayout'),
       branding: brandingSettings,
+      events: SettingsService.getSettings('events'),
     });
 
     if (ffmpegSettings.customPath) {

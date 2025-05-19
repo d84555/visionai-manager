@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { FileText, Search, Filter, Calendar, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -15,23 +16,29 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import SettingsService, { EventTypeConfig } from '@/services/SettingsService';
 
 interface Event {
   id: string;
   timestamp: Date;
-  type: 'detection' | 'alert' | 'system' | 'user';
+  type: string;
+  category: 'ppe' | 'zone' | 'environment' | 'system';
   description: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
   details: {
     objectType?: string;
     confidence?: number;
     camera?: string;
     user?: string;
     action?: string;
+    eventTypeId?: string;
     [key: string]: any;
   };
 }
@@ -42,57 +49,64 @@ const EventLogging: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [currentTab, setCurrentTab] = useState('all');
+  const [eventTypes, setEventTypes] = useState<EventTypeConfig[]>([]);
 
   useEffect(() => {
-    const eventTypes = ['detection', 'alert', 'system', 'user'];
-    const objectTypes = ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus', 'animal', 'unknown'];
-    const cameraNames = ['Front Entrance', 'Parking Lot', 'Loading Dock', 'Perimeter'];
-    const userActions = ['login', 'logout', 'settings change', 'alert dismissed', 'system restart'];
+    // Load event types from settings
+    setEventTypes(SettingsService.getEventTypes());
     
+    // Generate mock events that use the configured event types
     const mockEvents: Event[] = [];
+    const configuredEventTypes = SettingsService.getEventTypes();
+    const cameraNames = ['Front Entrance', 'Parking Lot', 'Loading Dock', 'Perimeter'];
+    const userNames = ['admin', 'operator', 'security', 'manager'];
     
     for (let i = 0; i < 100; i++) {
       const timestamp = new Date();
       timestamp.setHours(timestamp.getHours() - Math.random() * 168);
       
-      const type = eventTypes[Math.floor(Math.random() * eventTypes.length)] as Event['type'];
+      // Select a random event type from the configured ones
+      const eventType = configuredEventTypes[Math.floor(Math.random() * configuredEventTypes.length)];
       let description = '';
-      let details: Event['details'] = {};
+      let details: Record<string, any> = {
+        camera: cameraNames[Math.floor(Math.random() * cameraNames.length)],
+        eventTypeId: eventType.id
+      };
       
-      switch (type) {
-        case 'detection':
-          const objType = objectTypes[Math.floor(Math.random() * objectTypes.length)];
-          const confidence = 0.6 + (Math.random() * 0.4);
-          const camera = cameraNames[Math.floor(Math.random() * cameraNames.length)];
-          description = `Detected ${objType} with ${(confidence * 100).toFixed(1)}% confidence`;
-          details = { objectType: objType, confidence, camera };
+      switch (eventType.category) {
+        case 'ppe':
+          details.confidence = 0.6 + (Math.random() * 0.4);
+          details.objectType = 'person';
+          details.zone = 'Work Zone';
           break;
-        case 'alert':
-          const alertObj = objectTypes[Math.floor(Math.random() * objectTypes.length)];
-          description = `Alert triggered for ${alertObj}`;
-          details = { 
-            objectType: alertObj, 
-            confidence: 0.8 + (Math.random() * 0.2),
-            camera: cameraNames[Math.floor(Math.random() * cameraNames.length)]
-          };
+        case 'zone':
+          details.confidence = 0.7 + (Math.random() * 0.3);
+          details.objectType = 'person';
+          details.zone = 'Restricted Zone';
+          details.duration = Math.floor(Math.random() * 60) + ' seconds';
+          break;
+        case 'environment':
+          details.confidence = 0.8 + (Math.random() * 0.2);
+          details.objectType = 'smoke';
+          details.zone = 'Storage Area';
           break;
         case 'system':
-          description = 'System ' + (Math.random() > 0.5 ? 'started' : 'configuration updated');
-          details = { component: 'YOLOv11', status: 'active' };
-          break;
-        case 'user':
-          const action = userActions[Math.floor(Math.random() * userActions.length)];
-          const user = 'admin';
-          description = `User ${user} performed ${action}`;
-          details = { user, action };
+          details.user = userNames[Math.floor(Math.random() * userNames.length)];
+          details.action = eventType.name;
+          details.component = 'Security System';
           break;
       }
+      
+      // Use the event type's details
+      description = eventType.name;
       
       mockEvents.push({
         id: `event-${Date.now()}-${i}`,
         timestamp,
-        type,
+        type: eventType.name,
+        category: eventType.category,
         description,
+        severity: eventType.severity,
         details
       });
     }
@@ -116,7 +130,18 @@ const EventLogging: React.FC = () => {
     }
     
     if (typeFilter !== 'all') {
-      filtered = filtered.filter(event => event.type === typeFilter);
+      if (typeFilter.startsWith('category-')) {
+        // Filter by category
+        const category = typeFilter.replace('category-', '') as 'ppe' | 'zone' | 'environment' | 'system';
+        filtered = filtered.filter(event => event.category === category);
+      } else if (typeFilter.startsWith('severity-')) {
+        // Filter by severity
+        const severity = typeFilter.replace('severity-', '') as 'low' | 'medium' | 'high' | 'critical';
+        filtered = filtered.filter(event => event.severity === severity);
+      } else {
+        // Filter by specific event type
+        filtered = filtered.filter(event => event.details.eventTypeId === typeFilter);
+      }
     }
     
     if (currentTab !== 'all') {
@@ -146,24 +171,93 @@ const EventLogging: React.FC = () => {
     });
   };
 
-  const getTypeBadge = (type: string) => {
-    switch (type) {
-      case 'detection':
-        return <Badge variant="default">Detection</Badge>;
-      case 'alert':
-        return <Badge variant="destructive">Alert</Badge>;
+  const getTypeBadge = (event: Event) => {
+    switch (event.category) {
+      case 'ppe':
+        return event.severity === 'low' ? 
+          <Badge variant="success">PPE Compliant</Badge> :
+          <Badge variant="destructive">PPE Violation</Badge>;
+      case 'zone':
+        return <Badge variant="warning">Zone Violation</Badge>;
+      case 'environment':
+        return <Badge variant="destructive">Environment Alert</Badge>;
       case 'system':
         return <Badge variant="secondary">System</Badge>;
-      case 'user':
-        return <Badge variant="outline">User</Badge>;
       default:
-        return <Badge variant="outline">{type}</Badge>;
+        return <Badge variant="outline">{event.type}</Badge>;
+    }
+  };
+
+  const getSeverityBadge = (severity: string) => {
+    switch (severity) {
+      case 'low':
+        return <Badge variant="outline">Low</Badge>;
+      case 'medium':
+        return <Badge variant="secondary">Medium</Badge>;
+      case 'high':
+        return <Badge variant="destructive">High</Badge>;
+      case 'critical':
+        return <Badge className="bg-red-500 text-white">Critical</Badge>;
+      default:
+        return <Badge variant="outline">{severity}</Badge>;
     }
   };
   
   const handleDownloadLogs = () => {
     alert('Event logs downloaded as CSV');
   };
+
+  const renderEventTable = () => (
+    <div className="rounded-md border overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[180px]">Timestamp</TableHead>
+            <TableHead className="w-[150px]">Type</TableHead>
+            <TableHead className="w-[100px]">Severity</TableHead>
+            <TableHead>Description</TableHead>
+            <TableHead>Details</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {filteredEvents.length > 0 ? (
+            filteredEvents.map((event) => (
+              <TableRow key={event.id} className="event-row">
+                <TableCell className="font-mono text-xs">
+                  {formatTimestamp(event.timestamp)}
+                </TableCell>
+                <TableCell>{getTypeBadge(event)}</TableCell>
+                <TableCell>{getSeverityBadge(event.severity)}</TableCell>
+                <TableCell>{event.description}</TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(event.details)
+                      .filter(([key]) => key !== 'eventTypeId') // Don't show internal ID
+                      .map(([key, value]) => (
+                        <span key={key} className="inline-flex items-center text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
+                          <span className="font-semibold mr-1">{key}:</span>
+                          <span>
+                            {typeof value === 'number' && key === 'confidence'
+                              ? `${(value * 100).toFixed(1)}%`
+                              : String(value)}
+                          </span>
+                        </span>
+                    ))}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))
+          ) : (
+            <TableRow>
+              <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                No events found matching your criteria
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
 
   return (
     <Card className="w-full">
@@ -200,15 +294,71 @@ const EventLogging: React.FC = () => {
                 value={typeFilter} 
                 onValueChange={setTypeFilter}
               >
-                <SelectTrigger className="w-[150px]">
+                <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Filter by type" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="detection">Detection</SelectItem>
-                  <SelectItem value="alert">Alert</SelectItem>
-                  <SelectItem value="system">System</SelectItem>
-                  <SelectItem value="user">User</SelectItem>
+                  
+                  <SelectGroup>
+                    <SelectLabel>By Category</SelectLabel>
+                    <SelectItem value="category-ppe">PPE Compliance</SelectItem>
+                    <SelectItem value="category-zone">Zone Violations</SelectItem>
+                    <SelectItem value="category-environment">Environment</SelectItem>
+                    <SelectItem value="category-system">System</SelectItem>
+                  </SelectGroup>
+
+                  <SelectGroup>
+                    <SelectLabel>By Severity</SelectLabel>
+                    <SelectItem value="severity-low">Low Severity</SelectItem>
+                    <SelectItem value="severity-medium">Medium Severity</SelectItem>
+                    <SelectItem value="severity-high">High Severity</SelectItem>
+                    <SelectItem value="severity-critical">Critical Severity</SelectItem>
+                  </SelectGroup>
+
+                  {/* PPE Events */}
+                  <SelectGroup>
+                    <SelectLabel>PPE Events</SelectLabel>
+                    {eventTypes
+                      .filter(event => event.category === 'ppe')
+                      .map(event => (
+                        <SelectItem key={event.id} value={event.id}>{event.name}</SelectItem>
+                      ))
+                    }
+                  </SelectGroup>
+
+                  {/* Zone Events */}
+                  <SelectGroup>
+                    <SelectLabel>Zone Events</SelectLabel>
+                    {eventTypes
+                      .filter(event => event.category === 'zone')
+                      .map(event => (
+                        <SelectItem key={event.id} value={event.id}>{event.name}</SelectItem>
+                      ))
+                    }
+                  </SelectGroup>
+
+                  {/* Environment Events */}
+                  <SelectGroup>
+                    <SelectLabel>Environment Events</SelectLabel>
+                    {eventTypes
+                      .filter(event => event.category === 'environment')
+                      .map(event => (
+                        <SelectItem key={event.id} value={event.id}>{event.name}</SelectItem>
+                      ))
+                    }
+                  </SelectGroup>
+
+                  {/* System Events */}
+                  <SelectGroup>
+                    <SelectLabel>System Events</SelectLabel>
+                    {eventTypes
+                      .filter(event => event.category === 'system')
+                      .map(event => (
+                        <SelectItem key={event.id} value={event.id}>{event.name}</SelectItem>
+                      ))
+                    }
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <Button variant="outline" size="icon" onClick={handleDownloadLogs}>
@@ -218,147 +368,15 @@ const EventLogging: React.FC = () => {
           </div>
 
           <TabsContent value="all" className="mt-0">
-            <div className="rounded-md border overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[180px]">Timestamp</TableHead>
-                    <TableHead className="w-[100px]">Type</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Details</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredEvents.length > 0 ? (
-                    filteredEvents.map((event) => (
-                      <TableRow key={event.id} className="event-row">
-                        <TableCell className="font-mono text-xs">
-                          {formatTimestamp(event.timestamp)}
-                        </TableCell>
-                        <TableCell>{getTypeBadge(event.type)}</TableCell>
-                        <TableCell>{event.description}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-2">
-                            {Object.entries(event.details).map(([key, value]) => (
-                              <span key={key} className="inline-flex items-center text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
-                                <span className="font-semibold mr-1">{key}:</span>
-                                <span>
-                                  {typeof value === 'number' && key === 'confidence'
-                                    ? `${(value * 100).toFixed(1)}%`
-                                    : String(value)}
-                                </span>
-                              </span>
-                            ))}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                        No events found matching your criteria
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+            {renderEventTable()}
           </TabsContent>
           
           <TabsContent value="today" className="mt-0">
-            <div className="rounded-md border overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[180px]">Timestamp</TableHead>
-                    <TableHead className="w-[100px]">Type</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Details</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredEvents.length > 0 ? (
-                    filteredEvents.map((event) => (
-                      <TableRow key={event.id} className="event-row">
-                        <TableCell className="font-mono text-xs">
-                          {formatTimestamp(event.timestamp)}
-                        </TableCell>
-                        <TableCell>{getTypeBadge(event.type)}</TableCell>
-                        <TableCell>{event.description}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-2">
-                            {Object.entries(event.details).map(([key, value]) => (
-                              <span key={key} className="inline-flex items-center text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
-                                <span className="font-semibold mr-1">{key}:</span>
-                                <span>
-                                  {typeof value === 'number' && key === 'confidence'
-                                    ? `${(value * 100).toFixed(1)}%`
-                                    : String(value)}
-                                </span>
-                              </span>
-                            ))}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                        No events found for today
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+            {renderEventTable()}
           </TabsContent>
           
           <TabsContent value="week" className="mt-0">
-            <div className="rounded-md border overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[180px]">Timestamp</TableHead>
-                    <TableHead className="w-[100px]">Type</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Details</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredEvents.length > 0 ? (
-                    filteredEvents.map((event) => (
-                      <TableRow key={event.id} className="event-row">
-                        <TableCell className="font-mono text-xs">
-                          {formatTimestamp(event.timestamp)}
-                        </TableCell>
-                        <TableCell>{getTypeBadge(event.type)}</TableCell>
-                        <TableCell>{event.description}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-2">
-                            {Object.entries(event.details).map(([key, value]) => (
-                              <span key={key} className="inline-flex items-center text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
-                                <span className="font-semibold mr-1">{key}:</span>
-                                <span>
-                                  {typeof value === 'number' && key === 'confidence'
-                                    ? `${(value * 100).toFixed(1)}%`
-                                    : String(value)}
-                                </span>
-                              </span>
-                            ))}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                        No events found for this week
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+            {renderEventTable()}
           </TabsContent>
         </Tabs>
       </CardContent>

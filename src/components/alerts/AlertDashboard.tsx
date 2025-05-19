@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Bell, Filter, Search, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,11 +26,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import SettingsService, { EventTypeConfig } from '@/services/SettingsService';
 
 interface Alert {
   id: string;
   timestamp: Date;
-  objectType: string;
+  eventType: EventTypeConfig;
   confidence: number;
   coordinates: { x: number; y: number };
   status: 'new' | 'reviewed' | 'ignored';
@@ -46,16 +48,22 @@ const AlertDashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAll, setShowAll] = useState(true);
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
+  const [eventTypes, setEventTypes] = useState<EventTypeConfig[]>([]);
 
   useEffect(() => {
+    // Get event types from settings
+    const configuredEventTypes = SettingsService.getEventTypes();
+    setEventTypes(configuredEventTypes);
+    
+    // Only use event types that are configured to notify and are enabled
+    const alertEventTypes = configuredEventTypes.filter(
+      eventType => eventType.enabled && eventType.notifyOnTriggered
+    );
+    
     const generateMockAlerts = () => {
-      const objectTypes = [
-        'person', 'car', 'truck', 'bicycle', 
-        'motorcycle', 'bus', 'animal', 'unknown'
-      ];
-      const statuses: ('new' | 'reviewed' | 'ignored')[] = ['new', 'reviewed', 'ignored'];
       const cameraNames = ['Front Entrance', 'Parking Lot', 'Loading Dock', 'Perimeter'];
       const zones = ['Zone A', 'Zone B', 'Zone C', 'Restricted Area'];
+      const statuses: ('new' | 'reviewed' | 'ignored')[] = ['new', 'reviewed', 'ignored'];
       
       const mockAlerts: Alert[] = [];
       
@@ -63,10 +71,14 @@ const AlertDashboard: React.FC = () => {
         const timestamp = new Date();
         timestamp.setHours(timestamp.getHours() - Math.random() * 24);
         
+        // Select a random event type from the alertable ones
+        const eventType = alertEventTypes[Math.floor(Math.random() * alertEventTypes.length)];
+        
+        // Add the alert
         mockAlerts.push({
           id: `alert-${Date.now()}-${i}`,
           timestamp,
-          objectType: objectTypes[Math.floor(Math.random() * objectTypes.length)],
+          eventType,
           confidence: 0.7 + (Math.random() * 0.3),
           coordinates: {
             x: Math.floor(Math.random() * 1280),
@@ -87,7 +99,9 @@ const AlertDashboard: React.FC = () => {
       setFilteredAlerts(mockAlerts);
     };
     
-    generateMockAlerts();
+    if (alertEventTypes.length > 0) {
+      generateMockAlerts();
+    }
   }, []);
 
   useEffect(() => {
@@ -95,7 +109,7 @@ const AlertDashboard: React.FC = () => {
     
     if (searchTerm) {
       filtered = filtered.filter(alert => 
-        alert.objectType.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        alert.eventType.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         alert.metadata.camera.toLowerCase().includes(searchTerm.toLowerCase()) ||
         alert.metadata.zone.toLowerCase().includes(searchTerm.toLowerCase())
       );
@@ -128,6 +142,21 @@ const AlertDashboard: React.FC = () => {
         return <Badge variant="secondary">Ignored</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  const getSeverityBadge = (severity: string) => {
+    switch (severity) {
+      case 'low':
+        return <Badge variant="outline">Low</Badge>;
+      case 'medium':
+        return <Badge variant="secondary">Medium</Badge>;
+      case 'high':
+        return <Badge variant="destructive">High</Badge>;
+      case 'critical':
+        return <Badge className="bg-red-500 text-white hover:bg-red-600">Critical</Badge>;
+      default:
+        return <Badge variant="outline">{severity}</Badge>;
     }
   };
 
@@ -199,7 +228,8 @@ const AlertDashboard: React.FC = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[180px]">Timestamp</TableHead>
-                  <TableHead>Object Type</TableHead>
+                  <TableHead>Event Type</TableHead>
+                  <TableHead>Severity</TableHead>
                   <TableHead>Confidence</TableHead>
                   <TableHead>Camera</TableHead>
                   <TableHead>Zone</TableHead>
@@ -215,7 +245,10 @@ const AlertDashboard: React.FC = () => {
                         {formatTimestamp(alert.timestamp)}
                       </TableCell>
                       <TableCell>
-                        <span className="capitalize">{alert.objectType}</span>
+                        <span>{alert.eventType.name}</span>
+                      </TableCell>
+                      <TableCell>
+                        {getSeverityBadge(alert.eventType.severity)}
                       </TableCell>
                       <TableCell>
                         {(alert.confidence * 100).toFixed(1)}%
@@ -254,9 +287,9 @@ const AlertDashboard: React.FC = () => {
                                     </p>
                                   </div>
                                   <div>
-                                    <p className="text-sm font-medium">Object Type</p>
-                                    <p className="text-sm text-muted-foreground capitalize">
-                                      {selectedAlert.objectType}
+                                    <p className="text-sm font-medium">Event Type</p>
+                                    <p className="text-sm text-muted-foreground">
+                                      {selectedAlert.eventType.name}
                                     </p>
                                   </div>
                                   <div>
@@ -287,6 +320,18 @@ const AlertDashboard: React.FC = () => {
                                     <p className="text-sm font-medium">Frame ID</p>
                                     <p className="text-sm text-muted-foreground">
                                       {selectedAlert.metadata.frameId}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium">Category</p>
+                                    <p className="text-sm text-muted-foreground capitalize">
+                                      {selectedAlert.eventType.category}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium">Severity</p>
+                                    <p className="text-sm flex items-center gap-2">
+                                      {getSeverityBadge(selectedAlert.eventType.severity)}
                                     </p>
                                   </div>
                                 </div>
@@ -326,7 +371,7 @@ const AlertDashboard: React.FC = () => {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       No alerts found matching your criteria
                     </TableCell>
                   </TableRow>
