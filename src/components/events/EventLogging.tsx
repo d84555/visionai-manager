@@ -175,10 +175,10 @@ const EventLogging: React.FC = () => {
     switch (event.category) {
       case 'ppe':
         return event.severity === 'low' ? 
-          <Badge variant="success">PPE Compliant</Badge> :
+          <Badge variant="outline" className="bg-green-100 text-green-800 hover:bg-green-200">PPE Compliant</Badge> :
           <Badge variant="destructive">PPE Violation</Badge>;
       case 'zone':
-        return <Badge variant="warning">Zone Violation</Badge>;
+        return <Badge variant="secondary" className="bg-orange-100 text-orange-800 hover:bg-orange-200">Zone Violation</Badge>;
       case 'environment':
         return <Badge variant="destructive">Environment Alert</Badge>;
       case 'system':

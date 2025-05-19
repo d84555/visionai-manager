@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { Helmet, Goggles, Gloves, Coverall, PersonStanding, Clock, MapPin, FireExtinguisher, Smoke, AlarmSmoke, MapPinOff, MapPinX, Camera, CameraOff, Bug, User, LogIn, LogOut, FileText } from 'lucide-react';
+import { HardHat, Eye, HandMetal, ShirtFolded, PersonStanding, Clock, MapPin, FireExtinguisher, Flame, AlarmSmoke, MapPinOff, MapPinX, Camera, CameraOff, Bug, User, LogIn, LogOut, FileText } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -113,15 +112,15 @@ const EventsConfig: React.FC = () => {
   const getEventIcon = (eventId: string) => {
     switch (eventId) {
       case 'helmet-not-detected':
-        return <Helmet size={20} className="text-red-500" />;
+        return <HardHat size={20} className="text-red-500" />;
       case 'coverall-not-detected':
-        return <Coverall size={20} className="text-red-500" />;
+        return <ShirtFolded size={20} className="text-red-500" />;
       case 'gloves-not-detected':
-        return <Gloves size={20} className="text-red-500" />;
+        return <HandMetal size={20} className="text-red-500" />;
       case 'goggles-not-detected':
-        return <Goggles size={20} className="text-red-500" />;
+        return <Eye size={20} className="text-red-500" />;
       case 'all-ppe-detected':
-        return <Helmet size={20} className="text-green-500" />;
+        return <HardHat size={20} className="text-green-500" />;
       case 'unauthorized-zone-entry':
         return <MapPinX size={20} className="text-orange-500" />;
       case 'loitering-detection':
@@ -131,7 +130,7 @@ const EventsConfig: React.FC = () => {
       case 'restricted-area-detection':
         return <MapPinOff size={20} className="text-red-500" />;
       case 'smoke-fire-detection':
-        return <Smoke size={20} className="text-red-500" />;
+        return <Flame size={20} className="text-red-500" />;
       case 'camera-offline':
         return <CameraOff size={20} className="text-gray-500" />;
       case 'model-inference-error':
@@ -264,7 +263,7 @@ const EventsConfig: React.FC = () => {
   const getCategoryIcon = (category: string) => {
     switch (category) {
       case 'ppe':
-        return <Helmet className="h-4 w-4" />;
+        return <HardHat className="h-4 w-4" />;
       case 'zone':
         return <MapPin className="h-4 w-4" />;
       case 'environment':
@@ -354,7 +353,7 @@ const EventsConfig: React.FC = () => {
             >
               <TabsList>
                 <TabsTrigger value="ppe" className="flex items-center">
-                  <Helmet className="mr-1 h-4 w-4" />
+                  <HardHat className="mr-1 h-4 w-4" />
                   PPE Compliance
                 </TabsTrigger>
                 <TabsTrigger value="zone" className="flex items-center">
