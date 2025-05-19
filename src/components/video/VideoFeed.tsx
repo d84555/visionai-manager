@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useVideoFeed } from '@/hooks/useVideoFeed';
+import { useHLSPlayer } from '@/hooks/useHLSPlayer';
 import { VideoControls } from './VideoControls';
 import { CanvasDetectionOverlay } from './CanvasDetectionOverlay';
 import { ModelSelector } from './ModelSelector';
@@ -139,7 +140,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     setOriginalFile,
     originalFile,
     processRtspStream,
-    isStreamingUrl
+    isStreamingUrl,
+    enableHLS
   } = useVideoFeed({
     initialVideoUrl,
     autoStart,
@@ -148,6 +150,21 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     streamType,
     fps
   });
+
+  const { error: hlsError, isHLSSource } = useHLSPlayer({
+    videoRef,
+    src: videoUrl,
+    autoPlay: isPlaying,
+    enabled: enableHLS && isStreaming
+  });
+
+  useEffect(() => {
+    if (hlsError) {
+      toast.error('HLS Playback Error', {
+        description: hlsError
+      });
+    }
+  }, [hlsError]);
 
   const handleModelChange = async (modelIds: string[]) => {
     const models = modelIds.map(id => {
@@ -192,11 +209,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     return 'Processing video...';
   };
 
-  // Determine if URL looks like an RTSP/streaming URL
+  // Updated isRtspUrl to include HLS streams
   const isRtspUrl = (url: string) => {
     return url.toLowerCase().startsWith('rtsp://') || 
            url.toLowerCase().startsWith('rtsps://') || 
-           url.toLowerCase().startsWith('rtmp://');
+           url.toLowerCase().startsWith('rtmp://') ||
+           url.toLowerCase().includes('.m3u8');
   };
 
   if (!showControls) {
@@ -264,6 +282,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
         <CardTitle className="flex items-center flex-wrap gap-2">
           <Camera className="mr-2 text-avianet-red" size={20} />
           Real-time Video Feed
+          {isHLSSource(videoUrl) && (
+            <Badge variant="outline" className="bg-purple-500 text-white">
+              HLS STREAM
+            </Badge>
+          )}
           {isHikvisionFormat && (
             <Badge variant="outline" className="bg-blue-500 text-white">
               HIKVISION
@@ -300,7 +323,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             onModelChange={handleModelChange}
           />
           
-          {formatNotSupported && (
+          {formatNotSupported && !isHLSSource(videoUrl) && (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Video format not supported</AlertTitle>
@@ -331,14 +354,14 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               </TabsTrigger>
             </TabsList>
             
-            {/* URL Tab */}
+            {/* URL Tab - updated for better HLS support */}
             <TabsContent value="url" className="mt-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="video-url">Video URL</Label>
                 <div className="flex mt-1">
                   <Input
                     id="video-url"
-                    placeholder="Enter video URL... (MP4, WebM, etc.)"
+                    placeholder="Enter video URL... (MP4, WebM, HLS .m3u8, etc.)"
                     value={videoUrl}
                     onChange={(e) => {
                       setVideoUrl(e.target.value);
@@ -358,7 +381,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Enter a direct URL to a video file (.mp4, .webm, etc.)
+                  Supports direct video files (.mp4, .webm) and HLS streams (.m3u8)
                 </p>
                 
                 <DemoVideoButtons
@@ -522,7 +545,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                 <p className="text-gray-700 dark:text-gray-300">Loading AI model...</p>
                 <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">This may take a moment for custom models</p>
               </div>
-            ) : formatNotSupported ? (
+            ) : formatNotSupported && !isHLSSource(videoUrl) ? (
               <div className="flex flex-col items-center justify-center bg-red-50 dark:bg-red-900/20 rounded-md" style={{ height: '360px' }}>
                 <AlertTriangle className="text-red-500 mb-2" size={48} />
                 <p className="text-red-700 dark:text-red-400">Video format not supported</p>
@@ -542,6 +565,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
                   loop={!isLiveStream}
                   playsInline
                   className="w-full"
+                  controls
                 />
                 
                 <div className="absolute inset-0 pointer-events-none">

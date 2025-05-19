@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { convertToPlayableFormat, detectVideoFormat, createHlsStream } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
@@ -32,6 +31,7 @@ interface VideoFeedProps {
   activeModels?: { name: string; path: string }[];
   streamType?: 'main' | 'sub';
   fps?: number;
+  enableHLS?: boolean; // Added parameter to control HLS playback
 }
 
 export const useVideoFeed = ({ 
@@ -40,7 +40,8 @@ export const useVideoFeed = ({
   camera = undefined,
   activeModels = [],
   streamType = 'main',
-  fps = 10
+  fps = 10,
+  enableHLS = true // Default to true for HLS support
 }: VideoFeedProps) => {
   // State variables
   const [videoUrl, setVideoUrl] = useState(initialVideoUrl || '');
@@ -61,6 +62,9 @@ export const useVideoFeed = ({
   const [isLiveStream, setIsLiveStream] = useState(false);
   const [streamProcessing, setStreamProcessing] = useState(false);
   
+  // Add enableHLS state to expose it
+  const [hlsEnabled, setHlsEnabled] = useState<boolean>(enableHLS);
+
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -415,6 +419,7 @@ export const useVideoFeed = ({
     return url.startsWith('rtsp://') || 
            url.startsWith('rtsps://') ||
            url.startsWith('rtmp://') ||
+           url.includes('.m3u8') ||
            url.startsWith('http://') && (url.includes('.m3u8') || url.includes('mjpg/video') || url.includes('mjpeg'));
   };
 
@@ -709,6 +714,8 @@ export const useVideoFeed = ({
     setOriginalFile,
     originalFile,
     processRtspStream,
-    isStreamingUrl
+    isStreamingUrl,
+    enableHLS: hlsEnabled, // Expose HLS enabled state
+    setHlsEnabled // Expose setter for HLS state
   };
 };
