@@ -50,6 +50,7 @@ const EventLogging: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [currentTab, setCurrentTab] = useState('all');
   const [eventTypes, setEventTypes] = useState<EventTypeConfig[]>([]);
+  const [enabledEventTypesOnly, setEnabledEventTypesOnly] = useState(true);
 
   useEffect(() => {
     // Load event types from settings
@@ -129,6 +130,17 @@ const EventLogging: React.FC = () => {
       );
     }
     
+    // Filter by enabled event types if the toggle is on
+    if (enabledEventTypesOnly) {
+      const enabledEventTypeIds = eventTypes
+        .filter(et => et.enabled)
+        .map(et => et.id);
+      
+      filtered = filtered.filter(event => 
+        enabledEventTypeIds.includes(event.details.eventTypeId as string)
+      );
+    }
+    
     if (typeFilter !== 'all') {
       if (typeFilter.startsWith('category-')) {
         // Filter by category
@@ -159,7 +171,7 @@ const EventLogging: React.FC = () => {
     }
     
     setFilteredEvents(filtered);
-  }, [searchTerm, typeFilter, events, currentTab]);
+  }, [searchTerm, typeFilter, events, currentTab, enabledEventTypesOnly, eventTypes]);
 
   const formatTimestamp = (date: Date) => {
     return date.toLocaleString('en-US', {
@@ -281,6 +293,17 @@ const EventLogging: React.FC = () => {
             </TabsList>
             
             <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 mr-2">
+                <label className="text-sm font-medium">
+                  <input 
+                    type="checkbox" 
+                    className="mr-1"
+                    checked={enabledEventTypesOnly}
+                    onChange={(e) => setEnabledEventTypesOnly(e.target.checked)}
+                  />
+                  Show only enabled event types
+                </label>
+              </div>
               <div className="relative max-w-xs">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input

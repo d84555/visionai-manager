@@ -40,6 +40,11 @@ const EventsConfig: React.FC = () => {
     setEventsSettings(settings);
   }, []);
 
+  // Save settings whenever they change
+  useEffect(() => {
+    SettingsService.updateSettings('events', eventsSettings);
+  }, [eventsSettings]);
+
   const handleEventToggle = (id: string, enabled: boolean) => {
     const updatedTypes = eventsSettings.types.map(eventType =>
       eventType.id === id ? { ...eventType, enabled } : eventType
@@ -51,7 +56,6 @@ const EventsConfig: React.FC = () => {
     };
     
     setEventsSettings(updatedSettings);
-    SettingsService.updateSettings('events', updatedSettings);
     
     toast.success(`${enabled ? 'Enabled' : 'Disabled'} event type: ${updatedTypes.find(e => e.id === id)?.name}`);
   };
@@ -67,7 +71,6 @@ const EventsConfig: React.FC = () => {
     };
     
     setEventsSettings(updatedSettings);
-    SettingsService.updateSettings('events', updatedSettings);
   };
 
   const handleRecordToggle = (id: string, recordVideo: boolean) => {
@@ -81,7 +84,6 @@ const EventsConfig: React.FC = () => {
     };
     
     setEventsSettings(updatedSettings);
-    SettingsService.updateSettings('events', updatedSettings);
   };
 
   const handleSeverityChange = (id: string, severity: 'low' | 'medium' | 'high' | 'critical') => {
@@ -95,7 +97,6 @@ const EventsConfig: React.FC = () => {
     };
     
     setEventsSettings(updatedSettings);
-    SettingsService.updateSettings('events', updatedSettings);
   };
 
   const handleGlobalSettingChange = (setting: keyof EventsSettings, value: any) => {
@@ -105,7 +106,6 @@ const EventsConfig: React.FC = () => {
     };
     
     setEventsSettings(updatedSettings);
-    SettingsService.updateSettings('events', updatedSettings);
     
     toast.success(`Updated ${setting} setting`);
   };
@@ -175,9 +175,9 @@ const EventsConfig: React.FC = () => {
               <TableHead className="w-[50px]"></TableHead>
               <TableHead>Event Type</TableHead>
               <TableHead>Severity</TableHead>
-              <TableHead className="w-[120px]">Enabled</TableHead>
-              <TableHead className="w-[120px]">Notify</TableHead>
-              <TableHead className="w-[120px]">Record</TableHead>
+              <TableHead className="w-[120px] text-center">Enabled</TableHead>
+              <TableHead className="w-[120px] text-center">Notify</TableHead>
+              <TableHead className="w-[120px] text-center">Record</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -211,25 +211,31 @@ const EventsConfig: React.FC = () => {
                       </SelectContent>
                     </Select>
                   </TableCell>
-                  <TableCell>
-                    <Switch 
-                      checked={eventType.enabled} 
-                      onCheckedChange={(checked) => handleEventToggle(eventType.id, checked)}
-                    />
+                  <TableCell className="text-center">
+                    <div className="flex justify-center">
+                      <Switch 
+                        checked={eventType.enabled} 
+                        onCheckedChange={(checked) => handleEventToggle(eventType.id, checked)}
+                      />
+                    </div>
                   </TableCell>
-                  <TableCell>
-                    <Switch 
-                      checked={eventType.notifyOnTriggered} 
-                      onCheckedChange={(checked) => handleNotificationToggle(eventType.id, checked)}
-                      disabled={!eventType.enabled}
-                    />
+                  <TableCell className="text-center">
+                    <div className="flex justify-center">
+                      <Switch 
+                        checked={eventType.notifyOnTriggered} 
+                        onCheckedChange={(checked) => handleNotificationToggle(eventType.id, checked)}
+                        disabled={!eventType.enabled}
+                      />
+                    </div>
                   </TableCell>
-                  <TableCell>
-                    <Switch 
-                      checked={eventType.recordVideo} 
-                      onCheckedChange={(checked) => handleRecordToggle(eventType.id, checked)}
-                      disabled={!eventType.enabled}
-                    />
+                  <TableCell className="text-center">
+                    <div className="flex justify-center">
+                      <Switch 
+                        checked={eventType.recordVideo} 
+                        onCheckedChange={(checked) => handleRecordToggle(eventType.id, checked)}
+                        disabled={!eventType.enabled}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -274,6 +280,21 @@ const EventsConfig: React.FC = () => {
       default:
         return null;
     }
+  };
+
+  const handleSelectAllInCategory = (category: 'ppe' | 'zone' | 'environment' | 'system', enabled: boolean) => {
+    const updatedTypes = eventsSettings.types.map(eventType => 
+      eventType.category === category ? { ...eventType, enabled } : eventType
+    );
+    
+    const updatedSettings = {
+      ...eventsSettings,
+      types: updatedTypes,
+    };
+    
+    setEventsSettings(updatedSettings);
+    
+    toast.success(`${enabled ? 'Enabled' : 'Disabled'} all ${getCategoryLabel(category)} events`);
   };
 
   return (
@@ -370,6 +391,23 @@ const EventsConfig: React.FC = () => {
                   System & User
                 </TabsTrigger>
               </TabsList>
+
+              <div className="flex items-center justify-end space-x-2 mt-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => handleSelectAllInCategory(activeTab as any, true)}
+                >
+                  Enable All
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => handleSelectAllInCategory(activeTab as any, false)}
+                >
+                  Disable All
+                </Button>
+              </div>
               
               <TabsContent value="ppe" className="space-y-4">
                 {renderEventTypeTable('ppe')}
