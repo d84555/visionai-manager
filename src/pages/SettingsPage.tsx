@@ -673,6 +673,18 @@ const SettingsPage = () => {
       
       <Card className="w-full">
         <CardHeader className="border-b">
+          <CardTitle className="flex items-center">
+            <AlarmSmoke className="mr-2 text-avianet-red" size={20} />
+            Event Configuration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          <EventsConfig />
+        </CardContent>
+      </Card>
+      
+      <Card className="w-full">
+        <CardHeader className="border-b">
           <CardTitle>About</CardTitle>
         </CardHeader>
         <CardContent className="p-6">

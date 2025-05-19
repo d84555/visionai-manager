@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { HardHat, Eye, HandMetal, Shirt, PersonStanding, Clock, MapPin, FireExtinguisher, Flame, AlarmSmoke, MapPinOff, MapPinX, Camera, CameraOff, Bug, User, LogIn, LogOut, FileText } from 'lucide-react';
+import { HardHat, Eye, HandMetal, Shirt, PersonStanding, Clock, MapPin, FireExtinguisher, Flame, AlarmSmoke, MapPinOff, MapPinX, Camera, CameraOff, Bug, User, LogIn, LogOut, FileText, Mail } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -33,17 +33,35 @@ const EventsConfig: React.FC = () => {
     SettingsService.getSettings('events') as EventsSettings
   );
   const [activeTab, setActiveTab] = useState<string>('ppe');
+  const [emailSettings, setEmailSettings] = useState({
+    enabled: false,
+    recipientEmail: '',
+    sendInterval: 'immediate', // 'immediate', 'hourly', 'daily'
+  });
 
   useEffect(() => {
     // Load event settings
     const settings = SettingsService.getSettings('events') as EventsSettings;
     setEventsSettings(settings);
+    
+    // Load email notification settings
+    const emailConfig = SettingsService.getSetting('email-notifications') || {
+      enabled: false,
+      recipientEmail: '',
+      sendInterval: 'immediate',
+    };
+    setEmailSettings(emailConfig);
   }, []);
 
   // Save settings whenever they change
   useEffect(() => {
     SettingsService.updateSettings('events', eventsSettings);
   }, [eventsSettings]);
+
+  // Save email settings when they change
+  useEffect(() => {
+    SettingsService.setSetting('email-notifications', emailSettings);
+  }, [emailSettings]);
 
   const handleEventToggle = (id: string, enabled: boolean) => {
     const updatedTypes = eventsSettings.types.map(eventType =>
@@ -71,6 +89,21 @@ const EventsConfig: React.FC = () => {
     };
     
     setEventsSettings(updatedSettings);
+  };
+
+  const handleEmailAlertToggle = (id: string, sendEmail: boolean) => {
+    const updatedTypes = eventsSettings.types.map(eventType =>
+      eventType.id === id ? { ...eventType, sendEmail: sendEmail } : eventType
+    );
+    
+    const updatedSettings = {
+      ...eventsSettings,
+      types: updatedTypes,
+    };
+    
+    setEventsSettings(updatedSettings);
+    
+    toast.success(`${sendEmail ? 'Enabled' : 'Disabled'} email alerts for: ${updatedTypes.find(e => e.id === id)?.name}`);
   };
 
   const handleRecordToggle = (id: string, recordVideo: boolean) => {
@@ -108,6 +141,17 @@ const EventsConfig: React.FC = () => {
     setEventsSettings(updatedSettings);
     
     toast.success(`Updated ${setting} setting`);
+  };
+
+  const handleEmailSettingsChange = (field: string, value: any) => {
+    setEmailSettings(prev => ({
+      ...prev,
+      [field]: value
+    }));
+    
+    if (field === 'enabled') {
+      toast.success(`${value ? 'Enabled' : 'Disabled'} email notifications`);
+    }
   };
 
   const getEventIcon = (eventId: string) => {
@@ -175,9 +219,10 @@ const EventsConfig: React.FC = () => {
               <TableHead className="w-[50px]"></TableHead>
               <TableHead>Event Type</TableHead>
               <TableHead>Severity</TableHead>
-              <TableHead className="w-[120px] text-center">Enabled</TableHead>
-              <TableHead className="w-[120px] text-center">Notify</TableHead>
-              <TableHead className="w-[120px] text-center">Record</TableHead>
+              <TableHead className="w-[100px] text-center">Enabled</TableHead>
+              <TableHead className="w-[100px] text-center">Notify</TableHead>
+              <TableHead className="w-[100px] text-center">Email</TableHead>
+              <TableHead className="w-[100px] text-center">Record</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -230,6 +275,15 @@ const EventsConfig: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-center">
                     <div className="flex justify-center">
+                      <Switch
+                        checked={eventType.sendEmail || false}
+                        onCheckedChange={(checked) => handleEmailAlertToggle(eventType.id, checked)}
+                        disabled={!eventType.enabled || !emailSettings.enabled}
+                      />
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <div className="flex justify-center">
                       <Switch 
                         checked={eventType.recordVideo} 
                         onCheckedChange={(checked) => handleRecordToggle(eventType.id, checked)}
@@ -241,7 +295,7 @@ const EventsConfig: React.FC = () => {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-6 text-muted-foreground">
                   No event types in this category
                 </TableCell>
               </TableRow>
@@ -346,6 +400,75 @@ const EventsConfig: React.FC = () => {
                 <Label htmlFor="sound-alerts">Enable Alert Sounds</Label>
               </div>
             </div>
+          </div>
+          
+          {/* Email Notification Settings */}
+          <div className="border-t pt-4">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+              <div className="space-y-1">
+                <h3 className="text-lg font-medium flex items-center">
+                  <Mail className="mr-2 h-4 w-4" />
+                  Email Notification Settings
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Configure how and when email alerts are sent
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Switch 
+                  id="email-notifications"
+                  checked={emailSettings.enabled}
+                  onCheckedChange={(checked) => handleEmailSettingsChange('enabled', checked)}
+                />
+                <Label htmlFor="email-notifications">Enable Email Notifications</Label>
+              </div>
+            </div>
+            
+            {emailSettings.enabled && (
+              <div className="mt-4 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="email-recipient">Additional Recipients (comma separated)</Label>
+                    <Input
+                      id="email-recipient"
+                      value={emailSettings.recipientEmail}
+                      onChange={(e) => handleEmailSettingsChange('recipientEmail', e.target.value)}
+                      placeholder="security@example.com, manager@example.com"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Leave empty to use only the configured SMTP recipients
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="email-interval">Send Frequency</Label>
+                    <Select
+                      value={emailSettings.sendInterval}
+                      onValueChange={(value) => handleEmailSettingsChange('sendInterval', value)}
+                    >
+                      <SelectTrigger id="email-interval">
+                        <SelectValue placeholder="Select frequency" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="immediate">Immediate (per event)</SelectItem>
+                        <SelectItem value="hourly">Hourly Digest</SelectItem>
+                        <SelectItem value="daily">Daily Summary</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      How often to send email notifications
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="bg-yellow-50 dark:bg-yellow-950/30 p-3 rounded-md border border-yellow-200 dark:border-yellow-800">
+                  <p className="text-sm text-amber-800 dark:text-amber-400 flex items-center">
+                    <Mail className="mr-2 h-4 w-4" />
+                    Select which specific events trigger emails using the "Email" toggle in the event table below.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
           
           <div className="border-t pt-4">

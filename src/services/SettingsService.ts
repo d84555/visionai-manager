@@ -1,4 +1,3 @@
-
 import { CacheService } from './CacheService';
 
 interface GridLayout {
@@ -95,6 +94,7 @@ export interface EventTypeConfig {
   notifyOnTriggered: boolean;
   severity: 'low' | 'medium' | 'high' | 'critical';
   recordVideo: boolean;
+  sendEmail?: boolean;
   description?: string;
 }
 
@@ -308,6 +308,7 @@ class SettingsService {
         notifyOnTriggered: true,
         severity: 'high',
         recordVideo: true,
+        sendEmail: true,
         description: 'Person detected without required helmet'
       },
       { 
@@ -318,6 +319,7 @@ class SettingsService {
         notifyOnTriggered: true,
         severity: 'high',
         recordVideo: true,
+        sendEmail: true,
         description: 'Person detected without required coverall'
       },
       { 
@@ -328,6 +330,7 @@ class SettingsService {
         notifyOnTriggered: true,
         severity: 'high',
         recordVideo: true,
+        sendEmail: true,
         description: 'Person detected without required gloves'
       },
       { 
@@ -338,6 +341,7 @@ class SettingsService {
         notifyOnTriggered: true,
         severity: 'high',
         recordVideo: true,
+        sendEmail: true,
         description: 'Person detected without required eye protection'
       },
       { 
@@ -348,6 +352,7 @@ class SettingsService {
         notifyOnTriggered: false,
         severity: 'low',
         recordVideo: false,
+        sendEmail: false,
         description: 'Person detected with all required PPE'
       },
       
@@ -360,6 +365,7 @@ class SettingsService {
         notifyOnTriggered: true,
         severity: 'high',
         recordVideo: true,
+        sendEmail: true,
         description: 'Person detected in unauthorized area (e.g., pedestrian in forklift area)'
       },
       { 
@@ -370,6 +376,7 @@ class SettingsService {
         notifyOnTriggered: true,
         severity: 'medium',
         recordVideo: true,
+        sendEmail: false,
         description: 'Person detected in same area for extended period'
       },
       { 
@@ -380,6 +387,7 @@ class SettingsService {
         notifyOnTriggered: true,
         severity: 'critical',
         recordVideo: true,
+        sendEmail: true,
         description: 'Person detected outside of scheduled working hours'
       },
       { 
@@ -390,6 +398,7 @@ class SettingsService {
         notifyOnTriggered: true,
         severity: 'critical',
         recordVideo: true,
+        sendEmail: true,
         description: 'Person detected in area marked as restricted'
       },
       
@@ -402,6 +411,7 @@ class SettingsService {
         notifyOnTriggered: true,
         severity: 'critical',
         recordVideo: true,
+        sendEmail: true,
         description: 'Smoke or fire detected in monitored area'
       },
       
