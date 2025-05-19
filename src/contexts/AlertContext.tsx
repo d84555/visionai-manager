@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import SettingsService, { EventTypeConfig } from '@/services/SettingsService';
 
@@ -35,13 +34,15 @@ export interface AlertProviderProps {
   mockData?: boolean;
   rtspFeedUrls?: string[];
   uploadedVideoUrls?: string[];
+  enableHLS?: boolean; // Added this property to fix the TypeScript error
 }
 
 export const AlertProvider: React.FC<AlertProviderProps> = ({ 
   children,
   mockData = true,
   rtspFeedUrls = [],
-  uploadedVideoUrls = []
+  uploadedVideoUrls = [],
+  enableHLS = true // Default value to match AlertsPage usage
 }) => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loadingAlerts, setLoadingAlerts] = useState<boolean>(false);
