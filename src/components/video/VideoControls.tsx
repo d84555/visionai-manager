@@ -14,6 +14,11 @@ interface VideoControlsProps {
   isHikvisionFormat?: boolean;
   isLiveStream?: boolean;
   showMinimalControls?: boolean;
+  isStreaming?: boolean;
+  onPlay?: () => Promise<void>;
+  onStop?: () => void;
+  onFileUpload?: (file: File) => Promise<void>;
+  formatNotSupported?: boolean;
 }
 
 export const VideoControls: React.FC<VideoControlsProps> = ({
@@ -25,7 +30,12 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   inferenceTime,
   isHikvisionFormat,
   isLiveStream,
-  showMinimalControls = false
+  showMinimalControls = false,
+  isStreaming,
+  onPlay,
+  onStop,
+  onFileUpload,
+  formatNotSupported
 }) => {
   if (showMinimalControls) {
     return (

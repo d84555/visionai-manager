@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -423,6 +424,13 @@ def process_stream(stream_id, input_url, output_path, output_format, validation_
                 "progress": 5
             }, f)
         
+        # Set output directory and ensure it exists
+        stream_dir = os.path.dirname(output_path)
+        os.makedirs(stream_dir, exist_ok=True)
+        
+        # Set segment directory to store all segments in same directory as playlist
+        segment_dir = stream_dir 
+        
         # Build FFmpeg command based on stream type
         if output_format == "hls":
             # More robust FFmpeg command for HLS streaming with better compatibility 
@@ -454,6 +462,7 @@ def process_stream(stream_id, input_url, output_path, output_format, validation_
                 ])
                 
             # Common output options for HLS optimized for reliability
+            segment_filename = os.path.join(segment_dir, "segment_%03d.ts")
             cmd.extend([
                 "-c:v", "libx264",             # Use H.264 codec
                 "-profile:v", "baseline",      # More compatible profile
@@ -471,9 +480,7 @@ def process_stream(stream_id, input_url, output_path, output_format, validation_
                 "-hls_time", "2",              # 2-second segments
                 "-hls_list_size", "10",        # Keep 10 segments in playlist
                 "-hls_flags", "delete_segments+append_list", # Delete old segments, append to list
-                "-strftime", "1",              # Use date/time in segment names
-                "-hls_segment_filename", os.path.join(os.path.dirname(output_path), "segment_%Y%m%d%H%M%S.ts"),
-                "-method", "PUT",              # Use PUT for segment upload (helps with some servers)
+                "-hls_segment_filename", segment_filename,  # Use simple sequential numbering
                 output_path
             ])
         else:
@@ -621,8 +628,23 @@ async def get_stream_file(stream_id: str, file_name: str):
     stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
     file_path = os.path.join(stream_dir, file_name)
     
+    # Log the full path being accessed
+    logger.info(f"Looking for stream file at: {file_path}")
+    
     if not os.path.exists(file_path):
+        # Log more details about the directory to help diagnose issues
         logger.error(f"Stream file not found: {file_path}")
+        
+        # List directory contents for debugging
+        try:
+            if os.path.exists(stream_dir):
+                dir_contents = os.listdir(stream_dir)
+                logger.info(f"Contents of {stream_dir}: {dir_contents}")
+            else:
+                logger.error(f"Stream directory does not exist: {stream_dir}")
+        except Exception as e:
+            logger.error(f"Error listing directory: {str(e)}")
+            
         raise HTTPException(status_code=404, detail="Stream file not found")
     
     # Determine content type
@@ -641,11 +663,27 @@ async def get_stream_file(stream_id: str, file_name: str):
         "Cache-Control": "no-cache, no-store, must-revalidate"
     }
     
-    return StreamingResponse(
-        open(file_path, "rb"),
-        media_type=content_type,
-        headers=headers
-    )
+    # Use a more robust file serving approach that can handle files even if they're being written to
+    try:
+        # Use a file iterator for more reliable file serving, especially during writes
+        def safe_file_iterator(file_path, chunk_size=8192):
+            try:
+                with open(file_path, "rb") as f:
+                    while chunk := f.read(chunk_size):
+                        yield chunk
+            except Exception as e:
+                logger.error(f"Error reading file {file_path}: {str(e)}")
+                # Return an empty response rather than failing
+                yield b''
+        
+        return StreamingResponse(
+            safe_file_iterator(file_path),
+            media_type=content_type,
+            headers=headers
+        )
+    except Exception as e:
+        logger.error(f"Error serving file {file_path}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error serving file: {str(e)}")
 
 # Add a diagnostic endpoint to check stream accessibility
 @router.get("/transcode/check_stream")
@@ -661,15 +699,39 @@ async def check_stream_url(url: str):
     # Return raw validation result
     return result
 
-# Cleanup old jobs periodically (could be implemented as a background task)
-def cleanup_old_jobs():
+# Clean up old files periodically to prevent disk space issues
+@router.get("/transcode/cleanup")
+async def cleanup_old_jobs():
     """Clean up old transcoding jobs"""
-    current_time = time.time()
-    for job_id, job in list(transcode_jobs.items()):
-        # If job is older than 1 hour and completed or failed
-        if (current_time - job.get("created_at", current_time)) > 3600 and \
-           job.get("status") in ["completed", "failed"]:
-            job_dir = os.path.join(TRANSCODE_DIR, job_id)
-            if os.path.exists(job_dir):
-                shutil.rmtree(job_dir)
-            del transcode_jobs[job_id]
+    deleted_count = 0
+    oldest_time = time.time() - 3600  # 1 hour ago
+    
+    try:
+        # Check each job directory
+        for item in os.listdir(TRANSCODE_DIR):
+            item_path = os.path.join(TRANSCODE_DIR, item)
+            
+            # Only process directories
+            if os.path.isdir(item_path):
+                # Check if older than 1 hour based on modification time
+                if os.path.getmtime(item_path) < oldest_time:
+                    try:
+                        shutil.rmtree(item_path)
+                        deleted_count += 1
+                        logger.info(f"Cleaned up old job directory: {item_path}")
+                    except Exception as e:
+                        logger.error(f"Failed to delete {item_path}: {str(e)}")
+        
+        # Also clean up the job tracking dictionary
+        current_time = time.time()
+        for job_id in list(transcode_jobs.keys()):
+            job = transcode_jobs.get(job_id)
+            if job and (current_time - job.get("created_at", current_time)) > 3600:
+                del transcode_jobs[job_id]
+                
+        return {"success": True, "deleted_count": deleted_count, "message": f"Cleaned up {deleted_count} old job directories"}
+        
+    except Exception as e:
+        logger.error(f"Error during cleanup: {str(e)}")
+        return {"success": False, "error": str(e)}
+

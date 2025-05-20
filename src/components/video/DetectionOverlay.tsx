@@ -25,11 +25,19 @@ interface Detection {
 interface DetectionOverlayProps {
   detections: Detection[];
   minimal?: boolean;
+  videoRef?: React.RefObject<HTMLVideoElement>;
+  inferenceLocation?: 'edge' | 'server' | null;
+  inferenceTime?: number | null;
+  actualFps?: number | null;
 }
 
 export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ 
   detections = [], 
-  minimal = false 
+  minimal = false,
+  videoRef,
+  inferenceLocation,
+  inferenceTime,
+  actualFps
 }) => {
   const [visibleDetections, setVisibleDetections] = useState<Detection[]>([]);
   
@@ -98,8 +106,8 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
   }
 
   try {
-    // Get the video element
-    const videoElement = document.querySelector('video');
+    // Get the video element from ref or from DOM
+    const videoElement = videoRef?.current || document.querySelector('video');
     if (!videoElement) {
       console.log("No video element found for overlay");
       return null;
