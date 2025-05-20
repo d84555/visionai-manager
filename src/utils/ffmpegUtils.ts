@@ -1,4 +1,3 @@
-
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import axios from 'axios';
@@ -212,6 +211,12 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
       throw new Error(`Stream URL is not accessible: ${urlCheck.error || 'Unknown error'}`);
     }
     
+    // For direct HLS streams (.m3u8), we can return them directly without transcoding
+    if (isDirectHLSStream(streamUrl)) {
+      console.log('Direct HLS stream detected, returning URL without transcoding:', streamUrl);
+      return streamUrl;
+    }
+    
     // Always use server-side transcoding for RTSP streams
     if (!settings.serverTranscoding) {
       console.warn('Server-side transcoding is disabled but required for RTSP streams. Using server anyway.');
@@ -248,3 +253,5 @@ export const isDirectHLSStream = (url: string): boolean => {
     lowerCaseUrl.includes('/manifest.m3u8')
   );
 };
+
+// Modify the vite.config.ts file to improve HLS streaming support

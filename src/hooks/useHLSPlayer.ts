@@ -63,22 +63,22 @@ export const useHLSPlayer = ({
       return;
     }
     
-    // For debugging - force a direct fetch to see if the URL is accessible
+    // Force a direct fetch to the URL to verify it's accessible
     console.log('Testing direct URL access with fetch:', src);
     fetch(src, { 
       method: 'GET',
       headers: {
         'Accept': 'application/vnd.apple.mpegurl, application/x-mpegURL, */*'
-      }
+      },
+      mode: 'cors', // Explicitly set CORS mode
+      credentials: 'omit' // Don't send credentials
     })
       .then(response => {
-        console.log('Direct fetch test response:', response.status, response.statusText);
-        // Read and log the content to verify it's an actual M3U8 file
+        console.log('Direct fetch test response:', response.status, response.statusText, response.headers.get('content-type'));
         return response.text();
       })
       .then(text => {
         console.log(`Received ${text.length} bytes of content. First 100 chars:`, text.substring(0, 100));
-        // Check if it contains the M3U8 header
         if (text.includes('#EXTM3U')) {
           console.log('Content validated as M3U8 format');
         } else {
@@ -89,21 +89,55 @@ export const useHLSPlayer = ({
         console.error('Direct fetch test error:', err.message);
       });
     
-    // If native HLS is supported (like Safari), use native playback
-    if (isHlsNativeSupported) {
-      console.log('Using native HLS support for:', src);
+    // Try native playback first regardless of detected support
+    // This works better for direct HLS URLs in some browsers
+    try {
+      console.log('Attempting direct native playback first');
       videoElement.src = src;
-      if (autoPlay) videoElement.play().catch(err => console.error('Error playing video:', err));
+      
+      const playPromise = videoElement.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            console.log('Native playback started successfully');
+          })
+          .catch((err) => {
+            console.warn('Native playback failed, falling back to HLS.js:', err);
+            // If native playback fails and HLS.js is supported, try that instead
+            if (isHlsSupported && hlsRef.current === null) {
+              initializeHlsPlayer(src, videoElement);
+            } else if (!isHlsSupported) {
+              setError('Your browser does not support HLS playback');
+            }
+          });
+      }
       return;
+    } catch (err) {
+      console.warn('Error during native playback attempt:', err);
+      // Fall through to HLS.js if native playback throws an exception
     }
 
-    // If hls.js is not supported, set error
+    // If HLS.js is not supported, we already tried native playback
     if (!isHlsSupported) {
       setError('Your browser does not support HLS playback');
       return;
     }
 
-    // Use hls.js for playback
+    // Initialize HLS.js player
+    initializeHlsPlayer(src, videoElement);
+
+    // Cleanup function
+    return () => {
+      if (hlsRef.current) {
+        console.log('Destroying HLS instance');
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, [src, autoPlay, videoRef, enabled, isHlsSupported, isHlsNativeSupported, retryCount]);
+
+  // Initialize HLS.js player
+  const initializeHlsPlayer = (src: string, videoElement: HTMLVideoElement) => {
     try {
       console.log('Initializing hls.js for:', src);
       const hls = new Hls({
@@ -113,14 +147,12 @@ export const useHLSPlayer = ({
         backBufferLength: 90,
         maxBufferLength: 30,
         startLevel: -1, // Auto level selection
-        // Add CORS options to ensure headers are sent properly
         xhrSetup: (xhr, url) => {
           // Log all XHR requests to debug network issues
           console.log(`HLS XHR request to: ${url}`);
           // Add HLS-specific headers
           xhr.setRequestHeader('Accept', 'application/vnd.apple.mpegurl, application/x-mpegURL, */*');
-          // Ensure proper CORS headers are sent
-          xhr.withCredentials = false; // Set to true if credentials are needed
+          xhr.withCredentials = false; // No credentials for cross-origin requests
         }
       });
       
@@ -187,42 +219,23 @@ export const useHLSPlayer = ({
         }
       });
       
-      // Add listener for manifest loading to see if request is actually being made
+      // Add listeners for tracking requests
       hls.on(Hls.Events.MANIFEST_LOADING, (event, data) => {
         console.log('HLS manifest loading:', data.url);
       });
       
-      // Add listener for level loading to track segment requests
       hls.on(Hls.Events.LEVEL_LOADING, (event, data) => {
         console.log('HLS level loading:', data.url);
       });
       
-      // Add fragments loading listener
       hls.on(Hls.Events.FRAG_LOADING, (event, data) => {
         console.log('HLS fragment loading:', data.frag.url);
-      });
-      
-      // Handle actual HTTP errors
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
-          console.error(`HTTP error ${data.response?.code} during HLS manifest loading: ${data.response?.text}`);
-          setError(`HTTP error ${data.response?.code} loading stream: ${data.response?.text}`);
-        }
       });
     } catch (error) {
       console.error('Error initializing HLS player:', error);
       setError('Failed to initialize video player');
     }
-
-    // Cleanup function
-    return () => {
-      if (hlsRef.current) {
-        console.log('Destroying HLS instance');
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
-    };
-  }, [src, autoPlay, videoRef, enabled, isHlsSupported, isHlsNativeSupported, retryCount]);
+  };
 
   // Check if source is HLS
   const isHLSSource = (source?: string): boolean => {

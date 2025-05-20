@@ -1,3 +1,4 @@
+
 import { defineConfig, ConfigEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -31,6 +32,16 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
         target: 'http://localhost:8888', // Change this to your HLS server
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/hls/, '')
+      },
+      // Add a catch-all proxy for m3u8 files that aren't handled by other routes
+      '/**/*.m3u8': {
+        target: 'http://localhost:8000', // Fallback to API server
+        changeOrigin: true,
+        bypass: (req, res, options) => {
+          // Log all m3u8 requests
+          console.log(`M3U8 proxy request: ${req.url}`);
+          return undefined; // Let the proxy handle it
+        }
       }
     },
     // Add CORS headers to allow direct HLS stream loading
