@@ -1,8 +1,8 @@
 
 import React from 'react';
 import { useVideoFeed } from '@/hooks/useVideoFeed';
-import VideoControls from './VideoControls';
-import DetectionOverlay from './DetectionOverlay';
+import { VideoControls } from './VideoControls';
+import { DetectionOverlay } from './DetectionOverlay';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 import { Loader2 } from 'lucide-react';
 
@@ -20,7 +20,10 @@ export interface VideoFeedProps {
   activeModels?: { name: string; path: string }[];
   streamType?: 'main' | 'sub';
   fps?: number;
-  enableHLS?: boolean;  // Add the enableHLS prop to the interface
+  enableHLS?: boolean;
+  showControls?: boolean;  // Add the showControls prop
+  isPinned?: boolean;      // Add isPinned prop
+  onPinToggle?: () => void; // Add onPinToggle prop
 }
 
 const VideoFeed: React.FC<VideoFeedProps> = ({ 
@@ -30,7 +33,10 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   activeModels = [],
   streamType = 'main',
   fps = 10,
-  enableHLS = true  // Default to true for HLS support
+  enableHLS = true,
+  showControls = true,  // Default to true for controls
+  isPinned,
+  onPinToggle
 }) => {
   const { 
     videoUrl,
@@ -48,6 +54,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     isModelLoading,
     formatNotSupported,
     streamProcessing,
+    isLiveStream,
     videoRef,
     containerRef,
     startStream,
@@ -63,7 +70,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     activeModels,
     streamType,
     fps,
-    enableHLS  // Pass the enableHLS prop to useVideoFeed
+    enableHLS
   });
 
   return (
@@ -132,17 +139,25 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
         actualFps={actualFps}
       />
       
-      <VideoControls
-        isStreaming={isStreaming}
-        isPlaying={isPlaying}
-        onPlay={startStream}
-        onStop={stopStream}
-        onTogglePlayPause={togglePlayPause}
-        onFileUpload={handleFileUpload}
-        videoUrl={videoUrl}
-        setVideoUrl={setVideoUrl}
-        hasUploadedFile={hasUploadedFile}
-      />
+      {showControls && (
+        <VideoControls
+          isStreaming={isStreaming}
+          isPlaying={isPlaying}
+          isPinned={isPinned}
+          onPinToggle={onPinToggle}
+          onPlayPause={togglePlayPause}
+          onPlay={startStream}
+          onStop={stopStream}
+          onFileUpload={handleFileUpload}
+          videoUrl={videoUrl}
+          setVideoUrl={setVideoUrl}
+          hasUploadedFile={hasUploadedFile}
+          isLiveStream={isLiveStream}
+          inferenceLocation={inferenceLocation}
+          inferenceTime={inferenceTime}
+          isHikvisionFormat={isHikvisionFormat}
+        />
+      )}
     </div>
   );
 };
