@@ -1,4 +1,3 @@
-
 import { defineConfig, ConfigEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -20,6 +19,19 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
       '/transcode': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        rewrite: (path) => path,
+        configure: (proxy, options) => {
+          // Log proxy errors for debugging
+          proxy.on('error', (err, req, res) => {
+            console.error('Proxy error:', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            console.log('Proxy request:', req.method, req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, res) => {
+            console.log('Proxy response:', proxyRes.statusCode, req.url);
+          });
+        }
       },
       // Add proxy for API endpoints (including model routes)
       '/api': {
@@ -33,21 +45,29 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/hls/, '')
       },
-      // Add a catch-all proxy for m3u8 files that aren't handled by other routes
+      // Catch-all proxy for m3u8 files that aren't handled by other routes
       '/**/*.m3u8': {
         target: 'http://localhost:8000', // Fallback to API server
         changeOrigin: true,
-        bypass: (req, res, options) => {
-          // Log all m3u8 requests
-          console.log(`M3U8 proxy request: ${req.url}`);
-          return undefined; // Let the proxy handle it
+        configure: (proxy, options) => {
+          proxy.on('error', (err, req, res) => {
+            console.error('M3U8 proxy error:', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            console.log('M3U8 proxy request:', req.method, req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, res) => {
+            console.log('M3U8 proxy response:', proxyRes.statusCode, req.url);
+          });
         }
       }
     },
-    // Add CORS headers to allow direct HLS stream loading
+    // Enhanced CORS settings to allow direct HLS stream loading
     cors: {
       origin: '*',
-      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+      methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+      exposedHeaders: ['Content-Length', 'Content-Range'],
       preflightContinue: false,
       optionsSuccessStatus: 204,
       credentials: true

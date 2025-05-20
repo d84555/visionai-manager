@@ -1,3 +1,4 @@
+
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import axios from 'axios';
@@ -29,9 +30,12 @@ export const detectVideoFormat = (file: File) => {
 
 // Check if a URL is an HLS stream
 export const isHLSStream = (url: string): boolean => {
-  return url.toLowerCase().endsWith('.m3u8') || 
-         url.toLowerCase().includes('.m3u8?') || 
-         url.toLowerCase().includes('/index.m3u8');
+  if (!url) return false;
+  const lowercaseUrl = url.toLowerCase();
+  return lowercaseUrl.endsWith('.m3u8') || 
+         lowercaseUrl.includes('.m3u8?') || 
+         lowercaseUrl.includes('/index.m3u8') ||
+         lowercaseUrl.includes('/stream.m3u8');
 };
 
 // Convert video to playable format (browser compatible)
@@ -161,7 +165,7 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
   }
 }
 
-// Check URL accessibility
+// Check URL accessibility with more robust error handling
 export const checkStreamUrl = async (url: string): Promise<{
   accessible: boolean;
   status?: number;
@@ -173,13 +177,56 @@ export const checkStreamUrl = async (url: string): Promise<{
   try {
     console.log(`Checking accessibility of stream URL: ${url}`);
     
+    // Try direct fetch first for better error details
+    try {
+      console.log('Attempting direct fetch to URL:', url);
+      const directFetch = await fetch(url, { 
+        method: 'GET',
+        headers: {
+          'Accept': 'application/vnd.apple.mpegurl, application/x-mpegURL, */*'
+        },
+        mode: 'cors',
+        credentials: 'omit'
+      });
+      
+      if (directFetch.ok) {
+        console.log('Direct fetch succeeded with status:', directFetch.status);
+        const contentType = directFetch.headers.get('content-type') || '';
+        const isM3u8 = contentType.includes('mpegurl') || url.toLowerCase().includes('.m3u8');
+        
+        // For small responses, validate content
+        if (directFetch.headers.get('content-length') && 
+            parseInt(directFetch.headers.get('content-length') || '0') < 10000) {
+          const text = await directFetch.text();
+          console.log('Content preview:', text.substring(0, 100));
+          return {
+            accessible: true,
+            status: directFetch.status,
+            isM3u8Format: isM3u8 || text.includes('#EXTM3U'),
+            contentType,
+            contentPreview: text.substring(0, 100)
+          };
+        }
+        
+        return {
+          accessible: true,
+          status: directFetch.status,
+          isM3u8Format: isM3u8,
+          contentType
+        };
+      }
+    } catch (fetchError) {
+      console.log('Direct fetch failed:', fetchError.message);
+      // Continue with server-side check if direct fetch fails
+    }
+    
     // Use the diagnostic endpoint in the backend
     const response = await axios.get(`/transcode/check_stream`, { 
       params: { url },
       timeout: 10000 // 10 seconds timeout
     });
     
-    console.log('Stream URL check response:', response.data);
+    console.log('Stream URL check response from server:', response.data);
     
     return {
       accessible: response.data.accessible,
@@ -197,7 +244,7 @@ export const checkStreamUrl = async (url: string): Promise<{
   }
 };
 
-// Create HLS Stream from RTSP URL
+// Create HLS Stream from RTSP URL with improved error handling
 export async function createHlsStream(streamUrl: string, streamName: string = 'camera'): Promise<string> {
   try {
     console.log(`Creating HLS stream from URL: ${streamUrl}`);
@@ -217,7 +264,7 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
       return streamUrl;
     }
     
-    // Always use server-side transcoding for RTSP streams
+    // Always use server-side transcoding for RTSP and other streams
     if (!settings.serverTranscoding) {
       console.warn('Server-side transcoding is disabled but required for RTSP streams. Using server anyway.');
     }
@@ -244,14 +291,52 @@ export async function createHlsStream(streamUrl: string, streamName: string = 'c
 
 // Function to check if a URL is a direct HLS stream that can be played without transcoding
 export const isDirectHLSStream = (url: string): boolean => {
+  if (!url) return false;
+  
+  // More comprehensive check for HLS streams
   const lowerCaseUrl = url.toLowerCase();
-  return (
-    lowerCaseUrl.endsWith('.m3u8') ||
-    lowerCaseUrl.includes('.m3u8?') ||
-    lowerCaseUrl.includes('/index.m3u8') ||
-    lowerCaseUrl.includes('/playlist.m3u8') ||
-    lowerCaseUrl.includes('/manifest.m3u8')
+  
+  // Check if it's an HTTP URL ending with .m3u8 or containing .m3u8 with parameters
+  const isHlsUrl = (
+    (lowerCaseUrl.startsWith('http://') || lowerCaseUrl.startsWith('https://')) &&
+    (lowerCaseUrl.endsWith('.m3u8') || 
+     lowerCaseUrl.includes('.m3u8?') ||
+     lowerCaseUrl.includes('/index.m3u8') ||
+     lowerCaseUrl.includes('/playlist.m3u8') ||
+     lowerCaseUrl.includes('/manifest.m3u8') ||
+     lowerCaseUrl.includes('/stream.m3u8'))
   );
+  
+  console.log(`URL ${url} isDirectHLSStream:`, isHlsUrl);
+  return isHlsUrl;
 };
 
-// Modify the vite.config.ts file to improve HLS streaming support
+// Function to handle RTSP and other stream URLs
+export const processStreamUrl = async (url: string): Promise<string> => {
+  if (!url) return '';
+  
+  console.log('Processing stream URL:', url);
+  
+  try {
+    // Check if it's a direct HLS stream
+    if (isDirectHLSStream(url)) {
+      console.log('Direct HLS stream detected, using without transcoding:', url);
+      return url;
+    }
+    
+    // Check if it's an RTSP stream
+    if (url.toLowerCase().startsWith('rtsp://') || 
+        url.toLowerCase().startsWith('rtsps://') || 
+        url.toLowerCase().startsWith('rtmp://')) {
+      console.log('RTSP/RTMP stream detected, creating HLS stream');
+      return await createHlsStream(url);
+    }
+    
+    // For other URLs, try to create an HLS stream anyway
+    console.log('Unknown stream type, attempting to create HLS stream');
+    return await createHlsStream(url);
+  } catch (error) {
+    console.error('Error processing stream URL:', error);
+    throw error;
+  }
+};

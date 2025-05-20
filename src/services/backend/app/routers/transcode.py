@@ -11,6 +11,7 @@ from pathlib import Path
 import time
 import json
 import requests
+from urllib.parse import urlparse
 
 # Define the router with no prefix but explicitly setting the correct tags
 router = APIRouter(
@@ -216,44 +217,113 @@ async def download_transcoded_file(job_id: str):
     )
 
 # Improved stream URL validation
-def validate_stream_url(url: str) -> bool:
+def validate_stream_url(url: str) -> dict:
     """
-    Validate that the stream URL is accessible
+    Validate that the stream URL is accessible and return detailed information
     """
+    result = {
+        "accessible": False,
+        "is_m3u8_format": False,
+        "is_rtsp_stream": False,
+        "content_type": None,
+        "error": None,
+        "content_preview": None
+    }
+    
     try:
         logger.info(f"Validating stream URL: {url}")
         
-        # First check if the URL is reachable with a HEAD request
+        # Check URL format
+        parsed_url = urlparse(url)
+        if not parsed_url.scheme or not parsed_url.netloc:
+            result["error"] = "Invalid URL format"
+            return result
+            
+        # Set up request headers
         headers = {
             'User-Agent': 'VisionAI-StreamValidator/1.0',
+            'Accept': 'application/vnd.apple.mpegurl, application/x-mpegURL, */*'
         }
         
-        response = requests.head(url, timeout=5, headers=headers)
-        logger.info(f"HEAD request status: {response.status_code}")
-        
-        # For HLS streams, we should actually test with a GET to verify content
-        if url.endswith('.m3u8') or '.m3u8' in url:
-            logger.info(f"Detected HLS stream, performing GET request to validate: {url}")
-            response = requests.get(url, timeout=5, headers=headers, stream=True)
-            # Read just the first chunk to verify it's accessible
-            content_start = next(response.iter_content(chunk_size=1024), None)
+        # Detect RTSP streams first
+        if url.lower().startswith(('rtsp://', 'rtsps://', 'rtmp://')):
+            logger.info(f"Detected RTSP/RTMP stream: {url}")
+            result["is_rtsp_stream"] = True
+            result["accessible"] = True  # Assume RTSP is accessible, we'll check when we try to process it
+            return result
             
-            if content_start:
-                logger.info(f"Successfully fetched start of HLS stream: {len(content_start)} bytes")
-                # Check if content looks like an M3U8 file
-                if b'#EXTM3U' in content_start:
-                    logger.info("Validated HLS content format (contains #EXTM3U)")
-                else:
-                    logger.warning("Content doesn't look like a valid HLS stream (missing #EXTM3U)")
-            else:
-                logger.warning("Empty content returned from HLS stream URL")
+        # For HTTP streams, attempt a HEAD request first
+        logger.info(f"Attempting HEAD request to: {url}")
+        try:
+            head_response = requests.head(url, timeout=10, headers=headers, allow_redirects=True)
+            logger.info(f"HEAD request status: {head_response.status_code}")
             
-            response.close()
+            result["content_type"] = head_response.headers.get('Content-Type')
+            if 'mpegurl' in (result["content_type"] or '').lower():
+                result["is_m3u8_format"] = True
+                
+            # If we get a success response from HEAD, the URL is accessible
+            result["accessible"] = head_response.status_code < 400
+                
+            if not result["accessible"]:
+                result["error"] = f"HTTP status {head_response.status_code}"
+                return result
+        except Exception as e:
+            logger.warning(f"HEAD request failed: {str(e)}")
+            # Fall through to GET request
         
-        return response.status_code < 400
+        # For potential HLS streams, we should verify content with GET
+        logger.info(f"Attempting GET request to: {url}")
+        try:
+            get_response = requests.get(
+                url, 
+                timeout=10, 
+                headers=headers, 
+                stream=True,
+                allow_redirects=True
+            )
+            
+            logger.info(f"GET status: {get_response.status_code}, content-type: {get_response.headers.get('Content-Type')}")
+            
+            # Update result with GET response info
+            result["accessible"] = get_response.status_code < 400
+            result["content_type"] = get_response.headers.get('Content-Type') or result["content_type"]
+            
+            if not result["accessible"]:
+                result["error"] = f"HTTP status {get_response.status_code}"
+                return result
+            
+            # Check if this appears to be an M3U8 file
+            is_m3u8_url = url.lower().endswith('.m3u8') or '.m3u8' in url.lower()
+            is_m3u8_content_type = 'mpegurl' in (result["content_type"] or '').lower()
+            
+            # For potential HLS streams, check content
+            if is_m3u8_url or is_m3u8_content_type:
+                # Only read the first chunk to verify content
+                content = next(get_response.iter_content(chunk_size=2048), b'')
+                if content:
+                    content_text = content.decode('utf-8', errors='ignore')
+                    result["content_preview"] = content_text[:200]
+                    result["is_m3u8_format"] = '#EXTM3U' in content_text
+                    
+                    if result["is_m3u8_format"]:
+                        logger.info("Validated M3U8 format (contains #EXTM3U)")
+                    else:
+                        logger.warning("URL ends with .m3u8 but content doesn't contain #EXTM3U")
+            
+            get_response.close()
+            
+        except Exception as e:
+            logger.error(f"GET request failed: {str(e)}")
+            result["error"] = str(e)
+            result["accessible"] = False
+            
+        return result
+            
     except Exception as e:
         logger.error(f"Error validating stream URL: {str(e)}")
-        return False
+        result["error"] = str(e)
+        return result
 
 @router.post("/transcode/stream", status_code=202)
 async def create_stream(
@@ -269,12 +339,27 @@ async def create_stream(
     # Log the incoming request for debugging
     logger.info(f"Received stream request with URL: {stream_url}, format: {output_format}")
     
-    # Validate the stream URL first
-    if not validate_stream_url(stream_url):
-        logger.error(f"Stream URL validation failed: {stream_url}")
-        raise HTTPException(status_code=400, detail="Stream URL is not accessible or invalid")
-    else:
-        logger.info(f"Stream URL validated successfully: {stream_url}")
+    # Enhanced stream URL validation with detailed logging
+    validation_result = validate_stream_url(stream_url)
+    logger.info(f"Stream URL validation result: {validation_result}")
+    
+    # If URL is an HLS stream already, don't process it
+    if validation_result["is_m3u8_format"] and validation_result["accessible"]:
+        logger.info(f"Direct HLS URL detected and accessible: {stream_url}")
+        return {
+            "stream_id": "direct_hls",
+            "status": "ready",
+            "stream_url": stream_url,
+            "message": "Direct HLS URL, no processing needed"
+        }
+    
+    # If the URL isn't accessible, fail with helpful error
+    if not validation_result["accessible"] and not validation_result["is_rtsp_stream"]:
+        logger.error(f"Stream URL validation failed: {validation_result['error']}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Stream URL is not accessible: {validation_result['error']}"
+        )
     
     # Generate unique stream ID
     stream_id = str(uuid.uuid4())
@@ -307,9 +392,9 @@ async def create_stream(
             "progress": 0
         }, f)
     
-    # Start streaming in background
+    # Start streaming in background with more robust command based on stream type
     backgroundTasks.add_task(
-        process_stream, stream_id, stream_url, output_path, output_format
+        process_stream, stream_id, stream_url, output_path, output_format, validation_result
     )
     
     # Construct the public URL for the stream - using relative URL
@@ -323,36 +408,62 @@ async def create_stream(
         "stream_url": stream_url_path
     }
 
-def process_stream(stream_id, input_url, output_path, output_format):
-    """Background task for processing stream"""
+def process_stream(stream_id, input_url, output_path, output_format, validation_result):
+    """Background task for processing stream with enhanced error handling"""
     status_path = os.path.join(os.path.dirname(output_path), "status.json")
     
     try:
-        # Build FFmpeg command for HLS streaming
+        is_rtsp = input_url.lower().startswith(('rtsp://', 'rtsps://', 'rtmp://'))
+        is_http = input_url.lower().startswith(('http://', 'https://'))
+        
+        # Update status to show what type of stream we're processing
+        with open(status_path, "w") as f:
+            json.dump({
+                "status": "preparing",
+                "stream_type": "rtsp" if is_rtsp else "http",
+                "progress": 5
+            }, f)
+        
+        # Build FFmpeg command based on stream type
         if output_format == "hls":
-            # Use more verbose FFmpeg options for better debug info
-            cmd = [
+            # More robust FFmpeg command for HLS streaming
+            common_args = [
                 ffmpeg_binary_path,
-                "-loglevel", "info",      # More detailed logging
-                "-reconnect", "1",        # Enable reconnection
-                "-reconnect_at_eof", "1", # Reconnect at EOF
-                "-reconnect_streamed", "1", # Reconnect if stream ends
+                "-loglevel", "info",       # For detailed logging
+                "-reconnect", "1",         # Enable reconnection
+                "-reconnect_at_eof", "1",  # Reconnect at EOF
+                "-reconnect_streamed", "1",# Reconnect if stream ends
                 "-reconnect_delay_max", "10", # Max delay between reconnection attempts
-                "-i", input_url,
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-tune", "zerolatency",
-                "-c:a", "aac",
-                "-strict", "experimental",
-                "-f", "hls",
-                "-hls_time", "2",
-                "-hls_list_size", "10",
-                "-hls_wrap", "10",
-                "-hls_flags", "delete_segments",
+            ]
+            
+            # Add specific input options based on stream type
+            input_args = []
+            if is_rtsp:
+                input_args = [
+                    "-rtsp_transport", "tcp", # Use TCP for RTSP (more reliable)
+                    "-i", input_url
+                ]
+            else:
+                input_args = ["-i", input_url]
+                
+            # Output options for HLS - tuned for compatibility and low latency
+            output_args = [
+                "-c:v", "libx264",         # Use H.264 for video
+                "-preset", "ultrafast",    # Fastest encoding
+                "-tune", "zerolatency",    # Optimize for low latency
+                "-c:a", "aac",             # Use AAC for audio
+                "-strict", "experimental", # Allow experimental codecs
+                "-f", "hls",               # Output format: HLS
+                "-hls_time", "2",          # 2-second segments
+                "-hls_list_size", "10",    # Keep 10 segments in playlist
+                "-hls_wrap", "10",         # Wrap around after 10 segments
+                "-hls_flags", "delete_segments", # Delete old segments
                 output_path
             ]
+            
+            cmd = common_args + input_args + output_args
         else:
-            # For other formats (mp4, webm, etc.)
+            # Command for other formats
             cmd = [
                 ffmpeg_binary_path,
                 "-loglevel", "info",
@@ -379,7 +490,7 @@ def process_stream(stream_id, input_url, output_path, output_format):
                 "progress": 10
             }, f)
         
-        # Run FFmpeg
+        # Run FFmpeg with real-time output capture for better monitoring
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -400,6 +511,49 @@ def process_stream(stream_id, input_url, output_path, output_format):
         for line in process.stderr:
             if line.strip():
                 logger.info(f"FFmpeg output [{stream_id}]: {line.strip()}")
+                
+                # Look for specific error patterns
+                if "Connection refused" in line:
+                    logger.error(f"FFmpeg connection refused for {input_url}")
+                    with open(status_path, "w") as f:
+                        json.dump({
+                            "status": "failed",
+                            "error": "Connection refused by remote host"
+                        }, f)
+                    # Terminate the process
+                    process.terminate()
+                    return
+                elif "403 Forbidden" in line:
+                    logger.error(f"FFmpeg access forbidden for {input_url}")
+                    with open(status_path, "w") as f:
+                        json.dump({
+                            "status": "failed",
+                            "error": "Access forbidden (HTTP 403)"
+                        }, f)
+                    # Terminate the process
+                    process.terminate()
+                    return
+                elif "404 Not Found" in line:
+                    logger.error(f"FFmpeg resource not found for {input_url}")
+                    with open(status_path, "w") as f:
+                        json.dump({
+                            "status": "failed",
+                            "error": "Resource not found (HTTP 404)"
+                        }, f)
+                    # Terminate the process
+                    process.terminate()
+                    return
+                    
+                # Check for segment creation
+                elif "Opening" in line and ".ts" in line:
+                    logger.info(f"FFmpeg created HLS segment for {stream_id}")
+                    with open(status_path, "w") as f:
+                        json.dump({
+                            "status": "streaming",
+                            "pid": process.pid,
+                            "progress": 75,
+                            "message": "HLS segments being created"
+                        }, f)
         
         # This will block until the stream is terminated
         stdout, stderr = process.communicate()
@@ -426,9 +580,13 @@ def process_stream(stream_id, input_url, output_path, output_format):
 @router.get("/transcode/stream/{stream_id}/{file_name}")
 async def get_stream_file(stream_id: str, file_name: str):
     """
-    Serve HLS stream files
+    Serve HLS stream files with enhanced logging and CORS handling
     """
     logger.info(f"Requested stream file: {stream_id}/{file_name}")
+    
+    # Special case for direct HLS streaming
+    if stream_id == "direct_hls":
+        raise HTTPException(status_code=404, detail="Direct HLS streams must be accessed at their source URL")
     
     stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
     file_path = os.path.join(stream_dir, file_name)
@@ -445,57 +603,33 @@ async def get_stream_file(stream_id: str, file_name: str):
     # Log that we're serving the file
     logger.info(f"Serving stream file: {file_path} with content type {content_type}")
     
+    # Add CORS headers to allow direct access
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Origin, X-Requested-With, Content-Type, Accept",
+        "Cache-Control": "no-cache, no-store, must-revalidate"
+    }
+    
     return StreamingResponse(
         open(file_path, "rb"),
-        media_type=content_type
+        media_type=content_type,
+        headers=headers
     )
 
 # Add a diagnostic endpoint to check stream accessibility
 @router.get("/transcode/check_stream")
 async def check_stream_url(url: str):
     """
-    Check if a stream URL is accessible
+    Check if a stream URL is accessible with detailed diagnostics
     """
     logger.info(f"Checking stream URL accessibility: {url}")
     
-    try:
-        # Try to fetch headers first
-        headers = {
-            'User-Agent': 'VisionAI-StreamValidator/1.0',
-        }
-        
-        head_response = requests.head(url, timeout=5, headers=headers)
-        logger.info(f"HEAD request status: {head_response.status_code}")
-        
-        # Then try to fetch content
-        get_response = requests.get(url, timeout=5, headers=headers, stream=True)
-        
-        is_m3u8 = False
-        content_preview = ""
-        
-        # For HLS streams, check the content
-        if url.endswith('.m3u8') or '.m3u8' in url:
-            content_start = next(get_response.iter_content(chunk_size=1024), None)
-            if content_start:
-                content_preview = content_start.decode('utf-8', errors='ignore')[:100]
-                is_m3u8 = b'#EXTM3U' in content_start
-        
-        get_response.close()
-        
-        return {
-            "accessible": True,
-            "head_status": head_response.status_code,
-            "get_status": get_response.status_code,
-            "is_m3u8_format": is_m3u8,
-            "content_type": get_response.headers.get('Content-Type', 'unknown'),
-            "content_preview": content_preview
-        }
-    except Exception as e:
-        logger.error(f"Error checking stream URL: {str(e)}")
-        return {
-            "accessible": False,
-            "error": str(e)
-        }
+    # Use the enhanced validation function
+    result = validate_stream_url(url)
+    
+    # Return raw validation result
+    return result
 
 # Cleanup old jobs periodically (could be implemented as a background task)
 def cleanup_old_jobs():
