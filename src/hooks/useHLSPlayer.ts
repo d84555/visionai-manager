@@ -22,6 +22,8 @@ export const useHLSPlayer = ({
   const [error, setError] = useState<string | null>(null);
   const [isHlsSupported, setIsHlsSupported] = useState<boolean>(() => Hls.isSupported());
   const [isHlsNativeSupported, setIsHlsNativeSupported] = useState<boolean>(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const maxRetries = 3;
   
   // Check for native HLS support
   useEffect(() => {
@@ -56,13 +58,32 @@ export const useHLSPlayer = ({
     // If not an HLS stream, let the browser handle it
     if (!isHLSStream) {
       console.log('Not an HLS stream, letting browser handle playback');
+      videoElement.src = src;
+      if (autoPlay) videoElement.play().catch(err => console.error('Error playing video:', err));
       return;
     }
     
     // For debugging - force a direct fetch to see if the URL is accessible
-    fetch(src, { method: 'HEAD' })
+    console.log('Testing direct URL access with fetch:', src);
+    fetch(src, { 
+      method: 'GET',
+      headers: {
+        'Accept': 'application/vnd.apple.mpegurl, application/x-mpegURL, */*'
+      }
+    })
       .then(response => {
         console.log('Direct fetch test response:', response.status, response.statusText);
+        // Read and log the content to verify it's an actual M3U8 file
+        return response.text();
+      })
+      .then(text => {
+        console.log(`Received ${text.length} bytes of content. First 100 chars:`, text.substring(0, 100));
+        // Check if it contains the M3U8 header
+        if (text.includes('#EXTM3U')) {
+          console.log('Content validated as M3U8 format');
+        } else {
+          console.warn('Content does not appear to be in M3U8 format');
+        }
       })
       .catch(err => {
         console.error('Direct fetch test error:', err.message);
@@ -91,10 +112,13 @@ export const useHLSPlayer = ({
         lowLatencyMode: true,
         backBufferLength: 90,
         maxBufferLength: 30,
+        startLevel: -1, // Auto level selection
         // Add CORS options to ensure headers are sent properly
         xhrSetup: (xhr, url) => {
           // Log all XHR requests to debug network issues
           console.log(`HLS XHR request to: ${url}`);
+          // Add HLS-specific headers
+          xhr.setRequestHeader('Accept', 'application/vnd.apple.mpegurl, application/x-mpegURL, */*');
           // Ensure proper CORS headers are sent
           xhr.withCredentials = false; // Set to true if credentials are needed
         }
@@ -119,6 +143,7 @@ export const useHLSPlayer = ({
       
       hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
         console.log('HLS manifest parsed successfully, found ' + data.levels.length + ' quality levels');
+        setRetryCount(0); // Reset retry count on successful manifest parse
       });
       
       hls.on(Hls.Events.ERROR, (_, data) => {
@@ -129,8 +154,21 @@ export const useHLSPlayer = ({
             case Hls.ErrorTypes.NETWORK_ERROR:
               console.error('HLS network error:', data);
               setError('Network error while loading stream: ' + data.details);
-              console.log('Attempting to recover from network error...');
-              hls.startLoad(); // try to recover
+              
+              // Implement retry logic for network errors
+              if (retryCount < maxRetries) {
+                console.log(`Attempting to recover from network error (attempt ${retryCount + 1}/${maxRetries})...`);
+                setRetryCount(prevCount => prevCount + 1);
+                
+                // Wait a bit before retrying
+                setTimeout(() => {
+                  console.log('Reloading source after network error');
+                  hls.loadSource(src);
+                  hls.startLoad();
+                }, 2000);
+              } else {
+                console.error('Maximum retry attempts reached for network error');
+              }
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               console.error('HLS media error:', data);
@@ -163,6 +201,14 @@ export const useHLSPlayer = ({
       hls.on(Hls.Events.FRAG_LOADING, (event, data) => {
         console.log('HLS fragment loading:', data.frag.url);
       });
+      
+      // Handle actual HTTP errors
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
+          console.error(`HTTP error ${data.response?.code} during HLS manifest loading: ${data.response?.text}`);
+          setError(`HTTP error ${data.response?.code} loading stream: ${data.response?.text}`);
+        }
+      });
     } catch (error) {
       console.error('Error initializing HLS player:', error);
       setError('Failed to initialize video player');
@@ -176,7 +222,7 @@ export const useHLSPlayer = ({
         hlsRef.current = null;
       }
     };
-  }, [src, autoPlay, videoRef, enabled, isHlsSupported, isHlsNativeSupported]);
+  }, [src, autoPlay, videoRef, enabled, isHlsSupported, isHlsNativeSupported, retryCount]);
 
   // Check if source is HLS
   const isHLSSource = (source?: string): boolean => {
@@ -191,6 +237,8 @@ export const useHLSPlayer = ({
     isHLSSource,
     isHlsSupported, 
     isHlsNativeSupported,
-    hlsInstance: hlsRef.current
+    hlsInstance: hlsRef.current,
+    retryCount,
+    maxRetries
   };
 };

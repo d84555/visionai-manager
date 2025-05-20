@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -9,6 +10,7 @@ import shutil
 from pathlib import Path
 import time
 import json
+import requests
 
 # Define the router with no prefix but explicitly setting the correct tags
 router = APIRouter(
@@ -213,6 +215,46 @@ async def download_transcoded_file(job_id: str):
         headers={"Content-Disposition": f"attachment; filename=transcoded.{file_format}"}
     )
 
+# Improved stream URL validation
+def validate_stream_url(url: str) -> bool:
+    """
+    Validate that the stream URL is accessible
+    """
+    try:
+        logger.info(f"Validating stream URL: {url}")
+        
+        # First check if the URL is reachable with a HEAD request
+        headers = {
+            'User-Agent': 'VisionAI-StreamValidator/1.0',
+        }
+        
+        response = requests.head(url, timeout=5, headers=headers)
+        logger.info(f"HEAD request status: {response.status_code}")
+        
+        # For HLS streams, we should actually test with a GET to verify content
+        if url.endswith('.m3u8') or '.m3u8' in url:
+            logger.info(f"Detected HLS stream, performing GET request to validate: {url}")
+            response = requests.get(url, timeout=5, headers=headers, stream=True)
+            # Read just the first chunk to verify it's accessible
+            content_start = next(response.iter_content(chunk_size=1024), None)
+            
+            if content_start:
+                logger.info(f"Successfully fetched start of HLS stream: {len(content_start)} bytes")
+                # Check if content looks like an M3U8 file
+                if b'#EXTM3U' in content_start:
+                    logger.info("Validated HLS content format (contains #EXTM3U)")
+                else:
+                    logger.warning("Content doesn't look like a valid HLS stream (missing #EXTM3U)")
+            else:
+                logger.warning("Empty content returned from HLS stream URL")
+            
+            response.close()
+        
+        return response.status_code < 400
+    except Exception as e:
+        logger.error(f"Error validating stream URL: {str(e)}")
+        return False
+
 @router.post("/transcode/stream", status_code=202)
 async def create_stream(
     backgroundTasks: BackgroundTasks,
@@ -226,6 +268,13 @@ async def create_stream(
     """
     # Log the incoming request for debugging
     logger.info(f"Received stream request with URL: {stream_url}, format: {output_format}")
+    
+    # Validate the stream URL first
+    if not validate_stream_url(stream_url):
+        logger.error(f"Stream URL validation failed: {stream_url}")
+        raise HTTPException(status_code=400, detail="Stream URL is not accessible or invalid")
+    else:
+        logger.info(f"Stream URL validated successfully: {stream_url}")
     
     # Generate unique stream ID
     stream_id = str(uuid.uuid4())
@@ -281,8 +330,14 @@ def process_stream(stream_id, input_url, output_path, output_format):
     try:
         # Build FFmpeg command for HLS streaming
         if output_format == "hls":
+            # Use more verbose FFmpeg options for better debug info
             cmd = [
                 ffmpeg_binary_path,
+                "-loglevel", "info",      # More detailed logging
+                "-reconnect", "1",        # Enable reconnection
+                "-reconnect_at_eof", "1", # Reconnect at EOF
+                "-reconnect_streamed", "1", # Reconnect if stream ends
+                "-reconnect_delay_max", "10", # Max delay between reconnection attempts
                 "-i", input_url,
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
@@ -300,6 +355,10 @@ def process_stream(stream_id, input_url, output_path, output_format):
             # For other formats (mp4, webm, etc.)
             cmd = [
                 ffmpeg_binary_path,
+                "-loglevel", "info",
+                "-reconnect", "1",
+                "-reconnect_at_eof", "1",
+                "-reconnect_streamed", "1",
                 "-i", input_url,
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
@@ -312,20 +371,35 @@ def process_stream(stream_id, input_url, output_path, output_format):
         
         logger.info(f"Running FFmpeg stream command: {' '.join(cmd)}")
         
+        # Update status to show we're about to start FFmpeg
+        with open(status_path, "w") as f:
+            json.dump({
+                "status": "starting_ffmpeg",
+                "command": ' '.join(cmd),
+                "progress": 10
+            }, f)
+        
         # Run FFmpeg
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_newlines=True
+            universal_newlines=True,
+            bufsize=1  # Line buffered for real-time output
         )
         
-        # Update status
+        # Update status to show FFmpeg is running
         with open(status_path, "w") as f:
             json.dump({
                 "status": "streaming",
-                "progress": 100
+                "pid": process.pid,
+                "progress": 50
             }, f)
+            
+        # Log FFmpeg output in real-time for debugging
+        for line in process.stderr:
+            if line.strip():
+                logger.info(f"FFmpeg output [{stream_id}]: {line.strip()}")
         
         # This will block until the stream is terminated
         stdout, stderr = process.communicate()
@@ -368,10 +442,60 @@ async def get_stream_file(stream_id: str, file_name: str):
     if file_name.endswith(".ts"):
         content_type = "video/mp2t"
     
+    # Log that we're serving the file
+    logger.info(f"Serving stream file: {file_path} with content type {content_type}")
+    
     return StreamingResponse(
         open(file_path, "rb"),
         media_type=content_type
     )
+
+# Add a diagnostic endpoint to check stream accessibility
+@router.get("/transcode/check_stream")
+async def check_stream_url(url: str):
+    """
+    Check if a stream URL is accessible
+    """
+    logger.info(f"Checking stream URL accessibility: {url}")
+    
+    try:
+        # Try to fetch headers first
+        headers = {
+            'User-Agent': 'VisionAI-StreamValidator/1.0',
+        }
+        
+        head_response = requests.head(url, timeout=5, headers=headers)
+        logger.info(f"HEAD request status: {head_response.status_code}")
+        
+        # Then try to fetch content
+        get_response = requests.get(url, timeout=5, headers=headers, stream=True)
+        
+        is_m3u8 = False
+        content_preview = ""
+        
+        # For HLS streams, check the content
+        if url.endswith('.m3u8') or '.m3u8' in url:
+            content_start = next(get_response.iter_content(chunk_size=1024), None)
+            if content_start:
+                content_preview = content_start.decode('utf-8', errors='ignore')[:100]
+                is_m3u8 = b'#EXTM3U' in content_start
+        
+        get_response.close()
+        
+        return {
+            "accessible": True,
+            "head_status": head_response.status_code,
+            "get_status": get_response.status_code,
+            "is_m3u8_format": is_m3u8,
+            "content_type": get_response.headers.get('Content-Type', 'unknown'),
+            "content_preview": content_preview
+        }
+    except Exception as e:
+        logger.error(f"Error checking stream URL: {str(e)}")
+        return {
+            "accessible": False,
+            "error": str(e)
+        }
 
 # Cleanup old jobs periodically (could be implemented as a background task)
 def cleanup_old_jobs():

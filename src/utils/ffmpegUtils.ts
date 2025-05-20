@@ -162,10 +162,55 @@ async function transcodeClientSide(file: File, formatInfo: any): Promise<string>
   }
 }
 
+// Check URL accessibility
+export const checkStreamUrl = async (url: string): Promise<{
+  accessible: boolean;
+  status?: number;
+  isM3u8Format?: boolean;
+  contentType?: string;
+  contentPreview?: string;
+  error?: string;
+}> => {
+  try {
+    console.log(`Checking accessibility of stream URL: ${url}`);
+    
+    // Use the diagnostic endpoint in the backend
+    const response = await axios.get(`/transcode/check_stream`, { 
+      params: { url },
+      timeout: 10000 // 10 seconds timeout
+    });
+    
+    console.log('Stream URL check response:', response.data);
+    
+    return {
+      accessible: response.data.accessible,
+      status: response.data.get_status,
+      isM3u8Format: response.data.is_m3u8_format,
+      contentType: response.data.content_type,
+      contentPreview: response.data.content_preview
+    };
+  } catch (error) {
+    console.error('Error checking stream URL:', error);
+    return {
+      accessible: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+};
+
 // Create HLS Stream from RTSP URL
 export async function createHlsStream(streamUrl: string, streamName: string = 'camera'): Promise<string> {
   try {
+    console.log(`Creating HLS stream from URL: ${streamUrl}`);
     const settings = getFFmpegSettings();
+    
+    // First check if the URL is accessible
+    const urlCheck = await checkStreamUrl(streamUrl);
+    console.log('URL check result before stream creation:', urlCheck);
+    
+    if (!urlCheck.accessible) {
+      throw new Error(`Stream URL is not accessible: ${urlCheck.error || 'Unknown error'}`);
+    }
     
     // Always use server-side transcoding for RTSP streams
     if (!settings.serverTranscoding) {

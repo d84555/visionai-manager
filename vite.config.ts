@@ -1,4 +1,3 @@
-
 import { defineConfig, ConfigEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -65,9 +64,8 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
     sourcemap: true, // Always enable source maps for debugging
     minify: mode !== 'development', // Only minify in non-dev environments
     rollupOptions: {
-      // Make sure hls.js is properly bundled
+      // Ensure hls.js is properly bundled
       external: [],
-      // Ensure hls.js is not excluded from the build
       output: {
         manualChunks: {
           'hls': ['hls.js']
@@ -80,10 +78,6 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
     global: 'globalThis',
   },
   optimizeDeps: {
-    esbuildOptions: {
-      // Enable source maps for dependencies too
-      sourcemap: true
-    },
     include: ['hls.js'] // Explicitly include hls.js in optimization
   }
 }));
