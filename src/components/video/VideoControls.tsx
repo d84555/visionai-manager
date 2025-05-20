@@ -9,6 +9,13 @@ interface VideoControlsProps {
   isPinned?: boolean;
   onPinToggle?: () => void;
   onPlayPause: () => void;
+  onPlay?: () => Promise<void>; // Add onPlay prop
+  onStop?: () => void; // Add onStop prop
+  onFileUpload?: (file: File) => Promise<void>; // Add onFileUpload prop
+  videoUrl?: string; // Add videoUrl prop
+  setVideoUrl?: (url: string) => void; // Add setVideoUrl prop
+  hasUploadedFile?: boolean; // Add hasUploadedFile prop
+  isStreaming?: boolean; // Add isStreaming prop
   inferenceLocation?: 'edge' | 'server' | null;
   inferenceTime?: number | null;
   isHikvisionFormat?: boolean;
@@ -21,6 +28,13 @@ export const VideoControls: React.FC<VideoControlsProps> = ({
   isPinned,
   onPinToggle,
   onPlayPause,
+  onPlay,
+  onStop,
+  onFileUpload,
+  videoUrl,
+  setVideoUrl,
+  hasUploadedFile,
+  isStreaming,
   inferenceLocation,
   inferenceTime,
   isHikvisionFormat,

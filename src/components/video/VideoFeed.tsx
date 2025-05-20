@@ -21,9 +21,9 @@ export interface VideoFeedProps {
   streamType?: 'main' | 'sub';
   fps?: number;
   enableHLS?: boolean;
-  showControls?: boolean;  // Add the showControls prop
-  isPinned?: boolean;      // Add isPinned prop
-  onPinToggle?: () => void; // Add onPinToggle prop
+  showControls?: boolean;
+  isPinned?: boolean;
+  onPinToggle?: () => void;
 }
 
 const VideoFeed: React.FC<VideoFeedProps> = ({ 
@@ -34,7 +34,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   streamType = 'main',
   fps = 10,
   enableHLS = true,
-  showControls = true,  // Default to true for controls
+  showControls = true,
   isPinned,
   onPinToggle
 }) => {

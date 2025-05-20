@@ -1,5 +1,4 @@
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, MutableRefObject } from 'react';
 import { extractBboxCoordinates, getModelColor, canSafelyRenderDetection } from '@/utils/detectionUtils';
 
 interface Detection {
@@ -25,11 +24,19 @@ interface Detection {
 interface DetectionOverlayProps {
   detections: Detection[];
   minimal?: boolean;
+  videoRef?: MutableRefObject<HTMLVideoElement | null>; // Add videoRef prop
+  inferenceLocation?: 'edge' | 'server' | null; // Add inferenceLocation prop
+  inferenceTime?: number | null; // Add inferenceTime prop
+  actualFps?: number | null; // Add actualFps prop
 }
 
 export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({ 
   detections = [], 
-  minimal = false 
+  minimal = false,
+  videoRef,
+  inferenceLocation,
+  inferenceTime,
+  actualFps
 }) => {
   const [visibleDetections, setVisibleDetections] = useState<Detection[]>([]);
   
@@ -99,7 +106,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
 
   try {
     // Get the video element
-    const videoElement = document.querySelector('video');
+    const videoElement = videoRef?.current || document.querySelector('video');
     if (!videoElement) {
       console.log("No video element found for overlay");
       return null;
