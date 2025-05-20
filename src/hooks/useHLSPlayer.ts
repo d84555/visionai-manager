@@ -47,12 +47,18 @@ export const useHLSPlayer = ({
                          src.includes('application/x-mpegURL') || 
                          src.includes('application/vnd.apple.mpegurl');
 
+    // Add debug logging to track URL processing
+    console.log('HLS Player: Processing video source:', src);
+    console.log('HLS Player: Is HLS stream?', isHLSStream);
+    console.log('HLS Player: Native HLS support?', isHlsNativeSupported);
+    console.log('HLS Player: HLS.js supported?', isHlsSupported);
+
     // If not an HLS stream, let the browser handle it
     if (!isHLSStream) return;
     
     // If native HLS is supported (like Safari), use native playback
     if (isHlsNativeSupported) {
-      console.log('Using native HLS support');
+      console.log('Using native HLS support for:', src);
       videoElement.src = src;
       if (autoPlay) videoElement.play().catch(err => console.error('Error playing video:', err));
       return;
@@ -66,13 +72,17 @@ export const useHLSPlayer = ({
 
     // Use hls.js for playback
     try {
-      console.log('Using hls.js for HLS playback:', src);
+      console.log('Initializing hls.js for:', src);
       const hls = new Hls({
-        debug: false,
+        debug: true, // Enable debug mode to see more logs
         enableWorker: true,
         lowLatencyMode: true,
         backBufferLength: 90,
         maxBufferLength: 30,
+        xhrSetup: (xhr, url) => {
+          // Log all XHR requests to debug network issues
+          console.log(`HLS XHR request to: ${url}`);
+        }
       });
       
       hlsRef.current = hls;
@@ -85,22 +95,28 @@ export const useHLSPlayer = ({
         if (autoPlay) videoElement.play().catch(err => console.error('Error playing video:', err));
       });
       
+      hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+        console.log('HLS manifest parsed, found ' + data.levels.length + ' quality levels');
+      });
+      
       hls.on(Hls.Events.ERROR, (_, data) => {
+        console.error('HLS error occurred:', data);
+        
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
               console.error('HLS network error:', data);
-              setError('Network error while loading stream');
+              setError('Network error while loading stream: ' + data.details);
               hls.startLoad(); // try to recover
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               console.error('HLS media error:', data);
-              setError('Media error, attempting to recover');
+              setError('Media error, attempting to recover: ' + data.details);
               hls.recoverMediaError(); // try to recover
               break;
             default:
               console.error('Fatal HLS error:', data);
-              setError('Fatal error playing stream');
+              setError('Fatal error playing stream: ' + data.details);
               hls.destroy();
               break;
           }

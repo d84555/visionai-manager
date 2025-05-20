@@ -27,6 +27,13 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
       }
+    },
+    // Add CORS headers to allow direct HLS stream loading
+    cors: {
+      origin: '*',
+      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+      preflightContinue: false,
+      optionsSuccessStatus: 204
     }
   },
   plugins: [

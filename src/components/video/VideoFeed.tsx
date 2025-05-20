@@ -141,7 +141,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     originalFile,
     processRtspStream,
     isStreamingUrl,
-    enableHLS
+    enableHLS,
+    setHlsEnabled
   } = useVideoFeed({
     initialVideoUrl,
     autoStart,
@@ -151,6 +152,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     fps
   });
 
+  // Updated HLS hook with additional debug logging
   const { error: hlsError, isHLSSource } = useHLSPlayer({
     videoRef,
     src: videoUrl,
@@ -160,11 +162,20 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
 
   useEffect(() => {
     if (hlsError) {
+      console.error('HLS Playback Error:', hlsError);
       toast.error('HLS Playback Error', {
         description: hlsError
       });
     }
   }, [hlsError]);
+
+  // Log when video URL changes for debugging
+  useEffect(() => {
+    if (videoUrl) {
+      console.log('Video URL changed to:', videoUrl);
+      console.log('Is HLS source?', isHLSSource(videoUrl));
+    }
+  }, [videoUrl, isHLSSource]);
 
   const handleModelChange = async (modelIds: string[]) => {
     const models = modelIds.map(id => {
@@ -276,6 +287,106 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     );
   }
 
+  // URL Tab - updated with debug button for HLS streams
+  const handleTestHls = () => {
+    if (!videoUrl) return;
+    
+    console.log('Testing direct HLS access...');
+    // Create a test element to verify URL can be fetched
+    const testImg = document.createElement('img');
+    testImg.style.display = 'none';
+    testImg.onload = () => {
+      console.log('Successfully accessed resource (HEAD request)');
+      document.body.removeChild(testImg);
+    };
+    testImg.onerror = () => {
+      console.log('Failed to access resource directly');
+      document.body.removeChild(testImg);
+      
+      // Try a direct fetch for more debugging info
+      fetch(videoUrl, { method: 'HEAD' })
+        .then(response => {
+          console.log('Fetch response:', response.status, response.statusText);
+          if (!response.ok) {
+            toast.error(`Resource not accessible (${response.status})`);
+          } else {
+            toast.success('Resource is accessible via fetch');
+          }
+        })
+        .catch(err => {
+          console.error('Fetch error:', err);
+          toast.error(`Network error: ${err.message}`);
+        });
+    };
+    document.body.appendChild(testImg);
+    testImg.src = videoUrl;
+  };
+
+  const renderUrlTab = () => (
+    <TabsContent value="url" className="mt-4">
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="video-url">Video URL</Label>
+        <div className="flex mt-1">
+          <Input
+            id="video-url"
+            placeholder="Enter video URL... (MP4, WebM, HLS .m3u8, etc.)"
+            value={videoUrl}
+            onChange={(e) => {
+              setVideoUrl(e.target.value);
+              setHasUploadedFile(false);
+              setOriginalFile(null);
+            }}
+            className="rounded-r-none"
+            disabled={hasUploadedFile || isProcessing || isTranscoding || streamProcessing}
+          />
+          <Button
+            variant={isStreaming ? "destructive" : "default"}
+            onClick={isStreaming ? stopStream : startStream}
+            className="rounded-l-none"
+            disabled={isProcessing || isModelLoading || isTranscoding || streamProcessing || (!videoUrl && !hasUploadedFile)}
+          >
+            {isStreaming ? "Stop" : "Start"}
+          </Button>
+        </div>
+        
+        <div className="flex gap-2 mt-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleTestHls}
+            disabled={!videoUrl}
+            className="text-xs"
+          >
+            Test URL Accessibility
+          </Button>
+          
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setHlsEnabled(!enableHLS)}
+            className="text-xs"
+          >
+            {enableHLS ? "Disable HLS" : "Enable HLS"}
+          </Button>
+        </div>
+        
+        <p className="text-xs text-muted-foreground">
+          Supports direct video files (.mp4, .webm) and HLS streams (.m3u8)
+          {enableHLS ? " - HLS mode enabled" : " - Standard mode enabled"}
+        </p>
+        
+        <DemoVideoButtons
+          onSelectDemo={handleDemoVideo}
+          isProcessing={isProcessing || isModelLoading || isTranscoding || streamProcessing}
+        />
+      </div>
+    </TabsContent>
+  );
+
+  // Replace the URL TabsContent with our custom one
+  const TabsContentToReplace = <TabsContent value="url" className="mt-4">{/* original content */}</TabsContent>;
+  
+  // When rendering Tabs, replace the URL TabsContent
   return (
     <Card className="w-full">
       <CardHeader className="border-b">
@@ -354,42 +465,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               </TabsTrigger>
             </TabsList>
             
-            {/* URL Tab - updated for better HLS support */}
-            <TabsContent value="url" className="mt-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="video-url">Video URL</Label>
-                <div className="flex mt-1">
-                  <Input
-                    id="video-url"
-                    placeholder="Enter video URL... (MP4, WebM, HLS .m3u8, etc.)"
-                    value={videoUrl}
-                    onChange={(e) => {
-                      setVideoUrl(e.target.value);
-                      setHasUploadedFile(false);
-                      setOriginalFile(null);
-                    }}
-                    className="rounded-r-none"
-                    disabled={hasUploadedFile || isProcessing || isTranscoding || streamProcessing}
-                  />
-                  <Button
-                    variant={isStreaming ? "destructive" : "default"}
-                    onClick={isStreaming ? stopStream : startStream}
-                    className="rounded-l-none"
-                    disabled={isProcessing || isModelLoading || isTranscoding || streamProcessing || (!videoUrl && !hasUploadedFile)}
-                  >
-                    {isStreaming ? "Stop" : "Start"}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Supports direct video files (.mp4, .webm) and HLS streams (.m3u8)
-                </p>
-                
-                <DemoVideoButtons
-                  onSelectDemo={handleDemoVideo}
-                  isProcessing={isProcessing || isModelLoading || isTranscoding || streamProcessing}
-                />
-              </div>
-            </TabsContent>
+            {/* Replace with our custom URL tab content */}
+            {renderUrlTab()}
             
             {/* IP Camera Tab */}
             <TabsContent value="camera" className="mt-4">
