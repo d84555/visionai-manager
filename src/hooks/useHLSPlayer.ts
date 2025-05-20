@@ -1,3 +1,4 @@
+
 import { useRef, useEffect, useState } from 'react';
 import Hls from 'hls.js';
 
@@ -64,6 +65,16 @@ export const useHLSPlayer = ({
 
     // Pre-fetch the stream to check its accessibility
     console.log('Pre-fetching HLS stream to validate:', src);
+    
+    // Explicitly check for relative URLs that start with /transcode/
+    if (src.startsWith('/transcode/')) {
+      console.log('Detected relative transcoding URL, skipping pre-fetch validation');
+      // For relative transcoding URLs, we'll proceed directly with playback
+      initiatePlayback();
+      return;
+    }
+    
+    // For other URLs, perform validation fetch
     fetch(src, { 
       method: 'GET',
       headers: {
@@ -84,18 +95,48 @@ export const useHLSPlayer = ({
       console.log(`Received ${text.length} bytes. Is valid M3U8: ${isValidM3u8}`);
       if (isValidM3u8) {
         console.log('First 100 chars:', text.substring(0, 100));
+        initiatePlayback();
       } else {
         console.warn('Content does not appear to be valid M3U8');
         setError('Invalid HLS stream format');
+        
+        // Try direct playback anyway as a fallback
+        console.log('Attempting direct playback despite invalid M3U8 format');
+        initiatePlayback();
       }
     })
     .catch(error => {
       console.error('Error pre-fetching HLS stream:', error);
+      // Try playback anyway as a fallback
+      console.log('Attempting playback despite pre-fetch error');
+      initiatePlayback();
     });
     
-    // Determine playback strategy - try both native and HLS.js
-    const tryNativePlayback = () => {
+    function initiatePlayback() {
+      // Determine playback strategy based on browser capabilities
+      if (isHlsNativeSupported && !src.startsWith('/transcode/')) {
+        // For direct HLS URLs with native support, try native playback first
+        tryNativePlayback();
+      } else if (isHlsSupported) {
+        // For transcoded streams or browsers without native support, use HLS.js directly
+        tryHlsJsPlayback();
+      } else {
+        // No HLS support at all
+        setError('Your browser does not support HLS playback');
+        
+        // Try direct playback as last resort
+        console.log('No HLS support, trying direct video playback');
+        videoElement.src = src;
+        if (autoPlay) videoElement.play().catch(err => console.error('Error playing video:', err));
+      }
+    }
+    
+    // Native HLS playback attempt
+    function tryNativePlayback() {
       console.log('Attempting native HLS playback');
+      
+      // Force content type for HLS streams
+      videoElement.setAttribute('type', 'application/vnd.apple.mpegurl');
       videoElement.src = src;
       videoElement.load(); // Explicitly call load() to reset any previous state
       
@@ -116,10 +157,10 @@ export const useHLSPlayer = ({
             }
           });
       }
-    };
+    }
     
     // HLS.js playback attempt
-    const tryHlsJsPlayback = () => {
+    function tryHlsJsPlayback() {
       if (!isHlsSupported) {
         console.error('HLS.js is not supported in this browser');
         setError('HLS.js is not supported in this browser');
@@ -140,6 +181,9 @@ export const useHLSPlayer = ({
           fragLoadingTimeOut: 20000, // Longer timeout for fragment loading
           manifestLoadingTimeOut: 20000, // Longer timeout for manifest loading
           levelLoadingTimeOut: 20000,    // Longer timeout for level loading
+          manifestLoadingMaxRetry: 5,    // Retry manifest loading 5 times
+          levelLoadingMaxRetry: 5,       // Retry level loading 5 times
+          fragLoadingMaxRetry: 5,        // Retry fragment loading 5 times
           xhrSetup: (xhr, url) => {
             // Add custom headers if needed
             xhr.setRequestHeader('Accept', 'application/vnd.apple.mpegurl, application/x-mpegURL, */*');
@@ -218,22 +262,19 @@ export const useHLSPlayer = ({
         hls.on(Hls.Events.FRAG_LOADING, (event, data) => {
           console.log('HLS.js: Fragment loading:', data.frag.url);
         });
+        
+        // Add listeners for successful fragment loading
+        hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+          console.log('HLS.js: Fragment loaded successfully:', data.frag.url);
+          // Reset retry counter on successful loads
+          setRetryCount(0);
+        });
       } catch (error) {
         console.error('Error initializing HLS.js player:', error);
         setError('Failed to initialize video player: ' + error);
       }
-    };
-    
-    // Start with native playback attempt first if supported,
-    // otherwise go straight to HLS.js
-    if (isHlsNativeSupported) {
-      tryNativePlayback();
-    } else if (isHlsSupported) {
-      tryHlsJsPlayback();
-    } else {
-      setError('Your browser does not support HLS playback');
     }
-
+    
     // Cleanup function
     return () => {
       if (hlsRef.current) {

@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Response, Request
 from fastapi.responses import StreamingResponse
 import os
@@ -426,51 +425,82 @@ def process_stream(stream_id, input_url, output_path, output_format, validation_
         
         # Build FFmpeg command based on stream type
         if output_format == "hls":
-            # More robust FFmpeg command for HLS streaming
-            common_args = [
+            # More robust FFmpeg command for HLS streaming with better compatibility 
+            # and clearer segment naming
+            cmd = [
                 ffmpeg_binary_path,
-                "-loglevel", "info",       # For detailed logging
-                "-reconnect", "1",         # Enable reconnection
-                "-reconnect_at_eof", "1",  # Reconnect at EOF
-                "-reconnect_streamed", "1",# Reconnect if stream ends
-                "-reconnect_delay_max", "10", # Max delay between reconnection attempts
+                "-loglevel", "info",           # Detailed logging for diagnostics
             ]
             
             # Add specific input options based on stream type
-            input_args = []
             if is_rtsp:
-                input_args = [
-                    "-rtsp_transport", "tcp", # Use TCP for RTSP (more reliable)
+                # Use TCP for RTSP streams (more reliable than UDP)
+                cmd.extend([
+                    "-rtsp_transport", "tcp",
+                    "-stimeout", "5000000",    # 5 second timeout (in microseconds)
+                    "-reconnect", "1",
+                    "-reconnect_at_eof", "1",
+                    "-reconnect_streamed", "1",
+                    "-reconnect_delay_max", "10",
                     "-i", input_url
-                ]
+                ])
             else:
-                input_args = ["-i", input_url]
+                cmd.extend([
+                    "-reconnect", "1",
+                    "-reconnect_at_eof", "1",
+                    "-reconnect_streamed", "1",
+                    "-reconnect_delay_max", "10",
+                    "-i", input_url
+                ])
                 
-            # Output options for HLS - tuned for compatibility and low latency
-            output_args = [
-                "-c:v", "libx264",         # Use H.264 for video
-                "-preset", "ultrafast",    # Fastest encoding
-                "-tune", "zerolatency",    # Optimize for low latency
-                "-c:a", "aac",             # Use AAC for audio
-                "-strict", "experimental", # Allow experimental codecs
-                "-f", "hls",               # Output format: HLS
-                "-hls_time", "2",          # 2-second segments
-                "-hls_list_size", "10",    # Keep 10 segments in playlist
-                "-hls_wrap", "10",         # Wrap around after 10 segments
-                "-hls_flags", "delete_segments", # Delete old segments
+            # Common output options for HLS optimized for reliability
+            cmd.extend([
+                "-c:v", "libx264",             # Use H.264 codec
+                "-profile:v", "baseline",      # More compatible profile
+                "-level", "3.0",               # Compatibility level
+                "-preset", "ultrafast",        # Fastest encoding
+                "-tune", "zerolatency",        # Optimize for streaming
+                "-r", "25",                    # Force 25 fps
+                "-g", "50",                    # GOP size = 2*fps
+                "-sc_threshold", "0",          # Disable scene detection
+                "-c:a", "aac",                 # Use AAC for audio
+                "-b:a", "128k",                # Audio bitrate
+                "-ac", "2",                    # 2 audio channels
+                "-ar", "44100",                # Audio sample rate
+                "-f", "hls",                   # Output format: HLS
+                "-hls_time", "2",              # 2-second segments
+                "-hls_list_size", "10",        # Keep 10 segments in playlist
+                "-hls_flags", "delete_segments+append_list", # Delete old segments, append to list
+                "-strftime", "1",              # Use date/time in segment names
+                "-hls_segment_filename", os.path.join(os.path.dirname(output_path), "segment_%Y%m%d%H%M%S.ts"),
+                "-method", "PUT",              # Use PUT for segment upload (helps with some servers)
                 output_path
-            ]
-            
-            cmd = common_args + input_args + output_args
+            ])
         else:
-            # Command for other formats
+            # Command for other formats (e.g., MP4)
             cmd = [
                 ffmpeg_binary_path,
                 "-loglevel", "info",
-                "-reconnect", "1",
-                "-reconnect_at_eof", "1",
-                "-reconnect_streamed", "1",
-                "-i", input_url,
+            ]
+            
+            if is_rtsp:
+                cmd.extend([
+                    "-rtsp_transport", "tcp",
+                    "-stimeout", "5000000",
+                    "-reconnect", "1",
+                    "-reconnect_at_eof", "1",
+                    "-reconnect_streamed", "1",
+                    "-i", input_url
+                ])
+            else:
+                cmd.extend([
+                    "-reconnect", "1",
+                    "-reconnect_at_eof", "1",
+                    "-reconnect_streamed", "1",
+                    "-i", input_url
+                ])
+                
+            cmd.extend([
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
                 "-tune", "zerolatency",
@@ -478,7 +508,7 @@ def process_stream(stream_id, input_url, output_path, output_format, validation_
                 "-strict", "experimental",
                 "-f", output_format,
                 output_path
-            ]
+            ])
         
         logger.info(f"Running FFmpeg stream command: {' '.join(cmd)}")
         
@@ -490,7 +520,7 @@ def process_stream(stream_id, input_url, output_path, output_format, validation_
                 "progress": 10
             }, f)
         
-        # Run FFmpeg with real-time output capture for better monitoring
+        # Run FFmpeg in a subprocess and capture output
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
