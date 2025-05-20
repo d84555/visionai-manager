@@ -26,6 +26,12 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
         target: 'http://localhost:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      // Add specific proxy for HLS streams if they're on a different origin
+      '/hls': {
+        target: 'http://localhost:8888', // Change this to your HLS server
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/hls/, '')
       }
     },
     // Add CORS headers to allow direct HLS stream loading
@@ -33,7 +39,8 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
       origin: '*',
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
       preflightContinue: false,
-      optionsSuccessStatus: 204
+      optionsSuccessStatus: 204,
+      credentials: true
     }
   },
   plugins: [
@@ -59,7 +66,13 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
     minify: mode !== 'development', // Only minify in non-dev environments
     rollupOptions: {
       // Make sure hls.js is properly bundled
-      external: []
+      external: [],
+      // Ensure hls.js is not excluded from the build
+      output: {
+        manualChunks: {
+          'hls': ['hls.js']
+        }
+      }
     }
   },
   define: {

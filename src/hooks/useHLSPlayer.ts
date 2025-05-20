@@ -54,7 +54,19 @@ export const useHLSPlayer = ({
     console.log('HLS Player: HLS.js supported?', isHlsSupported);
 
     // If not an HLS stream, let the browser handle it
-    if (!isHLSStream) return;
+    if (!isHLSStream) {
+      console.log('Not an HLS stream, letting browser handle playback');
+      return;
+    }
+    
+    // For debugging - force a direct fetch to see if the URL is accessible
+    fetch(src, { method: 'HEAD' })
+      .then(response => {
+        console.log('Direct fetch test response:', response.status, response.statusText);
+      })
+      .catch(err => {
+        console.error('Direct fetch test error:', err.message);
+      });
     
     // If native HLS is supported (like Safari), use native playback
     if (isHlsNativeSupported) {
@@ -79,24 +91,34 @@ export const useHLSPlayer = ({
         lowLatencyMode: true,
         backBufferLength: 90,
         maxBufferLength: 30,
+        // Add CORS options to ensure headers are sent properly
         xhrSetup: (xhr, url) => {
           // Log all XHR requests to debug network issues
           console.log(`HLS XHR request to: ${url}`);
+          // Ensure proper CORS headers are sent
+          xhr.withCredentials = false; // Set to true if credentials are needed
         }
       });
       
       hlsRef.current = hls;
       
+      // Force a load attempt and log the result
+      console.log('Loading HLS source:', src);
       hls.loadSource(src);
       hls.attachMedia(videoElement);
       
       hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-        console.log('HLS media attached');
-        if (autoPlay) videoElement.play().catch(err => console.error('Error playing video:', err));
+        console.log('HLS media attached successfully');
+        if (autoPlay) {
+          console.log('Attempting autoplay...');
+          videoElement.play()
+            .then(() => console.log('Autoplay started successfully'))
+            .catch(err => console.error('Error playing video:', err));
+        }
       });
       
       hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-        console.log('HLS manifest parsed, found ' + data.levels.length + ' quality levels');
+        console.log('HLS manifest parsed successfully, found ' + data.levels.length + ' quality levels');
       });
       
       hls.on(Hls.Events.ERROR, (_, data) => {
@@ -107,11 +129,13 @@ export const useHLSPlayer = ({
             case Hls.ErrorTypes.NETWORK_ERROR:
               console.error('HLS network error:', data);
               setError('Network error while loading stream: ' + data.details);
+              console.log('Attempting to recover from network error...');
               hls.startLoad(); // try to recover
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               console.error('HLS media error:', data);
               setError('Media error, attempting to recover: ' + data.details);
+              console.log('Attempting to recover from media error...');
               hls.recoverMediaError(); // try to recover
               break;
             default:
@@ -124,6 +148,21 @@ export const useHLSPlayer = ({
           console.warn('Non-fatal HLS error:', data);
         }
       });
+      
+      // Add listener for manifest loading to see if request is actually being made
+      hls.on(Hls.Events.MANIFEST_LOADING, (event, data) => {
+        console.log('HLS manifest loading:', data.url);
+      });
+      
+      // Add listener for level loading to track segment requests
+      hls.on(Hls.Events.LEVEL_LOADING, (event, data) => {
+        console.log('HLS level loading:', data.url);
+      });
+      
+      // Add fragments loading listener
+      hls.on(Hls.Events.FRAG_LOADING, (event, data) => {
+        console.log('HLS fragment loading:', data.frag.url);
+      });
     } catch (error) {
       console.error('Error initializing HLS player:', error);
       setError('Failed to initialize video player');
@@ -132,6 +171,7 @@ export const useHLSPlayer = ({
     // Cleanup function
     return () => {
       if (hlsRef.current) {
+        console.log('Destroying HLS instance');
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
