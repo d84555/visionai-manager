@@ -15,6 +15,7 @@ class DatabaseService {
   private pool: Pool | null = null;
   private static instance: DatabaseService;
   private isConnected = false;
+  private isBrowser = typeof window !== 'undefined';
 
   private constructor() {
     // Get config from localStorage initially, will be migrated later
@@ -45,9 +46,14 @@ class DatabaseService {
       });
 
       // Test the connection on initialization
-      this.testConnection().catch(err => {
-        console.error('Failed to initialize database connection:', err);
-      });
+      if (!this.isBrowser) {
+        // Only test connection in server environment
+        this.testConnection().catch(err => {
+          console.error('Failed to initialize database connection:', err);
+        });
+      } else {
+        console.log('Running in browser environment, using mock database');
+      }
     } catch (error) {
       console.error('Error initializing database pool:', error);
       this.pool = null;
@@ -66,12 +72,18 @@ class DatabaseService {
     };
 
     // Try to get config from localStorage
-    const storedConfig = localStorage.getItem('db-connection-config');
-    return storedConfig ? { ...defaultConfig, ...JSON.parse(storedConfig) } : defaultConfig;
+    if (this.isBrowser) {
+      const storedConfig = localStorage.getItem('db-connection-config');
+      return storedConfig ? { ...defaultConfig, ...JSON.parse(storedConfig) } : defaultConfig;
+    }
+    
+    return defaultConfig;
   }
 
   public saveConnectionConfig(config: DBConfig): void {
-    localStorage.setItem('db-connection-config', JSON.stringify(config));
+    if (this.isBrowser) {
+      localStorage.setItem('db-connection-config', JSON.stringify(config));
+    }
     this.initializePool(config);
   }
 
