@@ -1,4 +1,3 @@
-
 import DatabaseService from './DatabaseService';
 import { 
   ModelSettings, 
@@ -8,12 +7,18 @@ import {
   SmtpConfig,
   SyslogConfig,
   StorageConfig,
-  GridLayout,
   BrandingSettings,
   EventsSettings,
   EventTypeConfig,
   ModelInfo
 } from './SettingsService';
+
+// Define the GridLayout interface directly here since it's not exported from SettingsService
+export interface GridLayout {
+  layout: '1x1' | '2x2' | '3x3' | '4x4';
+  streamType: 'main' | 'sub';
+}
+
 import SettingsService from './SettingsService';
 import { toast } from 'sonner';
 
@@ -96,8 +101,8 @@ class DBSettingsService {
       return data;
     }
     
-    // Return default settings if not found
-    return SettingsService.getDefaultSettings(section);
+    // Return default settings if not found - using the public API of SettingsService
+    return SettingsService.getSettings(section);
   }
 
   public async updateSettings(section: string, settings: any): Promise<void> {

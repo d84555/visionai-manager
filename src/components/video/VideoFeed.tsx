@@ -34,10 +34,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   showDetections = true,
   onFrameCaptured
 }) => {
+  // Use ref for the wrapper element
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  
   // Use video hooks
   const {
     videoRef,
-    wrapperRef,
     isPlaying,
     isStreaming,
     isHikvisionFormat,
@@ -48,28 +50,26 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     detections,
     formatNotSupported,
     togglePlayPause,
-    stopVideo,
-    startVideo,
-    uploadVideoFile,
+    stopStream,
+    startStream,
+    handleFileUpload,
     canvasRef,
-    isDebugMode,
-    toggleDebugMode,
-    sourceType,
-    sourceUrl
+    isDebugMode
   } = useVideoFeed({
     initialVideoUrl: initialVideoUrl || camera?.streamUrl,
     autoStart,
-    detectObjects: showDetections,
     activeModels,
-    camera
+    camera,
+    enableHLS
   });
   
   // Use HLS player if enabled
-  const { hlsLoading, hlsError } = useHLSPlayer({
+  const { error: hlsError, isHLSSource, isHlsSupported } = useHLSPlayer({
     videoRef,
-    enabled: enableHLS,
-    streamUrl: initialVideoUrl || camera?.streamUrl
+    enabled: enableHLS
   });
+  
+  const hlsLoading = isHLSSource && !hlsError && !videoRef.current?.readyState;
   
   // Handle pin toggle
   const handlePinToggle = () => {
@@ -82,9 +82,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   const handlePlayPause = () => {
     togglePlayPause();
   };
-
-  // Refs
-  const overlayRef = useRef<HTMLDivElement>(null);
 
   // Capture a frame when requested
   useEffect(() => {
@@ -131,7 +128,6 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       {showDetections && detections && detections.length > 0 && (
         <DetectionOverlay 
           detections={detections}
-          minimal={false}
           videoRef={videoRef}
           inferenceLocation={inferenceLocation}
           inferenceTime={inferenceTime}
@@ -150,15 +146,15 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
           isHikvisionFormat={isHikvisionFormat}
           isLiveStream={isLiveStream}
           isStreaming={isStreaming}
-          onPlay={startVideo}
-          onStop={stopVideo}
-          onFileUpload={uploadVideoFile}
+          onPlay={startStream}
+          onStop={stopStream}
+          onFileUpload={handleFileUpload}
           formatNotSupported={formatNotSupported}
           showMinimalControls={false}
         />
       )}
       
-      {canvasRef.current && isDebugMode && (
+      {canvasRef && isDebugMode && (
         <div className="absolute inset-0 pointer-events-none">
           <canvas
             ref={canvasRef}

@@ -2,13 +2,13 @@
 import { Pool, PoolClient } from 'pg';
 import { toast } from 'sonner';
 
-interface DBConfig {
+export interface DBConfig {
   host: string;
   port: number;
   database: string;
   user: string;
   password: string;
-  ssl?: boolean;
+  ssl: boolean; // Changed from optional to required
 }
 
 class DatabaseService {
