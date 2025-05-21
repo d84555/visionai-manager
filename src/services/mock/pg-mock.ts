@@ -11,8 +11,6 @@ export class Pool {
     console.log('Mock PG Pool connect called');
     return new PoolClient();
   }
-
-  // Add additional mock methods as needed
 }
 
 export class PoolClient {
@@ -42,7 +40,7 @@ export class PoolClient {
       };
     }
     
-    // For SELECT queries
+    // For SELECT queries, return empty results to avoid breaking UI
     if (text.startsWith('SELECT')) {
       return {
         rows: [],
@@ -60,3 +58,8 @@ export class PoolClient {
     console.log('Mock client released');
   }
 }
+
+export default {
+  Pool,
+  PoolClient
+};

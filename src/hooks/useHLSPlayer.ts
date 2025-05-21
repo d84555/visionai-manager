@@ -5,20 +5,20 @@ import Hls from 'hls.js';
 export interface UseHLSPlayerProps {
   videoRef: MutableRefObject<HTMLVideoElement | null>;
   enabled?: boolean;
-  streamUrl?: string; // Added this property
+  streamUrl?: string;
 }
 
 export const useHLSPlayer = ({ 
   videoRef, 
   enabled = true,
-  streamUrl = '' // Default value for the property
+  streamUrl = ''
 }: UseHLSPlayerProps) => {
   const [error, setError] = useState<string>('');
   const [isHlsSupported, setIsHlsSupported] = useState<boolean>(!!Hls.isSupported());
   const [isHlsNativeSupported, setIsHlsNativeSupported] = useState<boolean>(false);
   const [retryCount, setRetryCount] = useState(0);
-  const [hlsLoading, setHlsLoading] = useState(false); // Added missing property
-  const [hlsError, setHlsError] = useState(false); // Added missing property
+  const [hlsLoading, setHlsLoading] = useState(false);
+  const [hlsError, setHlsError] = useState(false);
   
   const maxRetries = 3;
   const hlsRef = useRef<Hls | null>(null);
@@ -156,7 +156,7 @@ export const useHLSPlayer = ({
     hlsInstance: hlsRef.current as Hls,
     retryCount,
     maxRetries,
-    hlsLoading, // Return the property
-    hlsError // Return the property
+    hlsLoading,
+    hlsError
   };
 };

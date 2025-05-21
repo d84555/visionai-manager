@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { VideoIcon, Camera, AlertTriangle } from 'lucide-react';
@@ -31,11 +32,11 @@ const VideoPage = () => {
     const loadSavedSettings = async () => {
       try {
         // Get FFmpeg settings
-        const ffmpegConfig = SettingsService.getSettings('ffmpeg');
+        const ffmpegConfig = SettingsService.getSettings('ffmpeg') || {};
         setFfmpegSettings(ffmpegConfig);
         
         // Get saved active models
-        const savedModels = SettingsService.getActiveModels();
+        const savedModels = SettingsService.getActiveModels() || [];
         if (savedModels && savedModels.length > 0) {
           setActiveModels(savedModels);
         }
@@ -64,8 +65,12 @@ const VideoPage = () => {
   
   // Load cameras
   const loadCameras = () => {
-    const loadedCameras = CameraService.getAllCameras();
-    setCameras(loadedCameras);
+    try {
+      const loadedCameras = CameraService.getAllCameras() || [];
+      setCameras(loadedCameras);
+    } catch (error) {
+      console.error('Error loading cameras:', error);
+    }
   };
   
   // Load AI models

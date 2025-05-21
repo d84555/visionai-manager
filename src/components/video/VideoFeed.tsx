@@ -68,16 +68,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     error: hlsError, 
     isHLSSource, 
     isHlsSupported,
-    hlsLoading: isHlsLoading,
+    hlsLoading,
     hlsError: hlsErrorState
   } = useHLSPlayer({
     videoRef,
     enabled: enableHLS,
     streamUrl: initialVideoUrl || camera?.streamUrl
   });
-  
-  // Calculate if HLS is loading based on multiple conditions
-  const hlsLoading = isHlsLoading || (isHLSSource && !hlsError && !videoRef.current?.readyState);
   
   // Handle pin toggle
   const handlePinToggle = () => {
@@ -164,7 +161,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       
       {containerRef && isDebugMode && (
         <div className="absolute inset-0 pointer-events-none">
-          {/* Fix the type error by using a type assertion to any first */}
+          {/* Use a double type assertion to fix the type error */}
           <canvas
             ref={containerRef as unknown as React.RefObject<HTMLCanvasElement>}
             className="absolute top-0 left-0 w-full h-full"
