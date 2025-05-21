@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { convertToPlayableFormat, detectVideoFormat, createHlsStream } from '../utils/ffmpegUtils';
 import { toast } from 'sonner';
@@ -61,6 +62,7 @@ export const useVideoFeed = ({
   const [formatNotSupported, setFormatNotSupported] = useState(false);
   const [isLiveStream, setIsLiveStream] = useState(false);
   const [streamProcessing, setStreamProcessing] = useState(false);
+  const [isDebugMode, setIsDebugMode] = useState(false); // Add isDebugMode state
   
   // Add enableHLS state to expose it
   const [hlsEnabled, setHlsEnabled] = useState<boolean>(enableHLS);
@@ -68,6 +70,7 @@ export const useVideoFeed = ({
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null); // Add canvasRef explicitly
   const socketRef = useRef<WebSocket | null>(null);
   const frameCountRef = useRef<number>(0);
   const lastFrameTimeRef = useRef<number>(Date.now());
@@ -704,6 +707,8 @@ export const useVideoFeed = ({
     streamProcessing,
     videoRef,
     containerRef,
+    canvasRef, // Expose canvasRef
+    isDebugMode, // Expose isDebugMode
     startStream,
     stopStream,
     togglePlayPause,

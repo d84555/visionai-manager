@@ -5,13 +5,13 @@ import Hls from 'hls.js';
 export interface UseHLSPlayerProps {
   videoRef: MutableRefObject<HTMLVideoElement | null>;
   enabled?: boolean;
-  streamUrl?: string; // Added missing property
+  streamUrl?: string; // Added this property
 }
 
 export const useHLSPlayer = ({ 
   videoRef, 
   enabled = true,
-  streamUrl = '' // Default value for the new property
+  streamUrl = '' // Default value for the property
 }: UseHLSPlayerProps) => {
   const [error, setError] = useState<string>('');
   const [isHlsSupported, setIsHlsSupported] = useState<boolean>(!!Hls.isSupported());
@@ -156,7 +156,7 @@ export const useHLSPlayer = ({
     hlsInstance: hlsRef.current as Hls,
     retryCount,
     maxRetries,
-    hlsLoading, // Return the new property
-    hlsError // Return the new property
+    hlsLoading, // Return the property
+    hlsError // Return the property
   };
 };

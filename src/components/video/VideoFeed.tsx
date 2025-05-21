@@ -53,8 +53,10 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     stopStream,
     startStream,
     handleFileUpload,
-    canvasRef,
-    isDebugMode
+    // We need to add canvasRef and isDebugMode here as they're being used
+    // in the component but weren't in the destructured properties
+    containerRef: canvasRef, // Map containerRef to canvasRef
+    isDebugMode // Add this explicitly
   } = useVideoFeed({
     initialVideoUrl: initialVideoUrl || camera?.streamUrl,
     autoStart,
@@ -64,12 +66,19 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   });
   
   // Use HLS player if enabled
-  const { error: hlsError, isHLSSource, isHlsSupported } = useHLSPlayer({
+  const { 
+    error: hlsError, 
+    isHLSSource, 
+    isHlsSupported,
+    hlsLoading,
+    hlsError: hlsErrorState
+  } = useHLSPlayer({
     videoRef,
-    enabled: enableHLS
+    enabled: enableHLS,
+    streamUrl: initialVideoUrl || camera?.streamUrl // Pass the streamUrl
   });
   
-  const hlsLoading = isHLSSource && !hlsError && !videoRef.current?.readyState;
+  const hlsLoading = hlsLoading || (isHLSSource && !hlsError && !videoRef.current?.readyState);
   
   // Handle pin toggle
   const handlePinToggle = () => {
