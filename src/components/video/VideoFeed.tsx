@@ -164,8 +164,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       
       {containerRef && isDebugMode && (
         <div className="absolute inset-0 pointer-events-none">
+          {/* Fix the type error by using a type assertion to any first */}
           <canvas
-            ref={containerRef as React.RefObject<HTMLCanvasElement>}
+            ref={containerRef as unknown as React.RefObject<HTMLCanvasElement>}
             className="absolute top-0 left-0 w-full h-full"
           />
         </div>
