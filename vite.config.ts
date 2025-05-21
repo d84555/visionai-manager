@@ -30,13 +30,6 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
           });
           proxy.on('proxyRes', (proxyRes, req, res) => {
             console.log('Proxy response:', proxyRes.statusCode, req.url);
-            
-            // Add CORS headers for HLS files
-            if (req.url?.endsWith('.m3u8') || req.url?.endsWith('.ts')) {
-              proxyRes.headers['Access-Control-Allow-Origin'] = '*';
-              proxyRes.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
-              proxyRes.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept';
-            }
           });
         }
       },
@@ -52,30 +45,6 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/hls/, '')
       },
-      // Enhanced proxy for stream files
-      '/transcode/stream': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        configure: (proxy, options) => {
-          proxy.on('error', (err, req, res) => {
-            console.error('Stream proxy error:', err);
-          });
-          proxy.on('proxyReq', (proxyReq, req, res) => {
-            console.log('Stream proxy request:', req.method, req.url);
-          });
-          proxy.on('proxyRes', (proxyRes, req, res) => {
-            console.log('Stream proxy response:', proxyRes.statusCode, req.url);
-            
-            // Add CORS headers for HLS files
-            if (req.url?.endsWith('.m3u8') || req.url?.endsWith('.ts')) {
-              proxyRes.headers['Access-Control-Allow-Origin'] = '*';
-              proxyRes.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
-              proxyRes.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept';
-              proxyRes.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
-            }
-          });
-        }
-      },
       // Catch-all proxy for m3u8 files that aren't handled by other routes
       '/**/*.m3u8': {
         target: 'http://localhost:8000', // Fallback to API server
@@ -89,29 +58,6 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
           });
           proxy.on('proxyRes', (proxyRes, req, res) => {
             console.log('M3U8 proxy response:', proxyRes.statusCode, req.url);
-            // Add CORS headers for .m3u8 files
-            proxyRes.headers['Access-Control-Allow-Origin'] = '*';
-            proxyRes.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
-            proxyRes.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept';
-            proxyRes.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
-          });
-        }
-      },
-      // Add specific handler for .ts segment files
-      '/**/*.ts': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        configure: (proxy, options) => {
-          proxy.on('proxyReq', (proxyReq, req, res) => {
-            console.log('TS segment proxy request:', req.method, req.url);
-          });
-          proxy.on('proxyRes', (proxyRes, req, res) => {
-            console.log('TS segment proxy response:', proxyRes.statusCode, req.url);
-            // Add CORS headers for .ts files
-            proxyRes.headers['Access-Control-Allow-Origin'] = '*';
-            proxyRes.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
-            proxyRes.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept';
-            proxyRes.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
           });
         }
       }
@@ -140,7 +86,6 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
       "stream": 'stream-browserify',
       "fs": 'memfs',
       "crypto": 'crypto-browserify',
-      "pg": path.resolve(__dirname, "./src/services/mock/pg-mock.ts"),  // Add mock for pg
     }
   },
   build: {

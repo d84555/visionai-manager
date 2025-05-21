@@ -11,13 +11,13 @@ import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from '@/components/ui/form';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import SyslogConfig from '@/components/config/SyslogConfig';
 import SmtpConfig from '@/components/config/SmtpConfig';
 import StorageConfig from '@/components/config/StorageConfig';
 import EventsConfig from '@/components/config/EventsConfig';
-import DatabaseConfig from '@/components/config/DatabaseConfig';
 import ModelSelector from '@/components/ai/ModelSelector';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import SettingsService, { 
@@ -26,8 +26,6 @@ import SettingsService, {
   AlertSettings, 
   FFmpegSettings 
 } from '@/services/SettingsService';
-import DBSettingsService from '@/services/DBSettingsService';
-import DatabaseService from '@/services/DatabaseService';
 
 interface BrandingSettings {
   logoUrl: string;
@@ -82,125 +80,46 @@ const SettingsPage = () => {
   const [storageMode, setStorageMode] = useState<'simulated' | 'api'>(
     StorageServiceFactory.getMode()
   );
-  
-  const [isDbConnected, setIsDbConnected] = useState(false);
-  const [useDatabase, setUseDatabase] = useState(false);
 
   useEffect(() => {
-    const checkDbConnection = async () => {
-      try {
-        const connected = await DatabaseService.testConnection();
-        setIsDbConnected(connected);
-        setUseDatabase(connected);
-      } catch (error) {
-        console.error('Database connection check failed:', error);
-        setIsDbConnected(false);
-        setUseDatabase(false);
-      }
-    };
+    const loadedModelSettings = SettingsService.getSettings('model');
+    const loadedVideoSettings = SettingsService.getSettings('video');
+    const loadedAlertSettings = SettingsService.getSettings('alerts');
+    const loadedFfmpegSettings = SettingsService.getSettings('ffmpeg');
+    const loadedBrandingSettings = SettingsService.getSettings('branding');
     
-    checkDbConnection();
+    setModelSettings(loadedModelSettings);
+    setVideoSettings(loadedVideoSettings);
+    setAlertSettings(loadedAlertSettings);
+    setFfmpegSettings(loadedFfmpegSettings);
+    
+    if (loadedBrandingSettings) {
+      setBrandingSettings(loadedBrandingSettings);
+      if (loadedBrandingSettings.logoUrl) {
+        setLogoPreview(loadedBrandingSettings.logoUrl);
+      }
+    }
   }, []);
 
   useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        let loadedModelSettings;
-        let loadedVideoSettings;
-        let loadedAlertSettings;
-        let loadedFfmpegSettings;
-        let loadedBrandingSettings;
-        
-        if (useDatabase && isDbConnected) {
-          // Load from database
-          loadedModelSettings = await DBSettingsService.getSettings('model');
-          loadedVideoSettings = await DBSettingsService.getSettings('video');
-          loadedAlertSettings = await DBSettingsService.getSettings('alerts');
-          loadedFfmpegSettings = await DBSettingsService.getSettings('ffmpeg');
-          loadedBrandingSettings = await DBSettingsService.getSettings('branding');
-        } else {
-          // Load from localStorage
-          loadedModelSettings = SettingsService.getSettings('model');
-          loadedVideoSettings = SettingsService.getSettings('video');
-          loadedAlertSettings = SettingsService.getSettings('alerts');
-          loadedFfmpegSettings = SettingsService.getSettings('ffmpeg');
-          loadedBrandingSettings = SettingsService.getSettings('branding');
-        }
-        
-        setModelSettings(loadedModelSettings);
-        setVideoSettings(loadedVideoSettings);
-        setAlertSettings(loadedAlertSettings);
-        setFfmpegSettings(loadedFfmpegSettings);
-        
-        if (loadedBrandingSettings) {
-          setBrandingSettings(loadedBrandingSettings);
-          if (loadedBrandingSettings.logoUrl) {
-            setLogoPreview(loadedBrandingSettings.logoUrl);
-          }
-        }
-      } catch (error) {
-        console.error('Error loading settings:', error);
-        toast.error('Failed to load settings');
-      }
-    };
-    
-    loadSettings();
-  }, [useDatabase, isDbConnected]);
+    SettingsService.updateSettings('model', modelSettings);
+  }, [modelSettings]);
 
   useEffect(() => {
-    const saveSettings = async () => {
-      if (useDatabase && isDbConnected) {
-        await DBSettingsService.updateSettings('model', modelSettings);
-      } else {
-        SettingsService.updateSettings('model', modelSettings);
-      }
-    };
-    saveSettings();
-  }, [modelSettings, useDatabase, isDbConnected]);
+    SettingsService.updateSettings('video', videoSettings);
+  }, [videoSettings]);
 
   useEffect(() => {
-    const saveSettings = async () => {
-      if (useDatabase && isDbConnected) {
-        await DBSettingsService.updateSettings('video', videoSettings);
-      } else {
-        SettingsService.updateSettings('video', videoSettings);
-      }
-    };
-    saveSettings();
-  }, [videoSettings, useDatabase, isDbConnected]);
+    SettingsService.updateSettings('alerts', alertSettings);
+  }, [alertSettings]);
 
   useEffect(() => {
-    const saveSettings = async () => {
-      if (useDatabase && isDbConnected) {
-        await DBSettingsService.updateSettings('alerts', alertSettings);
-      } else {
-        SettingsService.updateSettings('alerts', alertSettings);
-      }
-    };
-    saveSettings();
-  }, [alertSettings, useDatabase, isDbConnected]);
+    SettingsService.updateSettings('ffmpeg', ffmpegSettings);
+  }, [ffmpegSettings]);
 
   useEffect(() => {
-    const saveSettings = async () => {
-      if (useDatabase && isDbConnected) {
-        await DBSettingsService.updateSettings('ffmpeg', ffmpegSettings);
-      } else {
-        SettingsService.updateSettings('ffmpeg', ffmpegSettings);
-      }
-    };
-    saveSettings();
-  }, [ffmpegSettings, useDatabase, isDbConnected]);
-
-  useEffect(() => {
-    const saveSettings = async () => {
-      if (useDatabase && isDbConnected) {
-        await DBSettingsService.updateSettings('branding', brandingSettings);
-      } else {
-        SettingsService.updateSettings('branding', brandingSettings);
-      }
-    };
-    saveSettings();
-  }, [brandingSettings, useDatabase, isDbConnected]);
+    SettingsService.updateSettings('branding', brandingSettings);
+  }, [brandingSettings]);
 
   const handleStorageModeChange = (mode: 'simulated' | 'api') => {
     StorageServiceFactory.setMode(mode);
@@ -243,73 +162,38 @@ const SettingsPage = () => {
     });
   };
   
-  const handleUseDatabase = (checked: boolean) => {
-    if (checked && !isDbConnected) {
-      toast.error('Cannot enable database mode: Database is not connected');
-      return;
-    }
-    
-    setUseDatabase(checked);
-    DBSettingsService.setFallbackMode(!checked);
-    
-    toast.success(`Settings will now be ${checked ? 'saved to database' : 'saved to browser storage'}`);
-  };
-  
-  const handleSaveSettings = async () => {
-    try {
-      const allSettings = {
-        model: modelSettings,
-        video: videoSettings,
-        alerts: alertSettings,
-        ffmpeg: ffmpegSettings,
-        gridLayout: useDatabase ? await DBSettingsService.getGridLayout() : SettingsService.getGridLayout(),
-        branding: brandingSettings,
-        events: useDatabase ? await DBSettingsService.getSettings('events') : SettingsService.getSettings('events'),
-      };
-      
-      if (useDatabase && isDbConnected) {
-        await DBSettingsService.saveAllSettings(allSettings);
-      } else {
-        SettingsService.saveAllSettings(allSettings);
-      }
+  const handleSaveSettings = () => {
+    SettingsService.saveAllSettings({
+      model: modelSettings,
+      video: videoSettings,
+      alerts: alertSettings,
+      syslog: SettingsService.getSettings('syslog'),
+      smtp: SettingsService.getSettings('smtp'),
+      storage: SettingsService.getSettings('storage'),
+      ffmpeg: ffmpegSettings,
+      gridLayout: SettingsService.getSettings('gridLayout'),
+      branding: brandingSettings,
+      events: SettingsService.getSettings('events'),
+    });
 
-      if (ffmpegSettings.customPath) {
-        localStorage.setItem('ffmpeg-core-path', ffmpegSettings.corePath);
-      } else {
-        localStorage.removeItem('ffmpeg-core-path');
-      }
-      
-      toast.success('Settings saved successfully');
-    } catch (error) {
-      console.error('Error saving settings:', error);
-      toast.error('Failed to save settings');
+    if (ffmpegSettings.customPath) {
+      localStorage.setItem('ffmpeg-core-path', ffmpegSettings.corePath);
+    } else {
+      localStorage.removeItem('ffmpeg-core-path');
     }
+    
+    toast.success('Settings saved successfully');
   };
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Settings</h1>
-        <div className="flex items-center gap-4">
-          {isDbConnected && (
-            <div className="flex items-center space-x-2">
-              <Switch
-                id="use-database"
-                checked={useDatabase}
-                onCheckedChange={handleUseDatabase}
-              />
-              <Label htmlFor="use-database">Use Database</Label>
-            </div>
-          )}
-          <Button onClick={handleSaveSettings}>
-            <Save className="mr-2" size={16} />
-            Save Settings
-          </Button>
-        </div>
+        <Button onClick={handleSaveSettings}>
+          <Save className="mr-2" size={16} />
+          Save Settings
+        </Button>
       </div>
-      
-      {/* Database Configuration Card */}
-      <DatabaseConfig />
       
       <Card className="w-full">
         <CardHeader className="border-b">
@@ -824,12 +708,6 @@ const SettingsPage = () => {
               <div>
                 <h4 className="text-sm font-medium">Last Updated</h4>
                 <p className="text-sm text-muted-foreground">{new Date().toLocaleDateString()}</p>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium">Database</h4>
-                <p className="text-sm text-muted-foreground">
-                  {isDbConnected ? 'Connected to PostgreSQL' : 'Using Browser Storage'}
-                </p>
               </div>
               <div>
                 <h4 className="text-sm font-medium">Documentation</h4>

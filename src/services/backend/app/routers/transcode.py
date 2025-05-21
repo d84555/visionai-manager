@@ -424,90 +424,53 @@ def process_stream(stream_id, input_url, output_path, output_format, validation_
                 "progress": 5
             }, f)
         
-        # Set output directory and ensure it exists
-        stream_dir = os.path.dirname(output_path)
-        os.makedirs(stream_dir, exist_ok=True)
-        
-        # Set segment directory to store all segments in same directory as playlist
-        segment_dir = stream_dir 
-        
         # Build FFmpeg command based on stream type
         if output_format == "hls":
-            # More robust FFmpeg command for HLS streaming with better compatibility 
-            # and clearer segment naming
-            cmd = [
+            # More robust FFmpeg command for HLS streaming
+            common_args = [
                 ffmpeg_binary_path,
-                "-loglevel", "info",           # Detailed logging for diagnostics
+                "-loglevel", "info",       # For detailed logging
+                "-reconnect", "1",         # Enable reconnection
+                "-reconnect_at_eof", "1",  # Reconnect at EOF
+                "-reconnect_streamed", "1",# Reconnect if stream ends
+                "-reconnect_delay_max", "10", # Max delay between reconnection attempts
             ]
             
             # Add specific input options based on stream type
+            input_args = []
             if is_rtsp:
-                # Use TCP for RTSP streams (more reliable than UDP)
-                cmd.extend([
-                    "-rtsp_transport", "tcp",
-                    "-stimeout", "5000000",    # 5 second timeout (in microseconds)
-                    "-reconnect", "1",
-                    "-reconnect_at_eof", "1",
-                    "-reconnect_streamed", "1",
-                    "-reconnect_delay_max", "10",
+                input_args = [
+                    "-rtsp_transport", "tcp", # Use TCP for RTSP (more reliable)
                     "-i", input_url
-                ])
+                ]
             else:
-                cmd.extend([
-                    "-reconnect", "1",
-                    "-reconnect_at_eof", "1",
-                    "-reconnect_streamed", "1",
-                    "-reconnect_delay_max", "10",
-                    "-i", input_url
-                ])
+                input_args = ["-i", input_url]
                 
-            # Common output options for HLS optimized for reliability
-            segment_filename = os.path.join(segment_dir, "segment_%03d.ts")
-            cmd.extend([
-                "-c:v", "libx264",             # Use H.264 codec
-                "-profile:v", "baseline",      # More compatible profile
-                "-level", "3.0",               # Compatibility level
-                "-preset", "ultrafast",        # Fastest encoding
-                "-tune", "zerolatency",        # Optimize for streaming
-                "-r", "25",                    # Force 25 fps
-                "-g", "50",                    # GOP size = 2*fps
-                "-sc_threshold", "0",          # Disable scene detection
-                "-c:a", "aac",                 # Use AAC for audio
-                "-b:a", "128k",                # Audio bitrate
-                "-ac", "2",                    # 2 audio channels
-                "-ar", "44100",                # Audio sample rate
-                "-f", "hls",                   # Output format: HLS
-                "-hls_time", "2",              # 2-second segments
-                "-hls_list_size", "10",        # Keep 10 segments in playlist
-                "-hls_flags", "delete_segments+append_list", # Delete old segments, append to list
-                "-hls_segment_filename", segment_filename,  # Use simple sequential numbering
+            # Output options for HLS - tuned for compatibility and low latency
+            output_args = [
+                "-c:v", "libx264",         # Use H.264 for video
+                "-preset", "ultrafast",    # Fastest encoding
+                "-tune", "zerolatency",    # Optimize for low latency
+                "-c:a", "aac",             # Use AAC for audio
+                "-strict", "experimental", # Allow experimental codecs
+                "-f", "hls",               # Output format: HLS
+                "-hls_time", "2",          # 2-second segments
+                "-hls_list_size", "10",    # Keep 10 segments in playlist
+                "-hls_wrap", "10",         # Wrap around after 10 segments
+                "-hls_flags", "delete_segments", # Delete old segments
                 output_path
-            ])
+            ]
+            
+            cmd = common_args + input_args + output_args
         else:
-            # Command for other formats (e.g., MP4)
+            # Command for other formats
             cmd = [
                 ffmpeg_binary_path,
                 "-loglevel", "info",
-            ]
-            
-            if is_rtsp:
-                cmd.extend([
-                    "-rtsp_transport", "tcp",
-                    "-stimeout", "5000000",
-                    "-reconnect", "1",
-                    "-reconnect_at_eof", "1",
-                    "-reconnect_streamed", "1",
-                    "-i", input_url
-                ])
-            else:
-                cmd.extend([
-                    "-reconnect", "1",
-                    "-reconnect_at_eof", "1",
-                    "-reconnect_streamed", "1",
-                    "-i", input_url
-                ])
-                
-            cmd.extend([
+                "-reconnect", "1",
+                "-reconnect_at_eof", "1",
+                "-reconnect_streamed", "1",
+                "-i", input_url,
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
                 "-tune", "zerolatency",
@@ -515,7 +478,7 @@ def process_stream(stream_id, input_url, output_path, output_format, validation_
                 "-strict", "experimental",
                 "-f", output_format,
                 output_path
-            ])
+            ]
         
         logger.info(f"Running FFmpeg stream command: {' '.join(cmd)}")
         
@@ -527,7 +490,7 @@ def process_stream(stream_id, input_url, output_path, output_format, validation_
                 "progress": 10
             }, f)
         
-        # Run FFmpeg in a subprocess and capture output
+        # Run FFmpeg with real-time output capture for better monitoring
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -628,23 +591,8 @@ async def get_stream_file(stream_id: str, file_name: str):
     stream_dir = os.path.join(TRANSCODE_DIR, f"stream_{stream_id}")
     file_path = os.path.join(stream_dir, file_name)
     
-    # Log the full path being accessed
-    logger.info(f"Looking for stream file at: {file_path}")
-    
     if not os.path.exists(file_path):
-        # Log more details about the directory to help diagnose issues
         logger.error(f"Stream file not found: {file_path}")
-        
-        # List directory contents for debugging
-        try:
-            if os.path.exists(stream_dir):
-                dir_contents = os.listdir(stream_dir)
-                logger.info(f"Contents of {stream_dir}: {dir_contents}")
-            else:
-                logger.error(f"Stream directory does not exist: {stream_dir}")
-        except Exception as e:
-            logger.error(f"Error listing directory: {str(e)}")
-            
         raise HTTPException(status_code=404, detail="Stream file not found")
     
     # Determine content type
@@ -663,27 +611,11 @@ async def get_stream_file(stream_id: str, file_name: str):
         "Cache-Control": "no-cache, no-store, must-revalidate"
     }
     
-    # Use a more robust file serving approach that can handle files even if they're being written to
-    try:
-        # Use a file iterator for more reliable file serving, especially during writes
-        def safe_file_iterator(file_path, chunk_size=8192):
-            try:
-                with open(file_path, "rb") as f:
-                    while chunk := f.read(chunk_size):
-                        yield chunk
-            except Exception as e:
-                logger.error(f"Error reading file {file_path}: {str(e)}")
-                # Return an empty response rather than failing
-                yield b''
-        
-        return StreamingResponse(
-            safe_file_iterator(file_path),
-            media_type=content_type,
-            headers=headers
-        )
-    except Exception as e:
-        logger.error(f"Error serving file {file_path}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error serving file: {str(e)}")
+    return StreamingResponse(
+        open(file_path, "rb"),
+        media_type=content_type,
+        headers=headers
+    )
 
 # Add a diagnostic endpoint to check stream accessibility
 @router.get("/transcode/check_stream")
@@ -699,39 +631,15 @@ async def check_stream_url(url: str):
     # Return raw validation result
     return result
 
-# Clean up old files periodically to prevent disk space issues
-@router.get("/transcode/cleanup")
-async def cleanup_old_jobs():
+# Cleanup old jobs periodically (could be implemented as a background task)
+def cleanup_old_jobs():
     """Clean up old transcoding jobs"""
-    deleted_count = 0
-    oldest_time = time.time() - 3600  # 1 hour ago
-    
-    try:
-        # Check each job directory
-        for item in os.listdir(TRANSCODE_DIR):
-            item_path = os.path.join(TRANSCODE_DIR, item)
-            
-            # Only process directories
-            if os.path.isdir(item_path):
-                # Check if older than 1 hour based on modification time
-                if os.path.getmtime(item_path) < oldest_time:
-                    try:
-                        shutil.rmtree(item_path)
-                        deleted_count += 1
-                        logger.info(f"Cleaned up old job directory: {item_path}")
-                    except Exception as e:
-                        logger.error(f"Failed to delete {item_path}: {str(e)}")
-        
-        # Also clean up the job tracking dictionary
-        current_time = time.time()
-        for job_id in list(transcode_jobs.keys()):
-            job = transcode_jobs.get(job_id)
-            if job and (current_time - job.get("created_at", current_time)) > 3600:
-                del transcode_jobs[job_id]
-                
-        return {"success": True, "deleted_count": deleted_count, "message": f"Cleaned up {deleted_count} old job directories"}
-        
-    except Exception as e:
-        logger.error(f"Error during cleanup: {str(e)}")
-        return {"success": False, "error": str(e)}
-
+    current_time = time.time()
+    for job_id, job in list(transcode_jobs.items()):
+        # If job is older than 1 hour and completed or failed
+        if (current_time - job.get("created_at", current_time)) > 3600 and \
+           job.get("status") in ["completed", "failed"]:
+            job_dir = os.path.join(TRANSCODE_DIR, job_id)
+            if os.path.exists(job_dir):
+                shutil.rmtree(job_dir)
+            del transcode_jobs[job_id]

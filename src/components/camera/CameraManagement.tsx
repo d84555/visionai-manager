@@ -15,47 +15,30 @@ interface CameraManagementProps {
 
 const CameraManagement: React.FC<CameraManagementProps> = ({ onCamerasChanged }) => {
   const [rtspUrl, setRtspUrl] = useState('');
-  const [isTestingStream, setIsTestingStream] = useState(false);
   
-  const handleStreamTest = async () => {
+  const handleStreamTest = () => {
     if (!rtspUrl) {
       toast.error('Please enter a stream URL');
       return;
     }
     
-    setIsTestingStream(true);
+    // In a real application, we would test the RTSP URL here
+    // For now, let's just show a toast
     toast.info('Testing stream connection...', {
-      description: 'Attempting to validate and connect to the stream'
+      description: 'This is a simulated test. In a real application, we would attempt to connect to the stream.'
     });
     
-    try {
-      // Use the check_stream endpoint to validate the stream URL
-      const checkResponse = await fetch(`/transcode/check_stream?url=${encodeURIComponent(rtspUrl)}`);
-      const validationResult = await checkResponse.json();
-      
-      console.log('Stream validation result:', validationResult);
-      
-      if (validationResult.accessible || validationResult.is_rtsp_stream) {
-        toast.success('Stream connection successful', {
-          description: validationResult.is_rtsp_stream 
-            ? 'RTSP stream detected. Click "Start Video" to view.' 
-            : 'Stream is accessible. Click "Start Video" to view.'
-        });
+    // Simulate a random success/failure
+    setTimeout(() => {
+      const isSuccess = Math.random() > 0.3;
+      if (isSuccess) {
+        toast.success('Stream connection successful');
       } else {
         toast.error('Stream connection failed', {
-          description: validationResult.error 
-            ? `Error: ${validationResult.error}` 
-            : 'Make sure the URL is correct and the stream is accessible'
+          description: 'Make sure the URL is correct and the stream is accessible'
         });
       }
-    } catch (error) {
-      console.error('Error testing stream:', error);
-      toast.error('Failed to test stream connection', {
-        description: 'An error occurred while trying to validate the stream URL'
-      });
-    } finally {
-      setIsTestingStream(false);
-    }
+    }, 2000);
   };
 
   return (
@@ -88,8 +71,8 @@ const CameraManagement: React.FC<CameraManagementProps> = ({ onCamerasChanged })
                       onChange={(e) => setRtspUrl(e.target.value)}
                     />
                   </div>
-                  <Button onClick={handleStreamTest} disabled={isTestingStream}>
-                    {isTestingStream ? 'Testing...' : 'Test Connection'}
+                  <Button onClick={handleStreamTest}>
+                    Test Connection
                   </Button>
                 </div>
                 
@@ -110,15 +93,13 @@ const CameraManagement: React.FC<CameraManagementProps> = ({ onCamerasChanged })
             <VideoFeed 
               initialVideoUrl={rtspUrl || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"}
               autoStart={rtspUrl.length > 0}
-              // Force HLS mode for RTSP streams
-              enableHLS={rtspUrl.startsWith('rtsp://') || rtspUrl.includes('.m3u8')}
             />
           </div>
           
           <div className="mt-4 p-4 border rounded-md bg-yellow-50 dark:bg-yellow-900/20">
             <p className="text-sm text-yellow-800 dark:text-yellow-300">
-              <strong>Note:</strong> When using RTSP URLs, the server will automatically convert them to HLS format for web compatibility.
-              For optimal performance, ensure that your camera's RTSP stream is accessible from the server where this application is running.
+              <strong>Note:</strong> In a production application, you would need a server-side component to proxy RTSP streams 
+              to a web-compatible format (like HLS or DASH). Browsers cannot directly play RTSP streams.
             </p>
           </div>
         </TabsContent>
