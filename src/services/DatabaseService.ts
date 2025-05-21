@@ -13,7 +13,7 @@ export interface DatabaseConfig {
 }
 
 class DatabaseService {
-  private pool: typeof Pool | null = null;
+  private pool: Pool | null = null;
   private config: DatabaseConfig = {
     host: 'localhost',
     port: 5432,
