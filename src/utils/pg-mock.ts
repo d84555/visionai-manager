@@ -5,7 +5,7 @@
  * while delegating actual database operations to the backend API.
  */
 
-interface QueryResult<T = any> {
+export interface QueryResult<T = any> {
   rows: T[];
   rowCount: number;
   command: string;
@@ -13,7 +13,7 @@ interface QueryResult<T = any> {
   fields: any[];
 }
 
-interface QueryConfig {
+export interface QueryConfig {
   text: string;
   values?: any[];
   name?: string;
@@ -21,7 +21,7 @@ interface QueryConfig {
   types?: any;
 }
 
-class MockClient {
+export class MockClient {
   async connect(): Promise<void> {
     console.log('Mock PG client: connect called');
     // In a real implementation, this would make an API call to test connection
@@ -50,7 +50,7 @@ class MockClient {
   }
 }
 
-class MockPool {
+export class MockPool {
   private options: any;
 
   constructor(options: any) {
@@ -80,4 +80,7 @@ class MockPool {
 
 export const Pool = MockPool;
 export type PoolClient = MockClient;
-export default { Pool };
+
+// Default export for compatibility with import syntax
+const pg = { Pool };
+export default pg;

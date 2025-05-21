@@ -9,10 +9,15 @@ import SettingsService, {
   EventsSettings,
   SmtpConfig,
   SyslogConfig,
-  StorageConfig,
-  GridLayout
+  StorageConfig
 } from './SettingsService';
 import { toast } from 'sonner';
+
+interface GridLayout {
+  layout: '1x1' | '2x2' | '3x3' | '4x4';
+  streamType: 'main' | 'sub';
+  pinnedCameraIds?: string[];
+}
 
 type SettingsType = 
   | ModelSettings 
@@ -26,6 +31,13 @@ type SettingsType =
   | StorageConfig
   | GridLayout
   | Record<string, any>;
+
+interface SettingsRow {
+  section: string;
+  key: string;
+  value: any;
+  updated_at?: string;
+}
 
 class SettingsDbService {
   // Initialize the service - migrate existing settings to DB
@@ -108,7 +120,7 @@ class SettingsDbService {
   // Get settings from database for a specific section
   async getSettings(section: string): Promise<SettingsType | null> {
     try {
-      const results = await databaseService.query(
+      const results = await databaseService.query<SettingsRow>(
         'SELECT value FROM settings WHERE section = $1 AND key = $2',
         [section, 'config']
       );
@@ -179,7 +191,7 @@ class SettingsDbService {
   // Get all settings
   async getAllSettings(): Promise<Record<string, SettingsType>> {
     try {
-      const results = await databaseService.query('SELECT section, value FROM settings WHERE key = $1', ['config']);
+      const results = await databaseService.query<SettingsRow>('SELECT section, value FROM settings WHERE key = $1', ['config']);
       
       const allSettings: Record<string, SettingsType> = {};
       if (results && results.length > 0) {
