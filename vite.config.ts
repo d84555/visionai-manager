@@ -1,4 +1,3 @@
-
 import { defineConfig, ConfigEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -18,6 +17,11 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
       },
       // Add proxy for transcode endpoints - keep this without the /api prefix
       '/transcode': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      // Add proxy for database endpoints - keep this without the /api prefix
+      '/db': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
@@ -66,6 +70,7 @@ export default defineConfig(({ mode }: ConfigEnv) => ({
       "stream": 'stream-browserify',
       "fs": 'memfs',
       "crypto": 'crypto-browserify',
+      "pg": path.resolve(__dirname, "./src/utils/pg-mock.ts"),
     }
   },
   build: {

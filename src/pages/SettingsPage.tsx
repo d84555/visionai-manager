@@ -18,6 +18,7 @@ import SyslogConfig from '@/components/config/SyslogConfig';
 import SmtpConfig from '@/components/config/SmtpConfig';
 import StorageConfig from '@/components/config/StorageConfig';
 import EventsConfig from '@/components/config/EventsConfig';
+import DatabaseConfigComponent from '@/components/config/DatabaseConfig';
 import ModelSelector from '@/components/ai/ModelSelector';
 import StorageServiceFactory from '@/services/storage/StorageServiceFactory';
 import SettingsService, { 
@@ -26,6 +27,7 @@ import SettingsService, {
   AlertSettings, 
   FFmpegSettings 
 } from '@/services/SettingsService';
+import settingsDbService from '@/services/SettingsDbService';
 
 interface BrandingSettings {
   logoUrl: string;
@@ -82,43 +84,71 @@ const SettingsPage = () => {
   );
 
   useEffect(() => {
-    const loadedModelSettings = SettingsService.getSettings('model');
-    const loadedVideoSettings = SettingsService.getSettings('video');
-    const loadedAlertSettings = SettingsService.getSettings('alerts');
-    const loadedFfmpegSettings = SettingsService.getSettings('ffmpeg');
-    const loadedBrandingSettings = SettingsService.getSettings('branding');
-    
-    setModelSettings(loadedModelSettings);
-    setVideoSettings(loadedVideoSettings);
-    setAlertSettings(loadedAlertSettings);
-    setFfmpegSettings(loadedFfmpegSettings);
-    
-    if (loadedBrandingSettings) {
-      setBrandingSettings(loadedBrandingSettings);
-      if (loadedBrandingSettings.logoUrl) {
-        setLogoPreview(loadedBrandingSettings.logoUrl);
+    const loadSettings = async () => {
+      try {
+        // Initialize settings DB service
+        await settingsDbService.initialize();
+        
+        // Load settings from database
+        const loadedModelSettings = await settingsDbService.getSettings('model') as ModelSettings || SettingsService.getSettings('model');
+        const loadedVideoSettings = await settingsDbService.getSettings('video') as VideoSettings || SettingsService.getSettings('video');
+        const loadedAlertSettings = await settingsDbService.getSettings('alerts') as AlertSettings || SettingsService.getSettings('alerts');
+        const loadedFfmpegSettings = await settingsDbService.getSettings('ffmpeg') as FFmpegSettings || SettingsService.getSettings('ffmpeg');
+        const loadedBrandingSettings = await settingsDbService.getSettings('branding') as BrandingSettings || SettingsService.getSettings('branding');
+        
+        setModelSettings(loadedModelSettings);
+        setVideoSettings(loadedVideoSettings);
+        setAlertSettings(loadedAlertSettings);
+        setFfmpegSettings(loadedFfmpegSettings);
+        
+        if (loadedBrandingSettings) {
+          setBrandingSettings(loadedBrandingSettings);
+          if (loadedBrandingSettings.logoUrl) {
+            setLogoPreview(loadedBrandingSettings.logoUrl);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading settings:', error);
+        toast.error('Failed to load settings');
       }
-    }
+    };
+    
+    loadSettings();
   }, []);
 
   useEffect(() => {
-    SettingsService.updateSettings('model', modelSettings);
+    const saveModelSettings = async () => {
+      await settingsDbService.saveSettings('model', modelSettings);
+    };
+    saveModelSettings();
   }, [modelSettings]);
 
   useEffect(() => {
-    SettingsService.updateSettings('video', videoSettings);
+    const saveVideoSettings = async () => {
+      await settingsDbService.saveSettings('video', videoSettings);
+    };
+    saveVideoSettings();
   }, [videoSettings]);
 
   useEffect(() => {
-    SettingsService.updateSettings('alerts', alertSettings);
+    const saveAlertSettings = async () => {
+      await settingsDbService.saveSettings('alerts', alertSettings);
+    };
+    saveAlertSettings();
   }, [alertSettings]);
 
   useEffect(() => {
-    SettingsService.updateSettings('ffmpeg', ffmpegSettings);
+    const saveFfmpegSettings = async () => {
+      await settingsDbService.saveSettings('ffmpeg', ffmpegSettings);
+    };
+    saveFfmpegSettings();
   }, [ffmpegSettings]);
 
   useEffect(() => {
-    SettingsService.updateSettings('branding', brandingSettings);
+    const saveBrandingSettings = async () => {
+      await settingsDbService.saveSettings('branding', brandingSettings);
+    };
+    saveBrandingSettings();
   }, [brandingSettings]);
 
   const handleStorageModeChange = (mode: 'simulated' | 'api') => {
@@ -162,27 +192,19 @@ const SettingsPage = () => {
     });
   };
   
-  const handleSaveSettings = () => {
-    SettingsService.saveAllSettings({
-      model: modelSettings,
-      video: videoSettings,
-      alerts: alertSettings,
-      syslog: SettingsService.getSettings('syslog'),
-      smtp: SettingsService.getSettings('smtp'),
-      storage: SettingsService.getSettings('storage'),
-      ffmpeg: ffmpegSettings,
-      gridLayout: SettingsService.getSettings('gridLayout'),
-      branding: brandingSettings,
-      events: SettingsService.getSettings('events'),
-    });
-
-    if (ffmpegSettings.customPath) {
-      localStorage.setItem('ffmpeg-core-path', ffmpegSettings.corePath);
-    } else {
-      localStorage.removeItem('ffmpeg-core-path');
+  const handleSaveSettings = async () => {
+    try {
+      await settingsDbService.saveSettings('model', modelSettings);
+      await settingsDbService.saveSettings('video', videoSettings);
+      await settingsDbService.saveSettings('alerts', alertSettings);
+      await settingsDbService.saveSettings('ffmpeg', ffmpegSettings);
+      await settingsDbService.saveSettings('branding', brandingSettings);
+      
+      toast.success('Settings saved successfully to database');
+    } catch (error) {
+      console.error('Error saving settings to database:', error);
+      toast.error('Failed to save settings to database');
     }
-    
-    toast.success('Settings saved successfully');
   };
 
   return (
@@ -195,6 +217,19 @@ const SettingsPage = () => {
         </Button>
       </div>
       
+      {/* New Database Configuration Card */}
+      <Card className="w-full">
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center">
+            <Database className="mr-2 text-avianet-red" size={20} />
+            Database Configuration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          <DatabaseConfigComponent />
+        </CardContent>
+      </Card>
+
       <Card className="w-full">
         <CardHeader className="border-b">
           <CardTitle className="flex items-center">
