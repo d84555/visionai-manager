@@ -79,7 +79,7 @@ export class MockPool {
 }
 
 // Export Pool as MockPool for type compatibility
-export const Pool = MockPool;
+export { MockPool as Pool };
 export type PoolClient = MockClient;
 
 // Default export for compatibility with import syntax
