@@ -53,10 +53,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     stopStream,
     startStream,
     handleFileUpload,
-    // We need to add canvasRef and isDebugMode here as they're being used
-    // in the component but weren't in the destructured properties
-    containerRef: canvasRef, // Map containerRef to canvasRef
-    isDebugMode // Add this explicitly
+    containerRef,
+    isDebugMode
   } = useVideoFeed({
     initialVideoUrl: initialVideoUrl || camera?.streamUrl,
     autoStart,
@@ -70,15 +68,16 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
     error: hlsError, 
     isHLSSource, 
     isHlsSupported,
-    hlsLoading,
+    hlsLoading: isHlsLoading,
     hlsError: hlsErrorState
   } = useHLSPlayer({
     videoRef,
     enabled: enableHLS,
-    streamUrl: initialVideoUrl || camera?.streamUrl // Pass the streamUrl
+    streamUrl: initialVideoUrl || camera?.streamUrl
   });
   
-  const hlsLoading = hlsLoading || (isHLSSource && !hlsError && !videoRef.current?.readyState);
+  // Calculate if HLS is loading based on multiple conditions
+  const hlsLoading = isHlsLoading || (isHLSSource && !hlsError && !videoRef.current?.readyState);
   
   // Handle pin toggle
   const handlePinToggle = () => {
@@ -163,10 +162,10 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
         />
       )}
       
-      {canvasRef && isDebugMode && (
+      {containerRef && isDebugMode && (
         <div className="absolute inset-0 pointer-events-none">
           <canvas
-            ref={canvasRef}
+            ref={containerRef as React.RefObject<HTMLCanvasElement>}
             className="absolute top-0 left-0 w-full h-full"
           />
         </div>
